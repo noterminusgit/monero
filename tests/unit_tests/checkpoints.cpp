@@ -164,3 +164,90 @@ TEST(checkpoints_is_alternative_block_allowed, handles_two_and_more_checkpoints)
   ASSERT_TRUE (cp.is_alternative_block_allowed(11, 10));
   ASSERT_TRUE (cp.is_alternative_block_allowed(11, 11));
 }
+
+TEST(checkpoints, add_checkpoint_basic)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000000"));
+}
+
+TEST(checkpoints, add_duplicate_same_hash)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000000"));
+  // Adding same checkpoint again with same hash should succeed
+  ASSERT_TRUE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000000"));
+}
+
+TEST(checkpoints, add_duplicate_different_hash)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000000"));
+  // Adding same height with different hash should fail
+  ASSERT_FALSE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000001"));
+}
+
+TEST(checkpoints, check_block_at_checkpoint)
+{
+  checkpoints cp;
+  crypto::hash null_hash = crypto::null_hash;
+  ASSERT_TRUE(cp.add_checkpoint(5, epee::string_tools::pod_to_hex(null_hash)));
+
+  bool is_a_checkpoint = false;
+  // Correct hash at checkpoint height
+  ASSERT_TRUE(cp.check_block(5, null_hash, is_a_checkpoint));
+  ASSERT_TRUE(is_a_checkpoint);
+}
+
+TEST(checkpoints, check_block_wrong_hash)
+{
+  checkpoints cp;
+  crypto::hash null_hash = crypto::null_hash;
+  ASSERT_TRUE(cp.add_checkpoint(5, epee::string_tools::pod_to_hex(null_hash)));
+
+  // Wrong hash at checkpoint height
+  crypto::hash wrong_hash;
+  memset(&wrong_hash, 0xff, sizeof(wrong_hash));
+  bool is_a_checkpoint = false;
+  ASSERT_FALSE(cp.check_block(5, wrong_hash, is_a_checkpoint));
+}
+
+TEST(checkpoints, check_block_not_at_checkpoint)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(5, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // Height 3 is not a checkpoint
+  crypto::hash some_hash;
+  memset(&some_hash, 0xab, sizeof(some_hash));
+  bool is_a_checkpoint = false;
+  ASSERT_TRUE(cp.check_block(3, some_hash, is_a_checkpoint));
+  ASSERT_FALSE(is_a_checkpoint);
+}
+
+TEST(checkpoints, is_in_checkpoint_zone)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(10, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  ASSERT_TRUE(cp.is_in_checkpoint_zone(5));
+  ASSERT_TRUE(cp.is_in_checkpoint_zone(10));
+  ASSERT_FALSE(cp.is_in_checkpoint_zone(11));
+}
+
+TEST(checkpoints, is_in_checkpoint_zone_empty)
+{
+  checkpoints cp;
+  ASSERT_FALSE(cp.is_in_checkpoint_zone(0));
+  ASSERT_FALSE(cp.is_in_checkpoint_zone(1));
+}
+
+TEST(checkpoints, get_max_height)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(5, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(10, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(3, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  ASSERT_EQ(cp.get_max_height(), 10u);
+}

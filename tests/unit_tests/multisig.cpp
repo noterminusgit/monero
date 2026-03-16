@@ -592,3 +592,109 @@ TEST(multisig, make_1_4)
   make_wallets(1, 4, false);
   make_wallets(1, 4, true);
 }
+
+// ---------- Direct multisig crypto function tests ----------
+
+#include "multisig/multisig.h"
+#include "cryptonote_basic/account.h"
+
+TEST(multisig, blinded_secret_key_deterministic)
+{
+  // Same input should always produce the same blinded key
+  crypto::secret_key sk = rct::rct2sk(rct::skGen());
+  crypto::secret_key blinded1 = multisig::get_multisig_blinded_secret_key(sk);
+  crypto::secret_key blinded2 = multisig::get_multisig_blinded_secret_key(sk);
+  EXPECT_EQ(blinded1, blinded2);
+}
+
+TEST(multisig, blinded_secret_key_not_identity)
+{
+  crypto::secret_key sk = rct::rct2sk(rct::skGen());
+  crypto::secret_key blinded = multisig::get_multisig_blinded_secret_key(sk);
+  // The blinded key should differ from the input
+  EXPECT_NE(blinded, sk);
+  // Should not be null
+  EXPECT_NE(blinded, crypto::null_skey);
+}
+
+TEST(multisig, blinded_secret_key_null_throws)
+{
+  EXPECT_ANY_THROW(multisig::get_multisig_blinded_secret_key(crypto::null_skey));
+}
+
+TEST(multisig, blinded_secret_key_different_inputs)
+{
+  crypto::secret_key sk1 = rct::rct2sk(rct::skGen());
+  crypto::secret_key sk2 = rct::rct2sk(rct::skGen());
+  EXPECT_NE(multisig::get_multisig_blinded_secret_key(sk1),
+            multisig::get_multisig_blinded_secret_key(sk2));
+}
+
+TEST(multisig, generate_key_image_invalid_index)
+{
+  cryptonote::account_keys keys{};
+  // No multisig keys set, so index 0 should fail
+  crypto::key_image ki;
+  crypto::public_key out_key;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), out_key);
+  EXPECT_FALSE(multisig::generate_multisig_key_image(keys, 0, out_key, ki));
+}
+
+TEST(multisig, generate_key_image_valid_index)
+{
+  cryptonote::account_keys keys{};
+  crypto::secret_key sk = rct::rct2sk(rct::skGen());
+  keys.m_multisig_keys.push_back(sk);
+
+  crypto::public_key out_key;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), out_key);
+
+  crypto::key_image ki;
+  EXPECT_TRUE(multisig::generate_multisig_key_image(keys, 0, out_key, ki));
+  // Key image should not be zero
+  EXPECT_NE(ki, crypto::null_key_image);
+}
+
+TEST(multisig, generate_key_image_out_of_range)
+{
+  cryptonote::account_keys keys{};
+  crypto::secret_key sk = rct::rct2sk(rct::skGen());
+  keys.m_multisig_keys.push_back(sk);
+
+  crypto::public_key out_key;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), out_key);
+
+  crypto::key_image ki;
+  // Index 1 is out of range (only 1 key at index 0)
+  EXPECT_FALSE(multisig::generate_multisig_key_image(keys, 1, out_key, ki));
+}
+
+TEST(multisig, generate_LR_produces_valid_points)
+{
+  crypto::secret_key k = rct::rct2sk(rct::skGen());
+  crypto::public_key pkey;
+  crypto::secret_key_to_public_key(k, pkey);
+
+  crypto::public_key L, R;
+  multisig::generate_multisig_LR(pkey, k, L, R);
+
+  // L = k*G, should equal the public key of k
+  EXPECT_EQ(L, pkey);
+
+  // R should not be null
+  EXPECT_NE(R, crypto::null_pkey);
+}
+
+TEST(multisig, generate_LR_deterministic)
+{
+  crypto::secret_key k = rct::rct2sk(rct::skGen());
+  crypto::public_key pkey;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pkey);
+
+  crypto::public_key L1, R1, L2, R2;
+  multisig::generate_multisig_LR(pkey, k, L1, R1);
+  multisig::generate_multisig_LR(pkey, k, L2, R2);
+
+  EXPECT_EQ(L1, L2);
+  EXPECT_EQ(R1, R2);
+}

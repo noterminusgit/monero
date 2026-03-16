@@ -48,3 +48,20 @@ TEST(CommandLine, IsYes)
   EXPECT_FALSE(command_line::is_yes("nO"));
   EXPECT_FALSE(command_line::is_yes("no"));
 }
+
+TEST(CommandLine, IsNo)
+{
+  EXPECT_TRUE(command_line::is_no("N"));
+  EXPECT_TRUE(command_line::is_no("n"));
+  EXPECT_TRUE(command_line::is_no("NO"));
+  EXPECT_TRUE(command_line::is_no("No"));
+  EXPECT_TRUE(command_line::is_no("nO"));
+  EXPECT_TRUE(command_line::is_no("no"));
+
+  EXPECT_FALSE(command_line::is_no(""));
+  EXPECT_FALSE(command_line::is_no("no-"));
+  EXPECT_FALSE(command_line::is_no("YES"));
+  EXPECT_FALSE(command_line::is_no("yes"));
+  EXPECT_FALSE(command_line::is_no("Y"));
+  EXPECT_FALSE(command_line::is_no("y"));
+}

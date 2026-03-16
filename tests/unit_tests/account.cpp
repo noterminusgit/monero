@@ -69,3 +69,128 @@ TEST(account, encrypt_keys)
   ASSERT_EQ(account.get_keys().m_spend_secret_key, keys.m_spend_secret_key);
   ASSERT_EQ(account.get_keys().m_view_secret_key, keys.m_view_secret_key);
 }
+
+TEST(account, generate_creates_valid_keys)
+{
+  cryptonote::account_base account;
+  crypto::secret_key recovery_key = account.generate();
+  const auto& keys = account.get_keys();
+
+  // Keys should not be null
+  EXPECT_NE(keys.m_spend_secret_key, crypto::null_skey);
+  EXPECT_NE(keys.m_view_secret_key, crypto::null_skey);
+  EXPECT_NE(keys.m_account_address.m_spend_public_key, crypto::null_pkey);
+  EXPECT_NE(keys.m_account_address.m_view_public_key, crypto::null_pkey);
+}
+
+TEST(account, generate_deterministic_from_recovery_key)
+{
+  cryptonote::keypair recovery_key = cryptonote::keypair::generate(hw::get_device("default"));
+
+  cryptonote::account_base account1;
+  account1.generate(recovery_key.sec);
+
+  cryptonote::account_base account2;
+  account2.generate(recovery_key.sec);
+
+  // Same recovery key should produce same account
+  EXPECT_EQ(account1.get_keys().m_spend_secret_key, account2.get_keys().m_spend_secret_key);
+  EXPECT_EQ(account1.get_keys().m_view_secret_key, account2.get_keys().m_view_secret_key);
+  EXPECT_EQ(account1.get_keys().m_account_address.m_spend_public_key,
+            account2.get_keys().m_account_address.m_spend_public_key);
+}
+
+TEST(account, different_recovery_keys_produce_different_accounts)
+{
+  cryptonote::keypair rk1 = cryptonote::keypair::generate(hw::get_device("default"));
+  cryptonote::keypair rk2 = cryptonote::keypair::generate(hw::get_device("default"));
+
+  cryptonote::account_base account1;
+  account1.generate(rk1.sec);
+
+  cryptonote::account_base account2;
+  account2.generate(rk2.sec);
+
+  EXPECT_NE(account1.get_keys().m_spend_secret_key, account2.get_keys().m_spend_secret_key);
+  EXPECT_NE(account1.get_keys().m_account_address.m_spend_public_key,
+            account2.get_keys().m_account_address.m_spend_public_key);
+}
+
+TEST(account, public_keys_match_secret_keys)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& keys = account.get_keys();
+
+  // Verify spend public key matches spend secret key
+  crypto::public_key spend_pub_check;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(keys.m_spend_secret_key, spend_pub_check));
+  EXPECT_EQ(keys.m_account_address.m_spend_public_key, spend_pub_check);
+
+  // Verify view public key matches view secret key
+  crypto::public_key view_pub_check;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(keys.m_view_secret_key, view_pub_check));
+  EXPECT_EQ(keys.m_account_address.m_view_public_key, view_pub_check);
+}
+
+TEST(account, get_public_address_str_not_empty)
+{
+  cryptonote::account_base account;
+  account.generate();
+
+  std::string addr_mainnet = account.get_public_address_str(cryptonote::MAINNET);
+  std::string addr_testnet = account.get_public_address_str(cryptonote::TESTNET);
+  std::string addr_stagenet = account.get_public_address_str(cryptonote::STAGENET);
+
+  EXPECT_FALSE(addr_mainnet.empty());
+  EXPECT_FALSE(addr_testnet.empty());
+  EXPECT_FALSE(addr_stagenet.empty());
+
+  // Different networks should produce different address strings
+  EXPECT_NE(addr_mainnet, addr_testnet);
+  EXPECT_NE(addr_mainnet, addr_stagenet);
+}
+
+TEST(account, encrypt_decrypt_roundtrip)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto original_keys = account.get_keys();
+
+  crypto::chacha_key chacha_key;
+  crypto::generate_chacha_key(&original_keys.m_spend_secret_key,
+    sizeof(original_keys.m_spend_secret_key), chacha_key, 1);
+
+  account.encrypt_keys(chacha_key);
+  // After encryption, secret keys should differ
+  EXPECT_NE(account.get_keys().m_spend_secret_key, original_keys.m_spend_secret_key);
+
+  account.decrypt_keys(chacha_key);
+  // After decryption, keys should match original
+  EXPECT_EQ(account.get_keys().m_spend_secret_key, original_keys.m_spend_secret_key);
+  EXPECT_EQ(account.get_keys().m_view_secret_key, original_keys.m_view_secret_key);
+}
+
+TEST(account, multisig_keys_initially_empty)
+{
+  cryptonote::account_base account;
+  account.generate();
+  EXPECT_TRUE(account.get_keys().m_multisig_keys.empty());
+}
+
+TEST(account, set_null_creation_timestamp)
+{
+  cryptonote::account_base account;
+  account.generate();
+  account.set_createtime(0);
+  EXPECT_EQ(account.get_createtime(), 0u);
+}
+
+TEST(account, creation_timestamp)
+{
+  cryptonote::account_base account;
+  account.generate();
+  uint64_t t = 1609459200;
+  account.set_createtime(t);
+  EXPECT_EQ(account.get_createtime(), t);
+}

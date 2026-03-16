@@ -127,7 +127,10 @@ set(unit_tests_sources
   is_hdd.cpp
   aligned.cpp
   rpc_version_str.cpp
-  zmq_rpc.cpp)
+  zmq_rpc.cpp
+  parserse_base_utils.cpp
+  device_registry.cpp
+  string_tools.cpp)
 
 set(unit_tests_headers
   unit_tests_utils.h)
