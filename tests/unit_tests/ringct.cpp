@@ -1268,3 +1268,117 @@ TEST(ringct, aggregated)
 
   ASSERT_TRUE(verRctSemanticsSimple(sp));
 }
+
+TEST(ringct, key_operations)
+{
+  // Test basic key operations
+  key sk = skGen();
+  key pk;
+  scalarmultBase(pk, sk);
+
+  // pk should not be identity
+  ASSERT_NE(pk, identity());
+
+  // sk * G == pk
+  key pk2;
+  scalarmultBase(pk2, sk);
+  ASSERT_EQ(pk, pk2);
+}
+
+TEST(ringct, scalarmult_zero)
+{
+  key result;
+  key zero;
+  memset(&zero, 0, sizeof(zero));
+  scalarmultBase(result, zero);
+  ASSERT_EQ(result, identity());
+}
+
+TEST(ringct, key_add_commutative)
+{
+  key a = skGen();
+  key b = skGen();
+  key ab, ba;
+  addKeys(ab, a, b);
+  addKeys(ba, b, a);
+  ASSERT_EQ(ab, ba);
+}
+
+TEST(ringct, sc_add_commutative)
+{
+  key a = skGen();
+  key b = skGen();
+  key ab, ba;
+  sc_add(ab.bytes, a.bytes, b.bytes);
+  sc_add(ba.bytes, b.bytes, a.bytes);
+  ASSERT_EQ(ab, ba);
+}
+
+TEST(ringct, ecdh_encode_decode_roundtrip)
+{
+  ecdhTuple original;
+  original.mask = skGen();
+  original.amount = skGen();
+  key sharedKey = skGen();
+
+  ecdhTuple encoded = original;
+  ecdhEncode(encoded, sharedKey, false);
+
+  // Encoded should differ from original
+  ASSERT_NE(original.mask, encoded.mask);
+
+  ecdhDecode(encoded, sharedKey, false);
+  ASSERT_EQ(original.mask, encoded.mask);
+  ASSERT_EQ(original.amount, encoded.amount);
+}
+
+TEST(ringct, ecdh8_encode_decode_roundtrip)
+{
+  ecdhTuple original;
+  original.mask = skGen();
+  original.amount = skGen();
+  // Zero out bytes 8-31 to match 8-byte mode
+  memset(original.amount.bytes + 8, 0, 24);
+  key sharedKey = skGen();
+
+  ecdhTuple encoded = original;
+  ecdhEncode(encoded, sharedKey, true);
+  ecdhDecode(encoded, sharedKey, true);
+  // Only first 8 bytes of amount should match
+  ASSERT_EQ(memcmp(original.amount.bytes, encoded.amount.bytes, 8), 0);
+}
+
+TEST(ringct, d2h_h2d_roundtrip)
+{
+  for (uint64_t v : {0ULL, 1ULL, 42ULL, 1000000000ULL, 0xFFFFFFFFFFFFFFFFULL})
+  {
+    key k = d2h(v);
+    uint64_t recovered = h2d(k);
+    ASSERT_EQ(v, recovered);
+  }
+}
+
+TEST(ringct, zero_commit)
+{
+  key commit = zeroCommit(0);
+  // zeroCommit(0) should be a valid point (mask = I, amount = 0)
+  ASSERT_NE(commit, identity());
+}
+
+TEST(ringct, corrupted_signature_fails)
+{
+  // Create a valid simple RCT sig and corrupt it
+  static const uint64_t inputs[] = {1000};
+  static const uint64_t outputs[] = {1000};
+  rctSig sig = make_sample_simple_rct_sig(1, inputs, 1, outputs, 0);
+
+  // Should verify correctly
+  ASSERT_TRUE(verRctSemanticsSimple(sig));
+
+  // Corrupt a pseudoOut
+  if (!sig.pseudoOuts.empty())
+  {
+    sig.pseudoOuts[0] = skGen();
+    ASSERT_FALSE(verRctSemanticsSimple(sig));
+  }
+}

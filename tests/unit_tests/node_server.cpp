@@ -366,6 +366,61 @@ TEST(ban, file_banlist)
   EXPECT_FALSE( is_blocked(server, MAKE_IPV4_ADDRESS_PORT(145,036,205,235,9999)) );
 }
 
+TEST(ban, multiple_ips)
+{
+  test_core pr_core;
+  cryptonote::t_cryptonote_protocol_handler<test_core> cprotocol(pr_core, NULL);
+  Server server(cprotocol);
+  cprotocol.set_p2p_endpoint(&server);
+
+  // Add many IPs and verify each
+  for (int i = 1; i <= 10; ++i)
+  {
+    ASSERT_TRUE(server.block_host(MAKE_IPV4_ADDRESS(10, 0, 0, i)));
+  }
+  ASSERT_EQ(server.get_blocked_hosts().size(), 10u);
+
+  for (int i = 1; i <= 10; ++i)
+  {
+    ASSERT_TRUE(is_blocked(server, MAKE_IPV4_ADDRESS(10, 0, 0, i)));
+  }
+  ASSERT_FALSE(is_blocked(server, MAKE_IPV4_ADDRESS(10, 0, 0, 11)));
+}
+
+TEST(ban, unblock_all)
+{
+  test_core pr_core;
+  cryptonote::t_cryptonote_protocol_handler<test_core> cprotocol(pr_core, NULL);
+  Server server(cprotocol);
+  cprotocol.set_p2p_endpoint(&server);
+
+  ASSERT_TRUE(server.block_host(MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+  ASSERT_TRUE(server.block_host(MAKE_IPV4_ADDRESS(5, 6, 7, 8)));
+  ASSERT_EQ(server.get_blocked_hosts().size(), 2u);
+
+  ASSERT_TRUE(server.unblock_host(MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+  ASSERT_EQ(server.get_blocked_hosts().size(), 1u);
+  ASSERT_TRUE(server.unblock_host(MAKE_IPV4_ADDRESS(5, 6, 7, 8)));
+  ASSERT_TRUE(server.get_blocked_hosts().empty());
+}
+
+TEST(ban, reblock_after_unblock)
+{
+  test_core pr_core;
+  cryptonote::t_cryptonote_protocol_handler<test_core> cprotocol(pr_core, NULL);
+  Server server(cprotocol);
+  cprotocol.set_p2p_endpoint(&server);
+
+  ASSERT_TRUE(server.block_host(MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+  ASSERT_TRUE(is_blocked(server, MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+
+  ASSERT_TRUE(server.unblock_host(MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+  ASSERT_FALSE(is_blocked(server, MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+
+  ASSERT_TRUE(server.block_host(MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+  ASSERT_TRUE(is_blocked(server, MAKE_IPV4_ADDRESS(1, 2, 3, 4)));
+}
+
 TEST(node_server, bind_same_p2p_port)
 {
   struct test_data_t

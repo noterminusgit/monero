@@ -129,3 +129,86 @@ TEST(device, ecdh32)
   ASSERT_EQ(tuple2.amount, tuple.amount);
 }
 
+TEST(device, type)
+{
+  hw::core::device_default dev;
+  ASSERT_EQ(dev.get_type(), hw::device::device_type::SOFTWARE);
+}
+
+TEST(device, init_release)
+{
+  hw::core::device_default dev;
+  ASSERT_TRUE(dev.init());
+  ASSERT_TRUE(dev.release());
+}
+
+TEST(device, connect_disconnect)
+{
+  hw::core::device_default dev;
+  ASSERT_TRUE(dev.connect());
+  ASSERT_TRUE(dev.disconnect());
+}
+
+TEST(device, set_mode)
+{
+  hw::core::device_default dev;
+  ASSERT_TRUE(dev.set_mode(hw::device::TRANSACTION_CREATE_REAL));
+  ASSERT_TRUE(dev.set_mode(hw::device::TRANSACTION_CREATE_FAKE));
+  ASSERT_TRUE(dev.set_mode(hw::device::NONE));
+}
+
+TEST(device, scalarmult_identity)
+{
+  hw::core::device_default dev;
+  rct::key result;
+  rct::key sk = rct::skGen();
+
+  // Scalar mult of base should produce a valid point
+  dev.scalarmultBase(result, sk);
+  ASSERT_NE(result, rct::identity());
+
+  // Verify it matches the direct computation
+  rct::key expected;
+  rct::scalarmultBase(expected, sk);
+  ASSERT_EQ(result, expected);
+}
+
+TEST(device, generate_keys)
+{
+  hw::core::device_default dev;
+  crypto::public_key pk;
+  crypto::secret_key sk;
+  dev.generate_keys(pk, sk);
+
+  // Verify the key pair is consistent
+  crypto::public_key pk_check;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(sk, pk_check));
+  ASSERT_EQ(pk, pk_check);
+}
+
+TEST(device, ecdh8_roundtrip)
+{
+  hw::core::device_default dev;
+  rct::ecdhTuple tuple, tuple2;
+  rct::key key = rct::skGen();
+  tuple.mask = rct::skGen();
+  tuple.amount = rct::skGen();
+  tuple2 = tuple;
+  dev.ecdhEncode(tuple, key, true);
+  dev.ecdhDecode(tuple, key, true);
+  // For 8-byte mode, only the first 8 bytes of amount are preserved
+  ASSERT_EQ(memcmp(tuple2.amount.bytes, tuple.amount.bytes, 8), 0);
+}
+
+TEST(device, multiple_tx_open_close)
+{
+  hw::core::device_default dev;
+  crypto::secret_key key;
+
+  // Open and close multiple transactions
+  ASSERT_TRUE(dev.open_tx(key));
+  ASSERT_TRUE(dev.close_tx());
+  ASSERT_TRUE(dev.open_tx(key));
+  ASSERT_TRUE(dev.close_tx());
+}
+

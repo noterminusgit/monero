@@ -341,4 +341,138 @@ TYPED_TEST(BlockchainDBTest, RetrieveBlockData)
   ASSERT_HASH_EQ(get_block_hash(this->m_blocks[1].first), hashes[1]);
 }
 
+TYPED_TEST(BlockchainDBTest, HeightTracking)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  // Empty database should have height 0
+  ASSERT_EQ(0u, this->m_db->height());
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+  ASSERT_EQ(1u, this->m_db->height());
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[1], t_sizes[1], t_sizes[1], t_diffs[1], t_coins[1], this->m_txs[1]));
+  ASSERT_EQ(2u, this->m_db->height());
+}
+
+TYPED_TEST(BlockchainDBTest, TopBlockHash)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+
+  crypto::hash top_hash = this->m_db->top_block_hash();
+  ASSERT_HASH_EQ(get_block_hash(this->m_blocks[0].first), top_hash);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[1], t_sizes[1], t_sizes[1], t_diffs[1], t_coins[1], this->m_txs[1]));
+
+  top_hash = this->m_db->top_block_hash();
+  ASSERT_HASH_EQ(get_block_hash(this->m_blocks[1].first), top_hash);
+}
+
+TYPED_TEST(BlockchainDBTest, BlockExists)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+
+  ASSERT_TRUE(this->m_db->block_exists(get_block_hash(this->m_blocks[0].first)));
+  ASSERT_FALSE(this->m_db->block_exists(get_block_hash(this->m_blocks[1].first)));
+}
+
+TYPED_TEST(BlockchainDBTest, TxExists)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+
+  // Miner transaction should exist
+  crypto::hash miner_tx_hash = get_transaction_hash(this->m_blocks[0].first.miner_tx);
+  ASSERT_TRUE(this->m_db->tx_exists(miner_tx_hash));
+
+  // Random hash should not exist
+  crypto::hash random_hash;
+  memset(&random_hash, 0x42, sizeof(random_hash));
+  ASSERT_FALSE(this->m_db->tx_exists(random_hash));
+}
+
+TYPED_TEST(BlockchainDBTest, BlockTimestamp)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+
+  uint64_t ts = this->m_db->get_block_timestamp(0);
+  ASSERT_EQ(ts, this->m_blocks[0].first.timestamp);
+}
+
+TYPED_TEST(BlockchainDBTest, PopBlock)
+{
+  boost::filesystem::path tempPath = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  std::string dirPath = tempPath.string();
+
+  this->set_prefix(dirPath);
+
+  ASSERT_NO_THROW(this->m_db->open(dirPath));
+  this->get_filenames();
+  this->init_hard_fork();
+
+  db_wtxn_guard guard(this->m_db);
+
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[0], t_sizes[0], t_sizes[0], t_diffs[0], t_coins[0], this->m_txs[0]));
+  ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[1], t_sizes[1], t_sizes[1], t_diffs[1], t_coins[1], this->m_txs[1]));
+  ASSERT_EQ(2u, this->m_db->height());
+
+  block popped;
+  std::vector<transaction> popped_txs;
+  ASSERT_NO_THROW(this->m_db->pop_block(popped, popped_txs));
+  ASSERT_EQ(1u, this->m_db->height());
+  ASSERT_HASH_EQ(get_block_hash(this->m_blocks[1].first), get_block_hash(popped));
+}
+
 }  // anonymous namespace

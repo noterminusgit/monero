@@ -29,9 +29,12 @@
 #include "gtest/gtest.h"
 
 #include "crypto/generators.h"
+#include "crypto/crypto.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "serialization/binary_utils.h"
 #include "serialization/string.h"
+#include <vector>
+#include <string>
 
 TEST(cn_format_utils, add_extra_nonce_to_tx_extra)
 {
@@ -242,4 +245,126 @@ TEST(cn_format_utils, tx_extra_merge_mining_tag_store_load)
             }
         }
     }
+}
+
+TEST(cn_format_utils, parse_tx_extra_empty)
+{
+    std::vector<uint8_t> extra;
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_TRUE(fields.empty());
+}
+
+TEST(cn_format_utils, add_tx_pub_key_to_extra)
+{
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk));
+    ASSERT_FALSE(extra.empty());
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 1u);
+
+    const auto &pk_field = boost::get<cryptonote::tx_extra_pub_key>(fields[0]);
+    ASSERT_EQ(pk, pk_field.pub_key);
+}
+
+TEST(cn_format_utils, get_tx_pub_key_from_extra)
+{
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    cryptonote::add_tx_pub_key_to_extra(extra, pk);
+
+    cryptonote::transaction tx;
+    tx.extra = extra;
+    crypto::public_key extracted_pk = cryptonote::get_tx_pub_key_from_extra(tx);
+    ASSERT_EQ(pk, extracted_pk);
+}
+
+TEST(cn_format_utils, is_coinbase)
+{
+    cryptonote::transaction tx;
+    ASSERT_FALSE(cryptonote::is_coinbase(tx));
+
+    cryptonote::txin_gen gen_input;
+    gen_input.height = 0;
+    tx.vin.push_back(gen_input);
+    ASSERT_TRUE(cryptonote::is_coinbase(tx));
+}
+
+TEST(cn_format_utils, get_transaction_hash_deterministic)
+{
+    cryptonote::transaction tx;
+    tx.version = 2;
+    tx.unlock_time = 0;
+
+    crypto::hash h1 = cryptonote::get_transaction_hash(tx);
+    crypto::hash h2 = cryptonote::get_transaction_hash(tx);
+    ASSERT_EQ(h1, h2);
+}
+
+TEST(cn_format_utils, tx_to_blob_and_back)
+{
+    cryptonote::transaction tx;
+    tx.version = 2;
+    tx.unlock_time = 10;
+
+    cryptonote::txin_gen gen_input;
+    gen_input.height = 42;
+    tx.vin.push_back(gen_input);
+
+    cryptonote::blobdata blob;
+    ASSERT_TRUE(cryptonote::t_serializable_object_to_blob(tx, blob));
+    ASSERT_FALSE(blob.empty());
+
+    cryptonote::transaction tx2;
+    ASSERT_TRUE(cryptonote::parse_and_validate_tx_from_blob(blob, tx2));
+    ASSERT_EQ(tx.version, tx2.version);
+    ASSERT_EQ(tx.unlock_time, tx2.unlock_time);
+}
+
+TEST(cn_format_utils, parse_invalid_blob_fails)
+{
+    cryptonote::transaction tx;
+    cryptonote::blobdata invalid_blob = "this is not a valid transaction blob";
+    ASSERT_FALSE(cryptonote::parse_and_validate_tx_from_blob(invalid_blob, tx));
+}
+
+TEST(cn_format_utils, add_extra_nonce_payment_id)
+{
+    std::vector<uint8_t> extra;
+    crypto::hash payment_id = crypto::rand<crypto::hash>();
+    std::string nonce;
+    cryptonote::set_payment_id_to_tx_extra_nonce(nonce, payment_id);
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 1u);
+}
+
+TEST(cn_format_utils, relative_absolute_offsets_roundtrip)
+{
+    std::vector<uint64_t> absolute = {10, 20, 35, 100, 200};
+    std::vector<uint64_t> relative = cryptonote::absolute_output_offsets_to_relative(absolute);
+    std::vector<uint64_t> recovered = cryptonote::relative_output_offsets_to_absolute(relative);
+    ASSERT_EQ(absolute, recovered);
+}
+
+TEST(cn_format_utils, relative_offsets_empty)
+{
+    std::vector<uint64_t> empty;
+    std::vector<uint64_t> relative = cryptonote::absolute_output_offsets_to_relative(empty);
+    ASSERT_TRUE(relative.empty());
+}
+
+TEST(cn_format_utils, relative_offsets_single)
+{
+    std::vector<uint64_t> absolute = {42};
+    std::vector<uint64_t> relative = cryptonote::absolute_output_offsets_to_relative(absolute);
+    ASSERT_EQ(relative.size(), 1u);
+    ASSERT_EQ(relative[0], 42u);
+    std::vector<uint64_t> recovered = cryptonote::relative_output_offsets_to_absolute(relative);
+    ASSERT_EQ(absolute, recovered);
 }

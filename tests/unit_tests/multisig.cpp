@@ -497,3 +497,98 @@ TEST(multisig, multisig_kex_msg)
   EXPECT_EQ(msg_rnd2.get_msg_privkey(), crypto::null_skey);
   EXPECT_EQ(msg_rnd2.get_msg_privkey(), msg_rnd2_reverse.get_msg_privkey());
 }
+
+TEST(multisig, kex_rounds_required)
+{
+  using namespace multisig;
+
+  // 1-of-N requires 1 kex round
+  EXPECT_EQ(multisig_kex_rounds_required(2, 1), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(3, 1), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(5, 1), 1u);
+
+  // N-of-N requires N-1 kex rounds
+  EXPECT_EQ(multisig_kex_rounds_required(2, 2), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(3, 3), 2u);
+  EXPECT_EQ(multisig_kex_rounds_required(4, 4), 3u);
+
+  // M-of-N requires M-1 kex rounds
+  EXPECT_EQ(multisig_kex_rounds_required(3, 2), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(4, 2), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(4, 3), 2u);
+}
+
+TEST(multisig, setup_rounds_required)
+{
+  using namespace multisig;
+
+  // Setup rounds = kex rounds + 1 (post-kex verification round)
+  EXPECT_EQ(multisig_setup_rounds_required(2, 1), multisig_kex_rounds_required(2, 1) + 1);
+  EXPECT_EQ(multisig_setup_rounds_required(3, 2), multisig_kex_rounds_required(3, 2) + 1);
+  EXPECT_EQ(multisig_setup_rounds_required(4, 3), multisig_kex_rounds_required(4, 3) + 1);
+  EXPECT_EQ(multisig_setup_rounds_required(4, 4), multisig_kex_rounds_required(4, 4) + 1);
+}
+
+TEST(multisig, kex_msg_tampered_signature)
+{
+  using namespace multisig;
+
+  crypto::secret_key signing_skey = rct::rct2sk(rct::skGen());
+  crypto::public_key signing_pubkey;
+  while(!crypto::secret_key_to_public_key(signing_skey, signing_pubkey))
+    signing_skey = rct::rct2sk(rct::skGen());
+
+  const crypto::secret_key ancillary_skey{rct::rct2sk(rct::skGen())};
+
+  // Create a valid message
+  const multisig_kex_msg valid_msg{1, signing_skey, std::vector<crypto::public_key>{}, ancillary_skey};
+  std::string msg_str = valid_msg.get_msg();
+
+  // Tamper with the message (flip a character near the end, in the signature area)
+  if (msg_str.size() > 10)
+  {
+    msg_str[msg_str.size() - 5] = (msg_str[msg_str.size() - 5] == 'A') ? 'B' : 'A';
+    EXPECT_ANY_THROW((multisig_kex_msg{msg_str}));
+  }
+}
+
+TEST(multisig, kex_msg_empty_string_throws)
+{
+  using namespace multisig;
+  EXPECT_ANY_THROW((multisig_kex_msg{""}));
+}
+
+TEST(multisig, kex_msg_round_zero_throws)
+{
+  using namespace multisig;
+
+  crypto::secret_key signing_skey = rct::rct2sk(rct::skGen());
+  crypto::public_key signing_pubkey;
+  while(!crypto::secret_key_to_public_key(signing_skey, signing_pubkey))
+    signing_skey = rct::rct2sk(rct::skGen());
+
+  const crypto::secret_key ancillary_skey{rct::rct2sk(rct::skGen())};
+
+  // Round 0 should not be valid
+  EXPECT_ANY_THROW((multisig_kex_msg{0, signing_skey, std::vector<crypto::public_key>{}, ancillary_skey}));
+}
+
+TEST(multisig, kex_msg_default_construct)
+{
+  using namespace multisig;
+  multisig_kex_msg msg;
+  // Default-constructed message should have empty state
+  EXPECT_TRUE(msg.get_msg().empty());
+}
+
+TEST(multisig, make_3_4)
+{
+  make_wallets(3, 4, false);
+  make_wallets(3, 4, true);
+}
+
+TEST(multisig, make_1_4)
+{
+  make_wallets(1, 4, false);
+  make_wallets(1, 4, true);
+}

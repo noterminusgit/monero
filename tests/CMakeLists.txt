@@ -139,3 +139,11 @@ set(enabled_tests
 
 add_custom_target(tests DEPENDS enabled_tests)
 set_property(TARGET tests PROPERTY FOLDER "${folder}")
+
+if(COVERAGE)
+  setup_target_for_coverage(
+    NAME coverage
+    EXECUTABLE ctest
+    DEPENDENCIES unit_tests core_tests
+  )
+endif()

@@ -1,0 +1,82 @@
+name: ci/gh-actions/coverage
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - 'docs/**'
+      - '**/README.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/README.md'
+
+env:
+  APT_SET_CONF: |
+    tee -a /etc/apt/apt.conf.d/80-custom << EOF
+    Acquire::Retries "3";
+    Acquire::http::Timeout "120";
+    Acquire::ftp::Timeout "120";
+    EOF
+
+jobs:
+  coverage:
+    name: "Code Coverage Report"
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
+      env:
+        DEBIAN_FRONTEND: noninteractive
+        CCACHE_TEMPDIR: /tmp/.ccache-temp
+        CCACHE_DIR: ~/.ccache
+      options: --privileged
+    steps:
+      - name: set apt conf
+        run: ${{env.APT_SET_CONF}}
+      - name: update apt
+        run: apt update
+      - name: install monero dependencies and coverage tools
+        run: >
+          apt -y install
+          build-essential cargo cmake
+          libboost-all-dev miniupnpc libunbound-dev
+          graphviz doxygen libunwind8-dev pkg-config
+          libssl-dev libzmq3-dev libsodium-dev
+          libhidapi-dev libusb-1.0-0-dev
+          libprotobuf-dev protobuf-compiler
+          ccache curl git
+          lcov
+      - name: configure git
+        run: git config --global --add safe.directory '*'
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-coverage-${{ github.sha }}
+          restore-keys: ccache-coverage-
+      - name: create dummy disk drives for testing
+        run: tests/create_test_disks.sh >> $GITHUB_ENV
+      - uses: ./.github/actions/set-make-job-count
+      - name: configure
+        run: >
+          cmake -S . -B build
+          -D BUILD_TESTS=ON
+          -D COVERAGE=ON
+          -D ARCH="default"
+          -D CMAKE_BUILD_TYPE=Debug
+      - name: build
+        env:
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{env.MAKE_JOB_COUNT}}
+        run: cmake --build build
+      - name: generate coverage report
+        env:
+          CTEST_OUTPUT_ON_FAILURE: ON
+        run: cmake --build build --target coverage
+      - name: upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: build/coverage_report/
+          retention-days: 30

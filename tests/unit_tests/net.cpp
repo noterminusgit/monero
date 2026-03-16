@@ -2264,3 +2264,47 @@ TEST(zmq, read_write_termination)
     EXPECT_EQ(net::zmq::make_error_code(ETERM), received.error());
 }
 
+TEST(socks_error, error_category_name)
+{
+    const auto& cat = net::socks::error_category();
+    EXPECT_STREQ(cat.name(), "net::socks::error_category");
+}
+
+TEST(socks_error, make_error_code)
+{
+    auto ec = net::socks::make_error_code(net::socks::error::general_failure);
+    EXPECT_TRUE(bool(ec));
+    EXPECT_EQ(ec.category(), net::socks::error_category());
+    EXPECT_FALSE(ec.message().empty());
+}
+
+TEST(socks_error, error_messages_not_empty)
+{
+    // v5 errors
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::general_failure).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::not_allowed).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::network_unreachable).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::host_unreachable).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::connection_refused).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::ttl_expired).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::command_not_supported).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::address_type_not_supported).message().empty());
+    // v4 errors
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::rejected).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::identd_connection).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::identd_user).message().empty());
+    // Application errors
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::auth_failure).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::bad_read).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::bad_write).message().empty());
+    EXPECT_FALSE(net::socks::make_error_code(net::socks::error::unexpected_version).message().empty());
+}
+
+TEST(socks_error, version_enum_values)
+{
+    EXPECT_EQ(static_cast<std::uint8_t>(net::socks::version::v4), 0);
+    EXPECT_EQ(static_cast<std::uint8_t>(net::socks::version::v4a), 1);
+    EXPECT_EQ(static_cast<std::uint8_t>(net::socks::version::v4a_tor), 2);
+    EXPECT_EQ(static_cast<std::uint8_t>(net::socks::version::v5), 3);
+}
+
