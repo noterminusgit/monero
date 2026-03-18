@@ -240,16 +240,21 @@ TEST(ban, subnet)
   test_core pr_core;
   cryptonote::t_cryptonote_protocol_handler<test_core> cprotocol(pr_core, NULL);
   Server server(cprotocol);
+  auto node_dir = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  boost::filesystem::create_directories(node_dir);
+  auto auto_remove = epee::misc_utils::create_scope_leave_handler([&node_dir](){
+    boost::filesystem::remove_all(node_dir);
+  });
   {
     boost::program_options::options_description opts{};
     Server::init_options(opts);
     cryptonote::core::init_options(opts);
 
-    char** args = nullptr;
     boost::program_options::variables_map vm;
     boost::program_options::store(
-      boost::program_options::parse_command_line(0, args, opts), vm
+      boost::program_options::command_line_parser({"--data-dir", node_dir.string()}).options(opts).run(), vm
     );
+    boost::program_options::notify(vm);
     server.init(vm);
   }
   cprotocol.set_p2p_endpoint(&server);

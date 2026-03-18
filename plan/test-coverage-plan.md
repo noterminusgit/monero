@@ -71,13 +71,18 @@ make coverage   # generates HTML report
 ---
 
 ## Phase 5: Wallet Logic (Weeks 22-27)
-**Status: NOT STARTED**
+**Status: PARTIAL**
 
-- [ ] Subaddress generation and derivation
-- [ ] Transaction construction (inputs selection, change, fee calculation)
-- [ ] wallet2 key management (view-only wallets, multisig wallet setup)
-- [ ] Payment proof generation and verification
-- [ ] Wallet file encryption/decryption
+- [x] Subaddress generation and derivation (cross-account, deterministic, reverse lookup)
+- [x] Fee estimation (per-byte, per-size, quantization, edge cases) and fee priority utilities
+- [x] Fee multiplier (all algorithms and priorities)
+- [x] wallet2 key management (encrypt/decrypt roundtrip, view-only wallets, multisig 2-of-2 and 2-of-3 setup)
+- [x] Wallet file operations (save/load, password change, wrong password rejection)
+- [x] Seed recovery (deterministic address recovery, unique seeds)
+- [x] Testnet/stagenet subaddress prefixes
+- [ ] Transaction construction (inputs selection, change, coin selection)
+- [ ] Payment proof generation and verification (tx_proof, spend_proof, reserve_proof)
+- [ ] Reserve proof and tx key management
 
 ---
 
@@ -116,7 +121,9 @@ make coverage   # generates HTML report
 |--------|-------------|-------------|
 | `5bccd6139` | 272 | Session 1: Coverage infra + tests across all components |
 | `e55bdf5bd` | 133 | Session 2-3: Parser utils, device registry, string tools, core extensions |
-| **Total** | **405** | |
+| (uncommitted) | ~2800+ | Session 4: Massive expansion across wallet, crypto, P2P, RPC, and core |
+| (uncommitted) | 39 | Session 5: Phase 5 wallet tests + 4 bug fixes |
+| **Total** | **~3600+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)

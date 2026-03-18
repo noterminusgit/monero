@@ -502,19 +502,20 @@ TEST(multisig, kex_rounds_required)
 {
   using namespace multisig;
 
-  // 1-of-N requires 1 kex round
-  EXPECT_EQ(multisig_kex_rounds_required(2, 1), 1u);
-  EXPECT_EQ(multisig_kex_rounds_required(3, 1), 1u);
-  EXPECT_EQ(multisig_kex_rounds_required(5, 1), 1u);
+  // Formula: num_signers - threshold + 1
+  // 1-of-N: N rounds
+  EXPECT_EQ(multisig_kex_rounds_required(2, 1), 2u);
+  EXPECT_EQ(multisig_kex_rounds_required(3, 1), 3u);
+  EXPECT_EQ(multisig_kex_rounds_required(5, 1), 5u);
 
-  // N-of-N requires N-1 kex rounds
+  // N-of-N: 1 round
   EXPECT_EQ(multisig_kex_rounds_required(2, 2), 1u);
-  EXPECT_EQ(multisig_kex_rounds_required(3, 3), 2u);
-  EXPECT_EQ(multisig_kex_rounds_required(4, 4), 3u);
+  EXPECT_EQ(multisig_kex_rounds_required(3, 3), 1u);
+  EXPECT_EQ(multisig_kex_rounds_required(4, 4), 1u);
 
-  // M-of-N requires M-1 kex rounds
-  EXPECT_EQ(multisig_kex_rounds_required(3, 2), 1u);
-  EXPECT_EQ(multisig_kex_rounds_required(4, 2), 1u);
+  // M-of-N: N - M + 1 rounds
+  EXPECT_EQ(multisig_kex_rounds_required(3, 2), 2u);
+  EXPECT_EQ(multisig_kex_rounds_required(4, 2), 3u);
   EXPECT_EQ(multisig_kex_rounds_required(4, 3), 2u);
 }
 
@@ -652,7 +653,9 @@ TEST(multisig, generate_key_image_valid_index)
   crypto::key_image ki;
   EXPECT_TRUE(multisig::generate_multisig_key_image(keys, 0, out_key, ki));
   // Key image should not be zero
-  EXPECT_NE(ki, crypto::null_key_image);
+  crypto::key_image null_ki;
+  memset(&null_ki, 0, sizeof(null_ki));
+  EXPECT_NE(ki, null_ki);
 }
 
 TEST(multisig, generate_key_image_out_of_range)
@@ -697,4 +700,207 @@ TEST(multisig, generate_LR_deterministic)
 
   EXPECT_EQ(L1, L2);
   EXPECT_EQ(R1, R2);
+}
+
+// ===== Phase 7 extended tests =====
+
+TEST(multisig, kex_msg_construction_round1)
+{
+  // Generate a keypair for signing
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::public_key signing_pk;
+  crypto::secret_key_to_public_key(signing_sk, signing_pk);
+
+  // Generate a msg private key (round 1 messages carry a private key, not pubkeys)
+  crypto::secret_key msg_privkey = rct::rct2sk(rct::skGen());
+
+  // Round 1 message includes a private key; pubkeys are NOT stored in m_msg_pubkeys
+  multisig::multisig_kex_msg msg(1, signing_sk, std::vector<crypto::public_key>{}, msg_privkey);
+
+  ASSERT_EQ(msg.get_round(), 1u);
+  // Round 1 messages do not expose pubkeys; they carry a private key instead
+  ASSERT_EQ(msg.get_msg_pubkeys().size(), 0u);
+  ASSERT_EQ(msg.get_msg_privkey(), msg_privkey);
+  ASSERT_EQ(msg.get_signing_pubkey(), signing_pk);
+  ASSERT_FALSE(msg.get_msg().empty());
+}
+
+TEST(multisig, kex_msg_construction_round2)
+{
+  // Round 2+ messages do not include a private key
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::public_key pk1, pk2;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pk1);
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pk2);
+
+  std::vector<crypto::public_key> msg_pubkeys = {pk1, pk2};
+
+  multisig::multisig_kex_msg msg(2, signing_sk, msg_pubkeys);
+
+  EXPECT_EQ(msg.get_round(), 2u);
+  EXPECT_EQ(msg.get_msg_pubkeys().size(), 2u);
+  EXPECT_FALSE(msg.get_msg().empty());
+}
+
+TEST(multisig, kex_msg_serialization_roundtrip)
+{
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::secret_key msg_privkey = rct::rct2sk(rct::skGen());
+  crypto::public_key msg_pubkey;
+  crypto::secret_key_to_public_key(msg_privkey, msg_pubkey);
+
+  std::vector<crypto::public_key> msg_pubkeys = {msg_pubkey};
+
+  multisig::multisig_kex_msg original(1, signing_sk, msg_pubkeys, msg_privkey);
+  std::string msg_str = original.get_msg();
+
+  // Parse back from string
+  multisig::multisig_kex_msg parsed(msg_str);
+
+  EXPECT_EQ(parsed.get_round(), original.get_round());
+  EXPECT_EQ(parsed.get_msg_pubkeys(), original.get_msg_pubkeys());
+  EXPECT_EQ(parsed.get_signing_pubkey(), original.get_signing_pubkey());
+}
+
+TEST(multisig, kex_msg_from_string_parsing)
+{
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::public_key pk;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pk);
+
+  multisig::multisig_kex_msg original(2, signing_sk, {pk});
+  std::string serialized = original.get_msg();
+
+  ASSERT_FALSE(serialized.empty());
+
+  multisig::multisig_kex_msg parsed(serialized);
+  EXPECT_EQ(parsed.get_round(), 2u);
+  EXPECT_EQ(parsed.get_msg_pubkeys().size(), 1u);
+}
+
+TEST(multisig, kex_msg_invalid_string_throws)
+{
+  // Tampered/invalid string should throw
+  EXPECT_ANY_THROW(multisig::multisig_kex_msg("invalid_kex_message"));
+  EXPECT_ANY_THROW(multisig::multisig_kex_msg(""));
+}
+
+TEST(multisig, kex_msg_truncated_throws)
+{
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::public_key pk;
+  crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pk);
+
+  multisig::multisig_kex_msg original(2, signing_sk, {pk});
+  std::string serialized = original.get_msg();
+
+  // Just the magic prefix with no payload should fail to parse
+  EXPECT_ANY_THROW(multisig::multisig_kex_msg(std::string("MultisigxV2Rn")));
+}
+
+TEST(multisig, multisig_account_default_construction)
+{
+  multisig::multisig_account account;
+  EXPECT_FALSE(account.account_is_active());
+  EXPECT_FALSE(account.main_kex_rounds_done());
+  EXPECT_FALSE(account.multisig_is_ready());
+  EXPECT_EQ(account.get_kex_rounds_complete(), 0u);
+}
+
+TEST(multisig, multisig_account_initialization)
+{
+  crypto::secret_key base_privkey = rct::rct2sk(rct::skGen());
+  crypto::secret_key base_common_privkey = rct::rct2sk(rct::skGen());
+
+  multisig::multisig_account account(base_privkey, base_common_privkey);
+
+  // After construction with keys, should not yet be active (no kex done)
+  EXPECT_FALSE(account.account_is_active());
+  EXPECT_FALSE(account.multisig_is_ready());
+  EXPECT_EQ(account.get_base_privkey(), base_privkey);
+  EXPECT_EQ(account.get_base_common_privkey(), base_common_privkey);
+  // Should have a first round kex message ready
+  EXPECT_FALSE(account.get_next_kex_round_msg().empty());
+}
+
+TEST(multisig, kex_rounds_required_1_of_2)
+{
+  // 1-of-2: kex_rounds = N - M + 1 = 2 - 1 + 1 = 2
+  EXPECT_EQ(multisig::multisig_kex_rounds_required(2, 1), 2u);
+  // setup rounds = kex rounds + 1 = 3
+  EXPECT_EQ(multisig::multisig_setup_rounds_required(2, 1), 3u);
+}
+
+TEST(multisig, kex_rounds_required_2_of_2)
+{
+  // 2-of-2: kex_rounds = 2 - 2 + 1 = 1
+  EXPECT_EQ(multisig::multisig_kex_rounds_required(2, 2), 1u);
+  EXPECT_EQ(multisig::multisig_setup_rounds_required(2, 2), 2u);
+}
+
+TEST(multisig, kex_rounds_required_2_of_3)
+{
+  // 2-of-3: kex_rounds = 3 - 2 + 1 = 2
+  EXPECT_EQ(multisig::multisig_kex_rounds_required(3, 2), 2u);
+  EXPECT_EQ(multisig::multisig_setup_rounds_required(3, 2), 3u);
+}
+
+TEST(multisig, kex_rounds_required_3_of_3)
+{
+  // 3-of-3: kex_rounds = 3 - 3 + 1 = 1
+  EXPECT_EQ(multisig::multisig_kex_rounds_required(3, 3), 1u);
+  EXPECT_EQ(multisig::multisig_setup_rounds_required(3, 3), 2u);
+}
+
+TEST(multisig, kex_rounds_required_n_of_n)
+{
+  // N-of-N always requires 1 kex round
+  for (uint32_t n = 2; n <= 5; ++n)
+  {
+    EXPECT_EQ(multisig::multisig_kex_rounds_required(n, n), 1u);
+    EXPECT_EQ(multisig::multisig_setup_rounds_required(n, n), 2u);
+  }
+}
+
+TEST(multisig, kex_rounds_required_invalid_m_gt_n_throws)
+{
+  // M > N should throw
+  EXPECT_ANY_THROW(multisig::multisig_kex_rounds_required(2, 3));
+}
+
+TEST(multisig, kex_rounds_required_zero_threshold_throws)
+{
+  // threshold = 0 should throw
+  EXPECT_ANY_THROW(multisig::multisig_kex_rounds_required(2, 0));
+}
+
+TEST(multisig, kex_msg_multiple_pubkeys)
+{
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  std::vector<crypto::public_key> pubkeys;
+  for (int i = 0; i < 5; ++i)
+  {
+    crypto::public_key pk;
+    crypto::secret_key_to_public_key(rct::rct2sk(rct::skGen()), pk);
+    pubkeys.push_back(pk);
+  }
+
+  multisig::multisig_kex_msg msg(2, signing_sk, pubkeys);
+  EXPECT_EQ(msg.get_msg_pubkeys().size(), 5u);
+
+  // Roundtrip
+  multisig::multisig_kex_msg parsed(msg.get_msg());
+  EXPECT_EQ(parsed.get_msg_pubkeys().size(), 5u);
+}
+
+TEST(multisig, multisig_account_base_pubkey_matches)
+{
+  crypto::secret_key base_privkey = rct::rct2sk(rct::skGen());
+  crypto::secret_key base_common_privkey = rct::rct2sk(rct::skGen());
+
+  multisig::multisig_account account(base_privkey, base_common_privkey);
+
+  crypto::public_key expected_pubkey;
+  crypto::secret_key_to_public_key(base_privkey, expected_pubkey);
+  EXPECT_EQ(account.get_base_pubkey(), expected_pubkey);
 }

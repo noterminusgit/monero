@@ -197,3 +197,172 @@ TEST(spent_outputs, clear)
   ASSERT_FALSE(ringdb.blackballed(OUTPUT_1));
 }
 
+// ---- Additional ring tests ----
+
+TEST(ringdb, set_ring_empty_outs)
+{
+  RingDB ringdb;
+  std::vector<uint64_t> outs;
+  // Setting an empty ring may succeed or fail depending on implementation;
+  // just verify it doesn't crash
+  bool result = ringdb.set_ring(KEY_1, KEY_IMAGE_1, outs, false);
+  (void)result;
+}
+
+TEST(ringdb, set_ring_single_output)
+{
+  RingDB ringdb;
+  std::vector<uint64_t> outs = {42};
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, KEY_IMAGE_1, outs, false));
+  std::vector<uint64_t> outs2;
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, KEY_IMAGE_1, outs2));
+  ASSERT_EQ(outs2.size(), 1u);
+  ASSERT_EQ(outs2[0], 42u);
+}
+
+TEST(ringdb, set_ring_overwrite)
+{
+  RingDB ringdb;
+  std::vector<uint64_t> outs1 = {1, 2, 3};
+  std::vector<uint64_t> outs2 = {10, 20, 30, 40};
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, KEY_IMAGE_1, outs1, false));
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, KEY_IMAGE_1, outs2, false));
+  std::vector<uint64_t> retrieved;
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, KEY_IMAGE_1, retrieved));
+  ASSERT_EQ(retrieved, outs2);
+}
+
+TEST(ringdb, set_ring_large_outputs)
+{
+  RingDB ringdb;
+  std::vector<uint64_t> outs;
+  for (uint64_t i = 0; i < 100; ++i)
+    outs.push_back(i * 1000);
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, KEY_IMAGE_1, outs, false));
+  std::vector<uint64_t> retrieved;
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, KEY_IMAGE_1, retrieved));
+  ASSERT_EQ(retrieved.size(), 100u);
+  ASSERT_EQ(retrieved, outs);
+}
+
+TEST(ringdb, convert_relative_offsets)
+{
+  RingDB ringdb;
+  std::vector<uint64_t> relative = {10, 5, 3, 7};
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, KEY_IMAGE_1, relative, true));
+  std::vector<uint64_t> absolute;
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, KEY_IMAGE_1, absolute));
+  ASSERT_EQ(absolute.size(), 4u);
+  ASSERT_EQ(absolute[0], 10u);
+  ASSERT_EQ(absolute[1], 15u); // 10 + 5
+  ASSERT_EQ(absolute[2], 18u); // 15 + 3
+  ASSERT_EQ(absolute[3], 25u); // 18 + 7
+}
+
+TEST(ringdb, get_nonexistent_ring)
+{
+  RingDB ringdb;
+  crypto::key_image ki = generate_key_image();
+  std::vector<uint64_t> outs;
+  ASSERT_FALSE(ringdb.get_ring(KEY_1, ki, outs));
+}
+
+TEST(ringdb, multiple_key_images)
+{
+  RingDB ringdb;
+  crypto::key_image ki1 = generate_key_image();
+  crypto::key_image ki2 = generate_key_image();
+
+  std::vector<uint64_t> outs1 = {1, 2, 3};
+  std::vector<uint64_t> outs2 = {4, 5, 6};
+
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, ki1, outs1, false));
+  ASSERT_TRUE(ringdb.set_ring(KEY_1, ki2, outs2, false));
+
+  std::vector<uint64_t> ret1, ret2;
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, ki1, ret1));
+  ASSERT_TRUE(ringdb.get_ring(KEY_1, ki2, ret2));
+  ASSERT_EQ(ret1, outs1);
+  ASSERT_EQ(ret2, outs2);
+}
+
+// ---- Additional blackball tests ----
+
+TEST(spent_outputs, blackball_twice)
+{
+  RingDB ringdb;
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_1));
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_1)); // Idempotent
+  ASSERT_TRUE(ringdb.blackballed(OUTPUT_1));
+}
+
+TEST(spent_outputs, unblackball_nonexistent)
+{
+  RingDB ringdb;
+  // Unblackballing something that was never blackballed throws MDB_NOTFOUND
+  ASSERT_ANY_THROW(ringdb.unblackball(OUTPUT_1));
+}
+
+TEST(spent_outputs, blackball_unblackball_reblackball)
+{
+  RingDB ringdb;
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_1));
+  ASSERT_TRUE(ringdb.blackballed(OUTPUT_1));
+  ASSERT_TRUE(ringdb.unblackball(OUTPUT_1));
+  ASSERT_FALSE(ringdb.blackballed(OUTPUT_1));
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_1));
+  ASSERT_TRUE(ringdb.blackballed(OUTPUT_1));
+}
+
+TEST(spent_outputs, clear_empty)
+{
+  RingDB ringdb;
+  ASSERT_TRUE(ringdb.clear_blackballs());
+}
+
+TEST(spent_outputs, clear_multiple)
+{
+  RingDB ringdb;
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_1));
+  ASSERT_TRUE(ringdb.blackball(OUTPUT_2));
+  ASSERT_TRUE(ringdb.clear_blackballs());
+  ASSERT_FALSE(ringdb.blackballed(OUTPUT_1));
+  ASSERT_FALSE(ringdb.blackballed(OUTPUT_2));
+}
+
+TEST(spent_outputs, vector_empty)
+{
+  RingDB ringdb;
+  std::vector<std::pair<uint64_t, uint64_t>> outputs;
+  ASSERT_TRUE(ringdb.blackball(outputs));
+}
+
+TEST(spent_outputs, vector_single)
+{
+  RingDB ringdb;
+  std::vector<std::pair<uint64_t, uint64_t>> outputs;
+  outputs.push_back(std::make_pair(5, 10));
+  ASSERT_TRUE(ringdb.blackball(outputs));
+  ASSERT_TRUE(ringdb.blackballed(std::make_pair(5, 10)));
+}
+
+TEST(spent_outputs, blackball_different_amounts)
+{
+  RingDB ringdb;
+  auto o1 = std::make_pair(uint64_t(100), uint64_t(5));
+  auto o2 = std::make_pair(uint64_t(200), uint64_t(5));
+  ASSERT_TRUE(ringdb.blackball(o1));
+  ASSERT_TRUE(ringdb.blackballed(o1));
+  ASSERT_FALSE(ringdb.blackballed(o2));
+}
+
+TEST(spent_outputs, blackball_same_amount_different_offset)
+{
+  RingDB ringdb;
+  auto o1 = std::make_pair(uint64_t(100), uint64_t(1));
+  auto o2 = std::make_pair(uint64_t(100), uint64_t(2));
+  ASSERT_TRUE(ringdb.blackball(o1));
+  ASSERT_TRUE(ringdb.blackballed(o1));
+  ASSERT_FALSE(ringdb.blackballed(o2));
+}
+

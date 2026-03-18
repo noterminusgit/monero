@@ -62,6 +62,10 @@ TEST(device_default, register_all_populates)
   EXPECT_FALSE(registry.empty());
   // Should at least have "default" device
   EXPECT_NE(registry.find("default"), registry.end());
+  // Release pointers before map destruction to avoid destroying
+  // global singleton devices (register_all wraps them in unique_ptr)
+  for (auto &entry : registry)
+    entry.second.release();
 }
 
 TEST(device_default, software_type)
@@ -84,6 +88,9 @@ TEST(device_ledger, register_all_populates)
   std::map<std::string, std::unique_ptr<hw::device>> registry;
   hw::ledger::register_all(registry);
   EXPECT_FALSE(registry.empty());
+  // Release to avoid destroying global singleton
+  for (auto &entry : registry)
+    entry.second.release();
 }
 
 TEST(device_ledger, version_macros)

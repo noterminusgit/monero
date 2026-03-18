@@ -176,3 +176,126 @@ TEST(rpc_payment, multiple_clients_independent)
   ASSERT_EQ(credits, 70u);
   ASSERT_EQ(payment.balance(client2), 200u);
 }
+
+TEST(rpc_payment, balance_accumulate)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 10);
+  payment.balance(client, 20);
+  payment.balance(client, 30);
+  ASSERT_EQ(payment.balance(client), 60u);
+}
+
+TEST(rpc_payment, pay_drains_exact)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 50);
+  uint64_t credits = 0;
+  ASSERT_TRUE(payment.pay(client, 1, 50, "test", false, credits));
+  ASSERT_EQ(credits, 0u);
+}
+
+TEST(rpc_payment, pay_multiple_times)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 100);
+  uint64_t credits = 0;
+  ASSERT_TRUE(payment.pay(client, 1, 30, "t1", false, credits));
+  ASSERT_EQ(credits, 70u);
+  ASSERT_TRUE(payment.pay(client, 2, 30, "t2", false, credits));
+  ASSERT_EQ(credits, 40u);
+  ASSERT_TRUE(payment.pay(client, 3, 30, "t3", false, credits));
+  ASSERT_EQ(credits, 10u);
+  ASSERT_FALSE(payment.pay(client, 4, 30, "t4", false, credits));
+}
+
+TEST(rpc_payment, foreach_stop_early)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client1, client2, client3;
+  memset(&client1, 1, sizeof(client1));
+  memset(&client2, 2, sizeof(client2));
+  memset(&client3, 3, sizeof(client3));
+
+  payment.balance(client1, 10);
+  payment.balance(client2, 20);
+  payment.balance(client3, 30);
+
+  int count = 0;
+  payment.foreach([&count](const crypto::public_key &, const cryptonote::rpc_payment::client_info &) {
+    ++count;
+    return count < 2; // Stop after 2
+  });
+  ASSERT_EQ(count, 2);
+}
+
+TEST(rpc_payment, different_addresses)
+{
+  cryptonote::account_public_address addr1, addr2;
+  memset(&addr1, 1, sizeof(addr1));
+  memset(&addr2, 2, sizeof(addr2));
+
+  cryptonote::rpc_payment payment1(addr1, 100, 10);
+  cryptonote::rpc_payment payment2(addr2, 100, 10);
+
+  ASSERT_EQ(memcmp(&payment1.get_payment_address(), &addr1, sizeof(addr1)), 0);
+  ASSERT_EQ(memcmp(&payment2.get_payment_address(), &addr2, sizeof(addr2)), 0);
+}
+
+TEST(rpc_payment, balance_zero_add)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  uint64_t bal = payment.balance(client, 0);
+  ASSERT_EQ(bal, 0u);
+}
+
+TEST(rpc_payment, pay_with_no_balance)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  uint64_t credits = 0;
+  ASSERT_FALSE(payment.pay(client, 1, 1, "test", false, credits));
+}
+
+TEST(rpc_payment, large_balance)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 1000000);
+  ASSERT_EQ(payment.balance(client), 1000000u);
+}
+
+TEST(rpc_payment, many_clients)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+
+  for (int i = 0; i < 50; ++i)
+  {
+    crypto::public_key client;
+    memset(&client, i + 1, sizeof(client));
+    payment.balance(client, (uint64_t)(i + 1) * 10);
+  }
+
+  int count = 0;
+  payment.foreach([&count](const crypto::public_key &, const cryptonote::rpc_payment::client_info &) {
+    ++count;
+    return true;
+  });
+  ASSERT_EQ(count, 50);
+}

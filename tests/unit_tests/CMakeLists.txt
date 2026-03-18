@@ -130,7 +130,14 @@ set(unit_tests_sources
   zmq_rpc.cpp
   parserse_base_utils.cpp
   device_registry.cpp
-  string_tools.cpp)
+  string_tools.cpp
+  net_utils.cpp
+  http_auth_tests.cpp
+  net_parse_helpers_tests.cpp
+  rpc_args_tests.cpp
+  rpc_payment_tests.cpp
+  cryptonote_core_tests.cpp
+  p2p_net_node_tests.cpp)
 
 set(unit_tests_headers
   unit_tests_utils.h)

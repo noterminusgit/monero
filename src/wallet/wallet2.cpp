@@ -1559,6 +1559,17 @@ crypto::public_key wallet2::get_subaddress_spend_public_key(const cryptonote::su
   return hwdev.get_subaddress_spend_public_key(m_account.get_keys(), index);
 }
 //----------------------------------------------------------------------------------------------------
+std::vector<crypto::public_key> wallet2::get_subaddress_spend_public_keys(uint32_t account, uint32_t begin, uint32_t end) const
+{
+  std::vector<crypto::public_key> keys;
+  keys.reserve(end - begin);
+  for (uint32_t i = begin; i < end; ++i)
+  {
+    keys.push_back(get_subaddress_spend_public_key({account, i}));
+  }
+  return keys;
+}
+//----------------------------------------------------------------------------------------------------
 std::string wallet2::get_subaddress_as_str(const cryptonote::subaddress_index& index) const
 {
   cryptonote::account_public_address address = get_subaddress(index);

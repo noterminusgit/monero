@@ -251,3 +251,84 @@ TEST(checkpoints, get_max_height)
 
   ASSERT_EQ(cp.get_max_height(), 10u);
 }
+
+TEST(checkpoints, get_max_height_empty)
+{
+  checkpoints cp;
+  ASSERT_EQ(cp.get_max_height(), 0u);
+}
+
+TEST(checkpoints, get_max_height_single)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(42, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_EQ(cp.get_max_height(), 42u);
+}
+
+TEST(checkpoints, multiple_checkpoints_check_each)
+{
+  checkpoints cp;
+  crypto::hash null_hash = crypto::null_hash;
+  std::string null_hex = epee::string_tools::pod_to_hex(null_hash);
+
+  ASSERT_TRUE(cp.add_checkpoint(10, null_hex));
+  ASSERT_TRUE(cp.add_checkpoint(20, null_hex));
+  ASSERT_TRUE(cp.add_checkpoint(30, null_hex));
+
+  bool is_checkpoint = false;
+  ASSERT_TRUE(cp.check_block(10, null_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+  ASSERT_TRUE(cp.check_block(20, null_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+  ASSERT_TRUE(cp.check_block(30, null_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+}
+
+TEST(checkpoints, check_block_zero_height)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(0, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  crypto::hash null_hash = crypto::null_hash;
+  bool is_checkpoint = false;
+  ASSERT_TRUE(cp.check_block(0, null_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+}
+
+TEST(checkpoints, is_in_checkpoint_zone_at_zero)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(0, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.is_in_checkpoint_zone(0));
+}
+
+TEST(checkpoints, add_multiple_sequential)
+{
+  checkpoints cp;
+  for (uint64_t h = 0; h < 100; h += 10)
+  {
+    ASSERT_TRUE(cp.add_checkpoint(h, "0000000000000000000000000000000000000000000000000000000000000000"));
+  }
+  ASSERT_EQ(cp.get_max_height(), 90u);
+}
+
+TEST(checkpoints, add_invalid_hash_format)
+{
+  checkpoints cp;
+  ASSERT_FALSE(cp.add_checkpoint(1, "not_a_valid_hex_hash"));
+}
+
+TEST(checkpoints, add_short_hash_fails)
+{
+  checkpoints cp;
+  ASSERT_FALSE(cp.add_checkpoint(1, "0000"));
+}
+
+TEST(checkpoints, large_height)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(1000000, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_EQ(cp.get_max_height(), 1000000u);
+  ASSERT_TRUE(cp.is_in_checkpoint_zone(500000));
+  ASSERT_FALSE(cp.is_in_checkpoint_zone(1000001));
+}

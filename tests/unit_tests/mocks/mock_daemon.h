@@ -45,9 +45,9 @@ namespace test
 
     mock_http_client() : m_connected(false) {}
 
-    void set_server(const std::string& address, boost::optional<epee::net_utils::http::login> user, epee::net_utils::ssl_options_t ssl_options = epee::net_utils::ssl_support_t::e_ssl_support_autodetect) override
+    void set_server(std::string host, std::string port, boost::optional<epee::net_utils::http::login> user, epee::net_utils::ssl_options_t ssl_options = epee::net_utils::ssl_support_t::e_ssl_support_autodetect) override
     {
-      m_address = address;
+      m_address = host + ":" + port;
     }
 
     void set_auto_connect(bool auto_connect) override {}
@@ -105,7 +105,7 @@ namespace test
                      const std::string& body,
                      std::chrono::milliseconds timeout,
                      const epee::net_utils::http::http_response_info** ppresponse_info = nullptr,
-                     const epee::net_utils::http::fields_list& additional_params = epee::net_utils::http::fields_list()) override
+                     const epee::net_utils::http::fields_list& additional_params = epee::net_utils::http::fields_list())
     {
       return invoke(uri, "POST", body, timeout, ppresponse_info, additional_params);
     }

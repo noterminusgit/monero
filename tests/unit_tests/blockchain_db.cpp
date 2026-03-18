@@ -468,6 +468,9 @@ TYPED_TEST(BlockchainDBTest, PopBlock)
   ASSERT_NO_THROW(this->m_db->add_block(this->m_blocks[1], t_sizes[1], t_sizes[1], t_diffs[1], t_coins[1], this->m_txs[1]));
   ASSERT_EQ(2u, this->m_db->height());
 
+  // pop_block starts its own write txn, so stop the existing one first
+  guard.stop();
+
   block popped;
   std::vector<transaction> popped_txs;
   ASSERT_NO_THROW(this->m_db->pop_block(popped, popped_txs));

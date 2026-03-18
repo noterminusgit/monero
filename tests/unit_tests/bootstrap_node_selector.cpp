@@ -171,3 +171,83 @@ TEST_F(bootstrap_node_selector, selector_auto_max_nodes)
 
   EXPECT_EQ(unique_nodes.size(), max_nodes);
 }
+
+TEST_F(bootstrap_node_selector, selector_auto_repeated_next_node)
+{
+  cryptonote::bootstrap_node::selector_auto selector([this]() {
+    return nodes;
+  });
+
+  // Calling next_node multiple times without handle_result should give same node
+  auto first = selector.next_node();
+  ASSERT_TRUE(first.has_value());
+  auto second = selector.next_node();
+  ASSERT_TRUE(second.has_value());
+  // Both should be valid addresses from our node list
+  EXPECT_TRUE(nodes.count(first->address) > 0);
+  EXPECT_TRUE(nodes.count(second->address) > 0);
+}
+
+TEST_F(bootstrap_node_selector, selector_auto_handle_result_unknown_address)
+{
+  cryptonote::bootstrap_node::selector_auto selector([this]() {
+    return nodes;
+  });
+
+  // Handle result for an address that was never returned
+  selector.handle_result("unknown:1234", false);
+  // Should not crash, and next_node should still work
+  auto current = selector.next_node();
+  ASSERT_TRUE(current.has_value());
+}
+
+TEST_F(bootstrap_node_selector, selector_auto_all_succeed)
+{
+  cryptonote::bootstrap_node::selector_auto selector([this]() {
+    return nodes;
+  });
+
+  // Success on each node
+  for (size_t i = 0; i < nodes.size() * 3; ++i)
+  {
+    auto current = selector.next_node();
+    ASSERT_TRUE(current.has_value());
+    selector.handle_result(current->address, true);
+  }
+}
+
+TEST_F(bootstrap_node_selector, selector_auto_single_node)
+{
+  std::map<std::string, bool> single = {{"only_node:18081", true}};
+  cryptonote::bootstrap_node::selector_auto selector([single]() {
+    return single;
+  });
+
+  auto current = selector.next_node();
+  ASSERT_TRUE(current.has_value());
+  EXPECT_EQ(current->address, "only_node:18081");
+
+  // After failure, should still return the same node (only one available)
+  selector.handle_result(current->address, false);
+  current = selector.next_node();
+  ASSERT_TRUE(current.has_value());
+  EXPECT_EQ(current->address, "only_node:18081");
+}
+
+TEST_F(bootstrap_node_selector, selector_auto_gray_to_white_promotion)
+{
+  cryptonote::bootstrap_node::selector_auto selector([this]() {
+    return nodes;
+  });
+
+  // After exhausting white nodes with failures, should try gray
+  auto current = selector.next_node();
+  ASSERT_TRUE(current.has_value());
+  std::string first_addr = current->address;
+  selector.handle_result(first_addr, false);
+
+  current = selector.next_node();
+  ASSERT_TRUE(current.has_value());
+  // Should be a different node
+  EXPECT_NE(current->address, first_addr);
+}

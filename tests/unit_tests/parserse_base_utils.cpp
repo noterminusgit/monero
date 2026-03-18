@@ -356,3 +356,217 @@ TEST(parserse_base_utils, lut_special_chars)
   EXPECT_TRUE(lut[(uint8_t)'"'] & 32);
   EXPECT_TRUE(lut[(uint8_t)'\\'] & 32);
 }
+
+// ---------- Additional isspace/isdigit coverage ----------
+
+TEST(parserse_base_utils, isspace_all_ascii_non_whitespace)
+{
+  int whitespace_count = 0;
+  for (int c = 0; c < 128; ++c)
+  {
+    if (isspace(static_cast<char>(c)))
+      ++whitespace_count;
+  }
+  // Standard whitespace: space, tab, newline, carriage return, vertical tab, form feed = 6
+  EXPECT_EQ(whitespace_count, 6);
+}
+
+TEST(parserse_base_utils, isdigit_count)
+{
+  int digit_count = 0;
+  for (int c = 0; c < 128; ++c)
+  {
+    if (isdigit(static_cast<char>(c)))
+      ++digit_count;
+  }
+  EXPECT_EQ(digit_count, 10);
+}
+
+// ---------- Additional escape sequence tests ----------
+
+TEST(parserse_base_utils, escape_all_special_chars_combined)
+{
+  std::string input = "\b\f\n\r\t\v\\\"/";
+  std::string result = transform_to_escape_sequence(input);
+  EXPECT_NE(result.find("\\b"), std::string::npos);
+  EXPECT_NE(result.find("\\f"), std::string::npos);
+  EXPECT_NE(result.find("\\n"), std::string::npos);
+  EXPECT_NE(result.find("\\r"), std::string::npos);
+  EXPECT_NE(result.find("\\t"), std::string::npos);
+  EXPECT_NE(result.find("\\v"), std::string::npos);
+  EXPECT_NE(result.find("\\\\"), std::string::npos);
+}
+
+TEST(parserse_base_utils, escape_long_string)
+{
+  std::string input(10000, 'a');
+  std::string result = transform_to_escape_sequence(input);
+  EXPECT_EQ(result, input); // No special chars, should be identical
+}
+
+TEST(parserse_base_utils, escape_only_special_chars)
+{
+  std::string input = "\n\n\n";
+  std::string result = transform_to_escape_sequence(input);
+  EXPECT_EQ(result, "\\n\\n\\n");
+}
+
+// ---------- Additional match_string2 tests ----------
+
+TEST(parserse_base_utils, match_string_all_escaped_chars)
+{
+  std::string input = "\"\\b\\f\\n\\r\\t\\\\\\/\\\"\"";
+  auto it = input.cbegin();
+  std::string val;
+  match_string2(it, input.cend(), val);
+  EXPECT_NE(val.find('\b'), std::string::npos);
+  EXPECT_NE(val.find('\n'), std::string::npos);
+  EXPECT_NE(val.find('\\'), std::string::npos);
+}
+
+TEST(parserse_base_utils, match_string_long_content)
+{
+  std::string content(5000, 'x');
+  std::string input = "\"" + content + "\"";
+  auto it = input.cbegin();
+  std::string val;
+  match_string2(it, input.cend(), val);
+  EXPECT_EQ(val.size(), 5000u);
+}
+
+TEST(parserse_base_utils, match_string_single_char)
+{
+  std::string input = "\"a\"";
+  auto it = input.cbegin();
+  std::string val;
+  match_string2(it, input.cend(), val);
+  EXPECT_EQ(val, "a");
+}
+
+TEST(parserse_base_utils, match_string_unicode_null)
+{
+  // \u0000 = null character
+  std::string input = "\"\\u0000\"";
+  auto it = input.cbegin();
+  std::string val;
+  match_string2(it, input.cend(), val);
+  EXPECT_EQ(val.size(), 1u);
+  EXPECT_EQ(val[0], '\0');
+}
+
+// ---------- Additional match_number2 tests ----------
+
+TEST(parserse_base_utils, match_number_large_int)
+{
+  std::string input = "18446744073709551615,"; // UINT64_MAX
+  auto it = input.cbegin();
+  boost::string_ref val;
+  bool is_float = false, is_signed = false;
+  match_number2(it, input.cend(), val, is_float, is_signed);
+  EXPECT_EQ(std::string(val.data(), val.size()), "18446744073709551615");
+  EXPECT_FALSE(is_float);
+}
+
+TEST(parserse_base_utils, match_number_scientific_notation)
+{
+  std::string input = "1e10,";
+  auto it = input.cbegin();
+  boost::string_ref val;
+  bool is_float = false, is_signed = false;
+  match_number2(it, input.cend(), val, is_float, is_signed);
+  std::string valstr(val.data(), val.size());
+  // Should parse at least the '1' part
+  EXPECT_FALSE(valstr.empty());
+}
+
+TEST(parserse_base_utils, match_number_negative_zero)
+{
+  std::string input = "-0,";
+  auto it = input.cbegin();
+  boost::string_ref val;
+  bool is_float = false, is_signed = false;
+  match_number2(it, input.cend(), val, is_float, is_signed);
+  EXPECT_EQ(std::string(val.data(), val.size()), "-0");
+  EXPECT_TRUE(is_signed);
+}
+
+TEST(parserse_base_utils, match_number_decimal_only)
+{
+  std::string input = "0.0,";
+  auto it = input.cbegin();
+  boost::string_ref val;
+  bool is_float = false, is_signed = false;
+  match_number2(it, input.cend(), val, is_float, is_signed);
+  EXPECT_TRUE(is_float);
+}
+
+// ---------- Additional match_word2 tests ----------
+
+TEST(parserse_base_utils, match_word_mixed_case)
+{
+  std::string input = "True,";
+  auto it = input.cbegin();
+  boost::string_ref val;
+  match_word2(it, input.cend(), val);
+  EXPECT_EQ(std::string(val.data(), val.size()), "True");
+}
+
+TEST(parserse_base_utils, match_word_identifier)
+{
+  // match_word2 only matches alpha characters (lut flag 4),
+  // so digits stop the match. "myVar123" matches only "myVar".
+  std::string input = "myVar123 ";
+  auto it = input.cbegin();
+  boost::string_ref val;
+  match_word2(it, input.cend(), val);
+  EXPECT_EQ(std::string(val.data(), val.size()), "myVar");
+}
+
+// ---------- Additional hex lookup tests ----------
+
+TEST(parserse_base_utils, isx_all_hex_chars)
+{
+  // 0-9
+  for (char c = '0'; c <= '9'; ++c)
+    EXPECT_EQ(isx[(unsigned char)c], c - '0');
+  // a-f
+  for (char c = 'a'; c <= 'f'; ++c)
+    EXPECT_EQ(isx[(unsigned char)c], 10 + c - 'a');
+  // A-F
+  for (char c = 'A'; c <= 'F'; ++c)
+    EXPECT_EQ(isx[(unsigned char)c], 10 + c - 'A');
+}
+
+TEST(parserse_base_utils, isx_boundary_values)
+{
+  EXPECT_EQ(isx[(unsigned char)'0'], 0);
+  EXPECT_EQ(isx[(unsigned char)'9'], 9);
+  EXPECT_EQ(isx[(unsigned char)'a'], 10);
+  EXPECT_EQ(isx[(unsigned char)'f'], 15);
+  EXPECT_NE(isx[(unsigned char)'g'], 16); // g is not hex
+}
+
+// ---------- LUT additional tests ----------
+
+TEST(parserse_base_utils, lut_underscore)
+{
+  // underscore should have some flags (it's allowed in identifiers)
+  (void)lut[(uint8_t)'_']; // Just verify no crash
+}
+
+TEST(parserse_base_utils, lut_whitespace_flags)
+{
+  // whitespace flag = 8 (per the LUT definition in parserse_base_utils.h)
+  EXPECT_TRUE(lut[(uint8_t)' '] & 8);
+  EXPECT_TRUE(lut[(uint8_t)'\t'] & 8);
+  EXPECT_TRUE(lut[(uint8_t)'\n'] & 8);
+  EXPECT_TRUE(lut[(uint8_t)'\r'] & 8);
+}
+
+TEST(parserse_base_utils, lut_zero_byte)
+{
+  // NUL byte should have no meaningful flags
+  uint8_t flags = lut[0];
+  EXPECT_FALSE(flags & 1); // not a digit
+  EXPECT_FALSE(flags & 4); // not alpha
+}

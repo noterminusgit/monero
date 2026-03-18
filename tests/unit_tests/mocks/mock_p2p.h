@@ -26,46 +26,50 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include "gtest/gtest.h"
+#pragma once
 
-#include "blockchain_utilities/bootstrap_file.h"
-#include <boost/filesystem.hpp>
-#include <fstream>
+// Stub types that mimic the p2p interface for testing code that references
+// node_server types. Since node_server is a complex template, we provide
+// lightweight stubs for protocol handler and connection context.
 
-TEST(bootstrap_file, count_blocks_nonexistent_dir)
+#include <cstdint>
+#include <vector>
+#include <string>
+#include "p2p/p2p_protocol_defs.h"
+#include "net/net_utils_base.h"
+
+namespace test
 {
-  BootstrapFile bf;
-  // Non-existent path causes count_blocks to throw
-  EXPECT_ANY_THROW(bf.count_blocks("/nonexistent/path/to/bootstrap"));
-}
-
-TEST(bootstrap_file, count_blocks_empty_dir)
-{
-  boost::filesystem::path temp = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
-  boost::filesystem::create_directories(temp);
-
-  BootstrapFile bf;
-  // Opening a directory as a bootstrap file throws when reading the header
-  EXPECT_ANY_THROW(bf.count_blocks(temp.string()));
-
-  boost::filesystem::remove_all(temp);
-}
-
-TEST(bootstrap_file, count_bytes_empty_file)
-{
-  boost::filesystem::path temp = boost::filesystem::temp_directory_path() / boost::filesystem::unique_path();
+  // Minimal stub for a protocol handler payload object
+  struct stub_protocol_handler
   {
-    std::ofstream f(temp.string(), std::ios::binary);
-    // Write empty file
+    bool is_synchronized() const { return m_synchronized; }
+    void set_synchronized(bool v) { m_synchronized = v; }
+
+    bool m_synchronized = true;
+  };
+
+  // Helper struct for tracking peer list state in tests
+  struct mock_peerlist
+  {
+    std::vector<nodetool::peerlist_entry> white_peers;
+    std::vector<nodetool::peerlist_entry> gray_peers;
+    std::vector<nodetool::peerlist_entry> anchor_peers;
+
+    void add_white_peer(const nodetool::peerlist_entry& pe) { white_peers.push_back(pe); }
+    void add_gray_peer(const nodetool::peerlist_entry& pe) { gray_peers.push_back(pe); }
+    void add_anchor_peer(const nodetool::peerlist_entry& pe) { anchor_peers.push_back(pe); }
+    void clear() { white_peers.clear(); gray_peers.clear(); anchor_peers.clear(); }
+  };
+
+  // Helper to create a peerlist_entry for testing
+  inline nodetool::peerlist_entry make_test_peer(uint32_t ip, uint16_t port, uint64_t id = 0, uint64_t last_seen = 0)
+  {
+    nodetool::peerlist_entry pe{};
+    pe.adr = epee::net_utils::ipv4_network_address(ip, port);
+    pe.id = id;
+    pe.last_seen = last_seen;
+    return pe;
   }
 
-  std::ifstream import_file(temp.string(), std::ios::binary);
-  BootstrapFile bf;
-  uint64_t h = 0;
-  bool quit = false;
-  uint64_t bytes = bf.count_bytes(import_file, 10, h, quit);
-  ASSERT_EQ(bytes, 0u);
-
-  import_file.close();
-  boost::filesystem::remove(temp);
-}
+} // namespace test
