@@ -33,17 +33,17 @@ These items affect consensus correctness, funds safety, or key material handling
 
 Confirmed or suspected incorrect behavior noted by developers in comments.
 
-- **`src/wallet/wallet2.cpp:4003`** -- FIXME: "this isn't right, but simplewallet just logs that we got a block." The block notification callback receives a dummy empty block instead of the actual block data during wallet refresh.
+- ~~**`src/wallet/wallet2.cpp:4003`** -- FIXME: "this isn't right, but simplewallet just logs that we got a block." The block notification callback receives a dummy empty block instead of the actual block data during wallet refresh.~~ **FIXED:** Removed the dummy block callback entirely during hash-only fast refresh, since no full block data is available in this code path.
 
 - **`src/cryptonote_core/blockchain.cpp:2229-2250`** -- FIXME: Function appears to want to return false if any transactions belonging to blocks are missing, but the logic may not match intent. Also: `rsp.missed_ids` seems to be for missed blocks, not missed transactions, suggesting a naming/logic mismatch.
 
-- **`src/cryptonote_core/tx_pool.cpp:504`** -- FIXME: Can return early before removal of all key images. A partial key image removal could leave the pool in an inconsistent state if the function returns false mid-operation.
+- ~~**`src/cryptonote_core/tx_pool.cpp:504`** -- FIXME: Can return early before removal of all key images. A partial key image removal could leave the pool in an inconsistent state if the function returns false mid-operation.~~ **FIXED:** Split into two passes (validate-then-remove) so the operation is transactional — either all key images are removed or none are.
 
-- **`src/cryptonote_core/blockchain.cpp:3966`** -- FIXME: height parameter is not used in PoW check function despite being declared. Either it should be used or removed.
+- ~~**`src/cryptonote_core/blockchain.cpp:3966`** -- FIXME: height parameter is not used in PoW check function despite being declared. Either it should be used or removed.~~ **FIXED:** Comment was stale — `blockchain_height` IS used for PER_BLOCK_CHECKPOINT hash lookup and get_block_longhash. Updated comment to reflect actual usage.
 
 - **`src/rpc/core_rpc_server.cpp:1820`** -- FIXME: `send_stop_signal()` replaced with a workaround because the original "isn't working quite right." The daemon stop mechanism via RPC uses a non-standard code path.
 
-- **`src/cryptonote_core/blockchain.cpp:640`** -- FIXME: HardFork data not properly handled when popping blocks. "Besides the below, popping a block should also remove the last entry in the list of known hard fork versions."
+- ~~**`src/cryptonote_core/blockchain.cpp:640`** -- FIXME: HardFork data not properly handled when popping blocks. "Besides the below, popping a block should also remove the last entry in the list of known hard fork versions."~~ **FIXED:** Comment was stale — `HardFork::on_block_popped()` (called on line 625) already properly maintains the versions deque. Updated comment to reflect this.
 
 - **`src/checkpoints/checkpoints.cpp:138`** -- FIXME: "is this the desired behavior?" on `is_alternative_block_allowed()`. The checkpoint validation logic for alternative chains may not behave as intended.
 

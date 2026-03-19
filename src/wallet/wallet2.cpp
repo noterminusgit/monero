@@ -3999,11 +3999,8 @@ void wallet2::fast_refresh(uint64_t stop_height, uint64_t &blocks_start_height, 
           LOG_PRINT_L2( "Skipped block by height: " << current_index);
         m_blockchain.push_back(bl_id);
 
-        if (0 != m_callback)
-        { // FIXME: this isn't right, but simplewallet just logs that we got a block.
-          cryptonote::block dummy;
-          m_callback->on_new_block(current_index, dummy);
-        }
+        // During hash-only fast refresh we don't have full block data, so
+        // skip the on_new_block callback rather than passing a dummy block.
       }
       else if(bl_id != m_blockchain[current_index])
       {

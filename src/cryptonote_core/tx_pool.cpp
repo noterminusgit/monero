@@ -501,35 +501,42 @@ namespace cryptonote
     return true;
   }
   //---------------------------------------------------------------------------------
-  //FIXME: Can return early before removal of all of the key images.
-  //       At the least, need to make sure that a false return here
-  //       is treated properly.  Should probably not return early, however.
+  // Two-pass key image removal to avoid leaving the pool in an inconsistent
+  // state.  Pass 1 validates that every input's key image exists in the map
+  // and contains actual_hash.  Pass 2 performs the actual removals, which is
+  // guaranteed to succeed because we hold both locks throughout.
   bool tx_memory_pool::remove_transaction_keyimages(const transaction_prefix& tx, const crypto::hash &actual_hash)
   {
     CRITICAL_REGION_LOCAL(m_transactions_lock);
     CRITICAL_REGION_LOCAL1(m_blockchain);
-    // ND: Speedup
+
+    // Pass 1 – validate all key images before modifying anything
     for(const txin_v& vi: tx.vin)
     {
       CHECKED_GET_SPECIFIC_VARIANT(vi, const txin_to_key, txin, false);
       auto it = m_spent_key_images.find(txin.k_image);
       CHECK_AND_ASSERT_MES(it != m_spent_key_images.end(), false, "failed to find transaction input in key images. img=" << txin.k_image << ENDL
                                     << "transaction id = " << actual_hash);
-      std::unordered_set<crypto::hash>& key_image_set =  it->second;
+      const std::unordered_set<crypto::hash>& key_image_set = it->second;
       CHECK_AND_ASSERT_MES(key_image_set.size(), false, "empty key_image set, img=" << txin.k_image << ENDL
         << "transaction id = " << actual_hash);
-
-      auto it_in_set = key_image_set.find(actual_hash);
-      CHECK_AND_ASSERT_MES(it_in_set != key_image_set.end(), false, "transaction id not found in key_image set, img=" << txin.k_image << ENDL
+      CHECK_AND_ASSERT_MES(key_image_set.find(actual_hash) != key_image_set.end(), false, "transaction id not found in key_image set, img=" << txin.k_image << ENDL
         << "transaction id = " << actual_hash);
-      key_image_set.erase(it_in_set);
-      if(!key_image_set.size())
+    }
+
+    // Pass 2 – all checks passed, perform removals
+    for(const txin_v& vi: tx.vin)
+    {
+      CHECKED_GET_SPECIFIC_VARIANT(vi, const txin_to_key, txin, false);
+      auto it = m_spent_key_images.find(txin.k_image);
+      std::unordered_set<crypto::hash>& key_image_set = it->second;
+      key_image_set.erase(actual_hash);
+      if(key_image_set.empty())
       {
-        //it is now empty hash container for this key_image
         m_spent_key_images.erase(it);
       }
-
     }
+
     ++m_cookie;
     return true;
   }

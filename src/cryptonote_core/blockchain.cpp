@@ -637,9 +637,8 @@ block Blockchain::pop_block_from_blockchain()
     {
       cryptonote::tx_verification_context tvc = AUTO_VAL_INIT(tvc);
 
-      // FIXME: HardFork
-      // Besides the below, popping a block should also remove the last entry
-      // in hf_versions.
+      // HardFork::on_block_popped (called above) already maintains the
+      // internal versions deque (pops back, pushes front, updates counters).
       uint8_t version = get_ideal_hard_fork_version(m_db->height());
 
       // At time of popping, we know all of the referenced mix ring data for popped transactions,
@@ -3963,8 +3962,8 @@ leave:
   // before checkpoints, which is very dangerous behaviour. We moved the PoW
   // validation out of the next chunk of code to make sure that we correctly
   // check PoW now.
-  // FIXME: height parameter is not used...should it be used or should it not
-  // be a parameter?
+  // Note: blockchain_height IS used below — for PER_BLOCK_CHECKPOINT hash
+  // lookup and for get_block_longhash PoW computation.
   // validate proof_of_work versus difficulty target
   bool precomputed = false;
   bool fast_check = false;
