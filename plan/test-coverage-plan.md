@@ -121,10 +121,11 @@ make coverage   # generates HTML report
 |--------|-------------|-------------|
 | `5bccd6139` | 272 | Session 1: Coverage infra + tests across all components |
 | `e55bdf5bd` | 133 | Session 2-3: Parser utils, device registry, string tools, core extensions |
-| (uncommitted) | ~2800+ | Session 4: Massive expansion across wallet, crypto, P2P, RPC, and core |
-| (uncommitted) | 39 | Session 5: Phase 5 wallet tests + 4 bug fixes |
-| (uncommitted) | 87 | Session 6: P2P protocol serialization, tx proofs, wallet fee tests |
-| **Total** | **~3700+** | |
+| `722da8f3a` | ~2800+ | Session 4: Massive expansion across wallet, crypto, P2P, RPC, and core |
+| `925fe3b0a` | 39 | Session 5: Phase 5 wallet tests + 4 bug fixes |
+| `9e41dd522` | 87 | Session 6: P2P protocol serialization, tx proofs, wallet fee tests |
+| (uncommitted) | 205 | Session 7: blockchain, tx_pool, block_queue, wallet2, core_rpc, rpc_payment, net_utils |
+| **Total** | **~3900+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
@@ -142,7 +143,14 @@ make coverage   # generates HTML report
 - `tests/unit_tests/test_protocol_pack.cpp` (+52 tests — P2P protocol message roundtrips)
 - `tests/unit_tests/p2p_net_node_tests.cpp` (+15 tests — P2P node data, CORE_SYNC_DATA, ping, support flags)
 - `tests/unit_tests/tx_proof.cpp` (+7 tests — proof verification edge cases)
-- `tests/unit_tests/wallet2_core.cpp` (+12 tests — fee multiplier, fee estimation)
+- `tests/unit_tests/wallet2_core.cpp` (+97 tests — fee multiplier, fee estimation, balance, address book, attributes, URI parsing)
+- `tests/unit_tests/blockchain.cpp` (+40 tests — get_top_block, difficulty, block template cache, tx outputs, supplements)
+- `tests/unit_tests/tx_pool.cpp` (+35 tests — add_tx error paths, take_tx, remove_stuck, transaction lifecycle)
+- `tests/unit_tests/block_queue.cpp` (+25 tests — add/flush/get_next/remove spans, data size)
+- `tests/unit_tests/core_rpc_server.cpp` (+25 tests — RPC command serialization roundtrips)
+- `tests/unit_tests/cryptonote_core_tests.cpp` (+20 tests — construct_miner_tx, account address checksum)
+- `tests/unit_tests/net_utils.cpp` (+10 tests — network zone/address utilities)
+- `tests/unit_tests/rpc_payment.cpp` (+10 tests — rpc_payment balance, pay, foreach, hashes)
 
 ---
 

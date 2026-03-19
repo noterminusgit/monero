@@ -136,6 +136,7 @@ set(unit_tests_sources
   net_parse_helpers_tests.cpp
   rpc_args_tests.cpp
   rpc_payment_tests.cpp
+  daemon_messages_tests.cpp
   cryptonote_core_tests.cpp
   p2p_net_node_tests.cpp)
 

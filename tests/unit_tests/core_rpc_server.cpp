@@ -3097,3 +3097,310 @@ TEST(core_rpc, get_info_extended_response_serialization)
   ASSERT_FALSE(res2.restricted);
   ASSERT_EQ(res2.free_space, 100000000000ULL);
 }
+
+// ============================================================
+// Binary serialization round-trips for additional coverage
+// ============================================================
+
+TEST(core_rpc, get_height_response_binary_roundtrip)
+{
+  COMMAND_RPC_GET_HEIGHT::response_t original;
+  original.height = 2999999;
+  original.status = CORE_RPC_STATUS_OK;
+  original.hash = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+  original.untrusted = true;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_HEIGHT::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.height, 2999999u);
+  ASSERT_EQ(restored.status, CORE_RPC_STATUS_OK);
+  ASSERT_EQ(restored.hash, original.hash);
+  ASSERT_TRUE(restored.untrusted);
+}
+
+// NOTE: COMMAND_RPC_GET_INFO::response_t uses conditional serialization that
+// makes direct binary roundtrip unreliable without a full RPC context.
+// The JSON roundtrip test below covers the same structure.
+
+TEST(core_rpc, get_blocks_fast_request_binary_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCKS_FAST::request_t original;
+  original.start_height = 500000;
+  original.prune = true;
+  original.no_miner_tx = true;
+  original.pool_info_since = 100;
+  original.max_block_count = 500;
+  original.requested_info = 2;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_BLOCKS_FAST::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.start_height, 500000u);
+  ASSERT_TRUE(restored.prune);
+  ASSERT_TRUE(restored.no_miner_tx);
+  ASSERT_EQ(restored.pool_info_since, 100u);
+  ASSERT_EQ(restored.max_block_count, 500u);
+  ASSERT_EQ(restored.requested_info, 2);
+}
+
+TEST(core_rpc, send_raw_tx_request_binary_roundtrip)
+{
+  COMMAND_RPC_SEND_RAW_TX::request_t original;
+  original.tx_as_hex = "deadbeefcafe0102030405";
+  original.do_not_relay = true;
+  original.do_sanity_checks = true;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_SEND_RAW_TX::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.tx_as_hex, "deadbeefcafe0102030405");
+  ASSERT_TRUE(restored.do_not_relay);
+  ASSERT_TRUE(restored.do_sanity_checks);
+}
+
+TEST(core_rpc, send_raw_tx_response_binary_roundtrip)
+{
+  COMMAND_RPC_SEND_RAW_TX::response_t original;
+  original.reason = "fee too low";
+  original.not_relayed = true;
+  original.low_mixin = false;
+  original.double_spend = true;
+  original.invalid_input = false;
+  original.invalid_output = true;
+  original.too_big = false;
+  original.overspend = false;
+  original.fee_too_low = true;
+  original.too_few_outputs = false;
+  original.sanity_check_failed = false;
+  original.tx_extra_too_big = true;
+  original.nonzero_unlock_time = false;
+  original.status = CORE_RPC_STATUS_OK;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_SEND_RAW_TX::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.reason, "fee too low");
+  ASSERT_TRUE(restored.not_relayed);
+  ASSERT_TRUE(restored.double_spend);
+  ASSERT_TRUE(restored.invalid_output);
+  ASSERT_TRUE(restored.fee_too_low);
+  ASSERT_TRUE(restored.tx_extra_too_big);
+  ASSERT_FALSE(restored.low_mixin);
+  ASSERT_FALSE(restored.nonzero_unlock_time);
+}
+
+TEST(core_rpc, get_block_template_response_binary_roundtrip)
+{
+  COMMAND_RPC_GETBLOCKTEMPLATE::response_t original;
+  original.difficulty = 500000000000ULL;
+  original.height = 2500000;
+  original.reserved_offset = 130;
+  original.expected_reward = 600000000000ULL;
+  original.prev_hash = "prev_hash_hex";
+  original.seed_hash = "seed_hash_hex";
+  original.blocktemplate_blob = "block_template_blob_data";
+  original.blockhashing_blob = "block_hashing_blob_data";
+  original.next_seed_hash = "next_seed_hex";
+  original.status = CORE_RPC_STATUS_OK;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GETBLOCKTEMPLATE::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.difficulty, 500000000000ULL);
+  ASSERT_EQ(restored.height, 2500000u);
+  ASSERT_EQ(restored.reserved_offset, 130u);
+  ASSERT_EQ(restored.expected_reward, 600000000000ULL);
+  ASSERT_EQ(restored.blocktemplate_blob, "block_template_blob_data");
+  ASSERT_EQ(restored.blockhashing_blob, "block_hashing_blob_data");
+  ASSERT_EQ(restored.seed_hash, "seed_hash_hex");
+}
+
+TEST(core_rpc, hard_fork_info_response_binary_roundtrip)
+{
+  COMMAND_RPC_HARD_FORK_INFO::response_t original;
+  original.version = 16;
+  original.enabled = true;
+  original.window = 10080;
+  original.votes = 10000;
+  original.threshold = 0;
+  original.earliest_height = 2689608;
+  original.voting = 16;
+  original.state = 2;
+  original.status = CORE_RPC_STATUS_OK;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_HARD_FORK_INFO::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.version, 16u);
+  ASSERT_TRUE(restored.enabled);
+  ASSERT_EQ(restored.window, 10080u);
+  ASSERT_EQ(restored.earliest_height, 2689608u);
+  ASSERT_EQ(restored.state, 2u);
+}
+
+TEST(core_rpc, get_coinbase_tx_sum_binary_roundtrip)
+{
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t req_orig;
+  req_orig.height = 100000;
+  req_orig.count = 1000;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(req_orig, buff));
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t req_restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(req_restored, epee::to_span(buff)));
+  ASSERT_EQ(req_restored.height, 100000u);
+  ASSERT_EQ(req_restored.count, 1000u);
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::response_t res_orig;
+  res_orig.emission_amount = 18000000000000000ULL;
+  res_orig.fee_amount = 500000000000ULL;
+  res_orig.wide_emission_amount = "18000000000000000";
+  res_orig.wide_fee_amount = "500000000000";
+  res_orig.emission_amount_top64 = 0;
+  res_orig.fee_amount_top64 = 0;
+  res_orig.status = CORE_RPC_STATUS_OK;
+
+  epee::byte_slice buff2;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(res_orig, buff2));
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::response_t res_restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(res_restored, epee::to_span(buff2)));
+  ASSERT_EQ(res_restored.emission_amount, 18000000000000000ULL);
+  ASSERT_EQ(res_restored.fee_amount, 500000000000ULL);
+}
+
+TEST(core_rpc, get_base_fee_estimate_binary_roundtrip)
+{
+  COMMAND_RPC_GET_BASE_FEE_ESTIMATE::response_t original;
+  original.fee = 20000;
+  original.quantization_mask = 10000;
+  original.status = CORE_RPC_STATUS_OK;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_BASE_FEE_ESTIMATE::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.fee, 20000u);
+  ASSERT_EQ(restored.quantization_mask, 10000u);
+}
+
+TEST(core_rpc, get_output_distribution_request_binary_roundtrip)
+{
+  COMMAND_RPC_GET_OUTPUT_DISTRIBUTION::request_t original;
+  original.amounts.push_back(0);
+  original.amounts.push_back(1000000000);
+  original.amounts.push_back(10000000000ULL);
+  original.from_height = 0;
+  original.to_height = 0;
+  original.cumulative = true;
+  original.binary = true;
+  original.compress = false;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_OUTPUT_DISTRIBUTION::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.amounts.size(), 3u);
+  ASSERT_EQ(restored.amounts[0], 0u);
+  ASSERT_EQ(restored.amounts[1], 1000000000u);
+  ASSERT_EQ(restored.amounts[2], 10000000000ULL);
+  ASSERT_TRUE(restored.cumulative);
+  ASSERT_TRUE(restored.binary);
+  ASSERT_FALSE(restored.compress);
+}
+
+TEST(core_rpc, set_bootstrap_daemon_binary_roundtrip)
+{
+  COMMAND_RPC_SET_BOOTSTRAP_DAEMON::request_t original;
+  original.address = "http://node.example.com:18081";
+  original.username = "user";
+  original.password = "pass";
+  original.proxy = "socks5://127.0.0.1:9050";
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_SET_BOOTSTRAP_DAEMON::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.address, "http://node.example.com:18081");
+  ASSERT_EQ(restored.username, "user");
+  ASSERT_EQ(restored.password, "pass");
+  ASSERT_EQ(restored.proxy, "socks5://127.0.0.1:9050");
+}
+
+TEST(core_rpc, get_version_response_binary_roundtrip)
+{
+  COMMAND_RPC_GET_VERSION::response_t original;
+  original.version = CORE_RPC_VERSION;
+  original.release = true;
+  original.current_height = 2500000;
+  original.target_height = 2500100;
+  original.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_VERSION::hf_entry hf;
+  hf.hf_version = 14;
+  hf.height = 2000000;
+  original.hard_forks.push_back(hf);
+  hf.hf_version = 15;
+  hf.height = 2200000;
+  original.hard_forks.push_back(hf);
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_VERSION::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.version, CORE_RPC_VERSION);
+  ASSERT_TRUE(restored.release);
+  ASSERT_EQ(restored.current_height, 2500000u);
+  ASSERT_EQ(restored.hard_forks.size(), 2u);
+  ASSERT_EQ(restored.hard_forks[0].hf_version, 14u);
+  ASSERT_EQ(restored.hard_forks[1].height, 2200000u);
+}
+
+// ============================================================
+// compress/decompress integer array helpers
+// ============================================================
+
+TEST(core_rpc, compress_decompress_empty)
+{
+  std::vector<uint64_t> v;
+  std::string compressed = compress_integer_array(v);
+  std::vector<uint64_t> decompressed = decompress_integer_array<uint64_t>(compressed);
+  ASSERT_TRUE(decompressed.empty());
+}
+
+TEST(core_rpc, compress_decompress_single)
+{
+  std::vector<uint64_t> v = {42};
+  std::string compressed = compress_integer_array(v);
+  std::vector<uint64_t> decompressed = decompress_integer_array<uint64_t>(compressed);
+  ASSERT_EQ(decompressed.size(), 1u);
+  ASSERT_EQ(decompressed[0], 42u);
+}
+
+TEST(core_rpc, compress_decompress_multiple)
+{
+  std::vector<uint64_t> v = {0, 1, 127, 128, 255, 256, 65535, 1000000, UINT64_MAX};
+  std::string compressed = compress_integer_array(v);
+  std::vector<uint64_t> decompressed = decompress_integer_array<uint64_t>(compressed);
+  ASSERT_EQ(decompressed.size(), v.size());
+  for (size_t i = 0; i < v.size(); ++i)
+    ASSERT_EQ(decompressed[i], v[i]);
+}

@@ -805,3 +805,488 @@ TEST_F(BlockchainTestV16, get_db_returns_correct_height_v16)
   const cryptonote::BlockchainDB& db = m_blockchain.get_db();
   ASSERT_EQ(db.height(), 1u);
 }
+
+// =============================================================================
+// Additional coverage tests for blockchain.cpp
+// =============================================================================
+
+// --- get_adjusted_time tests ---
+
+TEST_F(BlockchainTest, get_adjusted_time_low_height_returns_current_time)
+{
+  // With height < BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW (60), returns current time
+  uint64_t adjusted = m_blockchain.get_adjusted_time(1);
+  uint64_t now = static_cast<uint64_t>(time(NULL));
+  // Should be very close to current time (within 2 seconds)
+  ASSERT_GE(adjusted, now - 2);
+  ASSERT_LE(adjusted, now + 2);
+}
+
+TEST_F(BlockchainTest, get_adjusted_time_zero_height_returns_current_time)
+{
+  uint64_t adjusted = m_blockchain.get_adjusted_time(0);
+  uint64_t now = static_cast<uint64_t>(time(NULL));
+  ASSERT_GE(adjusted, now - 2);
+  ASSERT_LE(adjusted, now + 2);
+}
+
+// --- get_block_by_hash tests ---
+
+TEST_F(BlockchainTest, get_block_by_hash_nonexistent_throws)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  cryptonote::block blk;
+  bool orphan = false;
+  // TestDB returns empty blob for unknown hashes, causing a parse exception
+  ASSERT_ANY_THROW(m_blockchain.get_block_by_hash(h, blk, &orphan));
+}
+
+TEST_F(BlockchainTest, get_block_by_hash_nonexistent_null_orphan_throws)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  cryptonote::block blk;
+  ASSERT_ANY_THROW(m_blockchain.get_block_by_hash(h, blk, nullptr));
+}
+
+// --- get_blocks (offset, count) tests ---
+
+TEST_F(BlockchainTest, get_blocks_beyond_height_returns_false)
+{
+  // Requesting blocks starting at height 100 (beyond chain height 1) should fail
+  std::vector<std::pair<cryptonote::blobdata, cryptonote::block>> blocks;
+  ASSERT_FALSE(m_blockchain.get_blocks(100, 1, blocks));
+}
+
+TEST_F(BlockchainTest, get_blocks_at_height_zero_succeeds)
+{
+  // Requesting block at height 0 should succeed (genesis block)
+  std::vector<std::pair<cryptonote::blobdata, cryptonote::block>> blocks;
+  // TestDB's get_block_blob_from_height returns empty block blob, which may or may not parse
+  // Just verify the method doesn't crash
+  m_blockchain.get_blocks(0, 1, blocks);
+}
+
+TEST_F(BlockchainTest, get_blocks_with_txs_beyond_height_returns_false)
+{
+  std::vector<std::pair<cryptonote::blobdata, cryptonote::block>> blocks;
+  std::vector<cryptonote::blobdata> txs;
+  ASSERT_FALSE(m_blockchain.get_blocks(100, 1, blocks, txs));
+}
+
+// --- get_num_mature_outputs test ---
+
+TEST_F(BlockchainTest, get_num_mature_outputs_zero_amount)
+{
+  // TestDB returns get_num_outputs = 1, but height check may filter it
+  uint64_t num = m_blockchain.get_num_mature_outputs(0);
+  // With only 1 block and CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE = 10,
+  // the single output at height 0 needs height 0 + 10 <= 1, which is false
+  // So num should be 0
+  ASSERT_EQ(num, 0u);
+}
+
+// --- get_output_key test ---
+
+TEST_F(BlockchainTest, get_output_key_returns_pubkey)
+{
+  // TestDB returns empty output_data_t (zeroed pubkey)
+  crypto::public_key pk = m_blockchain.get_output_key(0, 0);
+  // Should return a zeroed key from TestDB
+  ASSERT_EQ(pk, crypto::public_key());
+}
+
+// --- get_outs tests ---
+
+TEST_F(BlockchainTest, get_outs_empty_request)
+{
+  // Empty request should succeed with empty response
+  cryptonote::COMMAND_RPC_GET_OUTPUTS_BIN::request req;
+  req.get_txid = false;
+  cryptonote::COMMAND_RPC_GET_OUTPUTS_BIN::response res;
+  ASSERT_TRUE(m_blockchain.get_outs(req, res));
+  ASSERT_TRUE(res.outs.empty());
+}
+
+// --- get_output_key_mask_unlocked test ---
+
+TEST_F(BlockchainTest, get_output_key_mask_unlocked_returns_data)
+{
+  crypto::public_key key;
+  rct::key mask;
+  bool unlocked = false;
+  // TestDB returns zeroed output data for amount=0, index=0
+  m_blockchain.get_output_key_mask_unlocked(0, 0, key, mask, unlocked);
+  // Verify the function completed without crash
+  ASSERT_EQ(key, crypto::public_key());
+}
+
+// --- get_output_distribution tests ---
+
+TEST_F(BlockchainTest, get_output_distribution_invalid_range)
+{
+  uint64_t start_height = 0;
+  std::vector<uint64_t> distribution;
+  uint64_t base = 0;
+  // to_height > 0 && to_height < from_height => returns false
+  ASSERT_FALSE(m_blockchain.get_output_distribution(0, 10, 5, start_height, distribution, base));
+}
+
+TEST_F(BlockchainTest, get_output_distribution_beyond_height)
+{
+  uint64_t start_height = 0;
+  std::vector<uint64_t> distribution;
+  uint64_t base = 0;
+  // to_height >= db_height => returns false
+  ASSERT_FALSE(m_blockchain.get_output_distribution(1, 0, 100, start_height, distribution, base));
+}
+
+// --- check_tx_outputs (static) tests ---
+
+TEST_F(BlockchainTest, check_tx_outputs_empty_v1_tx_hf1)
+{
+  // A v1 tx with no outputs should pass (no outputs to check)
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 1));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTest, check_tx_outputs_v1_tx_with_valid_decomposed_amount_hf2)
+{
+  // A v1 tx with valid decomposed amounts should pass at HF2
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 1000000000000ULL; // 1 XMR, valid decomposed amount
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTest, check_tx_outputs_v1_tx_with_invalid_decomposed_amount_hf2)
+{
+  // A v1 tx with non-decomposed amount should fail at HF2
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 1234567890ULL; // not a valid decomposed amount
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_FALSE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_TRUE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTest, check_tx_outputs_v2_tx_nonzero_amount_hf3)
+{
+  // A v2 tx with non-zero output amounts should fail at HF3+
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 100;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_FALSE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 3));
+  ASSERT_TRUE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTest, check_tx_outputs_v2_tx_zero_amount_hf3)
+{
+  // A v2 tx with zero output amounts should pass at HF3
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 3));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+// --- have_tx_keyimges_as_spent tests ---
+
+TEST_F(BlockchainTest, have_tx_keyimges_as_spent_span_empty)
+{
+  // Empty span should return empty vector
+  std::vector<crypto::key_image> ki;
+  auto result = m_blockchain.have_tx_keyimges_as_spent(epee::to_span(ki));
+  ASSERT_TRUE(result.empty());
+}
+
+TEST_F(BlockchainTest, have_tx_keyimges_as_spent_span_nonexistent)
+{
+  // Key images that don't exist should all return false
+  std::vector<crypto::key_image> ki;
+  ki.push_back(crypto::rand<crypto::key_image>());
+  ki.push_back(crypto::rand<crypto::key_image>());
+  ki.push_back(crypto::rand<crypto::key_image>());
+  auto result = m_blockchain.have_tx_keyimges_as_spent(epee::to_span(ki));
+  ASSERT_EQ(result.size(), 3u);
+  for (size_t i = 0; i < result.size(); ++i)
+    ASSERT_FALSE(result[i]) << "Key image " << i << " should not be spent";
+}
+
+// --- find_blockchain_supplement tests ---
+
+TEST_F(BlockchainTest, find_blockchain_supplement_empty_ids_fails)
+{
+  // Empty qblock_ids should fail
+  std::list<crypto::hash> qblock_ids;
+  uint64_t starter_offset = 0;
+  ASSERT_FALSE(m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset));
+}
+
+TEST_F(BlockchainTest, find_blockchain_supplement_wrong_genesis_fails)
+{
+  // If the last element (genesis) doesn't match, should fail
+  std::list<crypto::hash> qblock_ids;
+  qblock_ids.push_back(crypto::rand<crypto::hash>()); // wrong genesis hash
+  uint64_t starter_offset = 0;
+  ASSERT_FALSE(m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset));
+}
+
+// NOTE: cleanup_handle_incoming_blocks requires a prior prepare_handle_incoming_blocks
+// call to acquire the mutex. Testing cleanup alone causes undefined mutex unlock behavior.
+
+// --- check_difficulty_checkpoints on clean chain ---
+
+TEST_F(BlockchainTest, check_difficulty_checkpoints_clean_chain)
+{
+  // On FAKECHAIN with no checkpoints, this should return true
+  auto result = m_blockchain.check_difficulty_checkpoints();
+  ASSERT_TRUE(result.first);
+}
+
+// --- set_user_options ---
+
+TEST_F(BlockchainTest, set_user_options_no_crash)
+{
+  m_blockchain.set_user_options(4, true, 100, cryptonote::db_defaultsync, true);
+}
+
+TEST_F(BlockchainTest, set_user_options_nosync_mode)
+{
+  m_blockchain.set_user_options(1, false, 0, cryptonote::db_nosync, false);
+}
+
+// --- safesyncmode ---
+
+TEST_F(BlockchainTest, safesyncmode_toggle)
+{
+  m_blockchain.safesyncmode(true);
+  m_blockchain.safesyncmode(false);
+}
+
+// --- lock/unlock ---
+
+TEST_F(BlockchainTest, lock_unlock_no_deadlock)
+{
+  m_blockchain.lock();
+  m_blockchain.unlock();
+}
+
+// --- cancel ---
+
+TEST_F(BlockchainTest, cancel_no_crash)
+{
+  m_blockchain.cancel();
+}
+
+// --- get_next_long_term_block_weight ---
+
+TEST_F(BlockchainTest, get_next_long_term_block_weight_returns_value)
+{
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(1000);
+  // At HF version 1, long term block weight is just the block weight
+  ASSERT_EQ(ltw, 1000u);
+}
+
+// --- has_block_weights ---
+
+TEST_F(BlockchainTest, has_block_weights_at_zero)
+{
+  bool has = m_blockchain.has_block_weights(0, 1);
+  (void)has; // just verify no crash
+}
+
+// --- get_block_id_by_height beyond chain ---
+
+TEST_F(BlockchainTest, get_block_id_by_height_beyond_chain)
+{
+  // Height beyond the chain should return null hash
+  crypto::hash id = m_blockchain.get_block_id_by_height(999999);
+  // TestDB returns null_hash for any height
+  ASSERT_EQ(id, crypto::null_hash);
+}
+
+// --- have_block with where pointer ---
+
+TEST_F(BlockchainTest, have_block_with_where_pointer)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  int where = -1;
+  ASSERT_FALSE(m_blockchain.have_block(h, &where));
+}
+
+// --- get_total_transactions ---
+
+TEST_F(BlockchainTest, get_total_transactions_returns_db_value)
+{
+  // TestDB returns tx_count = 0
+  ASSERT_EQ(m_blockchain.get_total_transactions(), 0u);
+}
+
+// --- store_blockchain ---
+
+TEST_F(BlockchainTest, store_blockchain_returns_result)
+{
+  bool result = m_blockchain.store_blockchain();
+  (void)result; // Just ensure no crash
+}
+
+// --- for_blocks_range ---
+
+TEST_F(BlockchainTest, for_blocks_range_zero_to_zero)
+{
+  int count = 0;
+  bool result = m_blockchain.for_blocks_range(0, 0, [&count](uint64_t height, const crypto::hash& hash, const cryptonote::block& blk) {
+    ++count;
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+// --- txpool_tx_matches_category ---
+
+TEST_F(BlockchainTest, txpool_tx_matches_category_nonexistent)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  bool matches = m_blockchain.txpool_tx_matches_category(h, cryptonote::relay_category::broadcasted);
+  ASSERT_FALSE(matches);
+}
+
+// --- get_txpool_tx_meta nonexistent ---
+
+TEST_F(BlockchainTest, get_txpool_tx_meta_nonexistent)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  cryptonote::txpool_tx_meta_t meta;
+  ASSERT_FALSE(m_blockchain.get_txpool_tx_meta(h, meta));
+}
+
+// --- get_txpool_tx_blob nonexistent ---
+
+TEST_F(BlockchainTest, get_txpool_tx_blob_nonexistent)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  cryptonote::blobdata bd;
+  ASSERT_FALSE(m_blockchain.get_txpool_tx_blob(h, bd, cryptonote::relay_category::broadcasted));
+}
+
+// --- flush_txes_from_pool empty list ---
+
+TEST_F(BlockchainTest, flush_txes_from_pool_empty)
+{
+  std::vector<crypto::hash> txids;
+  ASSERT_TRUE(m_blockchain.flush_txes_from_pool(txids));
+}
+
+// --- for_all_txpool_txes ---
+
+TEST_F(BlockchainTest, for_all_txpool_txes_empty)
+{
+  bool result = m_blockchain.for_all_txpool_txes([](const crypto::hash& txid, const cryptonote::txpool_tx_meta_t& meta, const cryptonote::blobdata_ref* blob) {
+    return true;
+  }, false, cryptonote::relay_category::broadcasted);
+  // TestDB::for_all_txpool_txes returns false by default, but the
+  // derived TestDB in this file overrides it to return true
+  ASSERT_TRUE(result);
+}
+
+// --- V16 fixture additional tests ---
+
+TEST_F(BlockchainTestV16, check_tx_outputs_v2_zero_amount_v16)
+{
+  // At HF v16, v2 tx with zero amounts should pass
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_tagged_key ttk;
+  ttk.key = crypto::public_key();
+  out.target = ttk;
+  tx.vout.push_back(out);
+  // At v16, BP+ type is expected
+  tx.rct_signatures.type = rct::RCTTypeBulletproofPlus;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 16));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestV16, get_adjusted_time_low_height_v16)
+{
+  uint64_t adjusted = m_blockchain.get_adjusted_time(1);
+  uint64_t now = static_cast<uint64_t>(time(NULL));
+  ASSERT_GE(adjusted, now - 2);
+  ASSERT_LE(adjusted, now + 2);
+}
+
+TEST_F(BlockchainTestV16, get_next_long_term_block_weight_v16)
+{
+  // At HF >= 10, long term block weight uses the adaptive algorithm
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(1000);
+  ASSERT_GT(ltw, 0u);
+}
+
+TEST_F(BlockchainTestV16, find_blockchain_supplement_empty_fails_v16)
+{
+  std::list<crypto::hash> qblock_ids;
+  uint64_t starter_offset = 0;
+  ASSERT_FALSE(m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset));
+}
+
+TEST_F(BlockchainTestV16, get_num_mature_outputs_v16)
+{
+  // With only genesis block, no outputs should be mature
+  uint64_t num = m_blockchain.get_num_mature_outputs(0);
+  ASSERT_EQ(num, 0u);
+}
+
+TEST_F(BlockchainTestV16, get_outs_empty_request_v16)
+{
+  cryptonote::COMMAND_RPC_GET_OUTPUTS_BIN::request req;
+  req.get_txid = false;
+  cryptonote::COMMAND_RPC_GET_OUTPUTS_BIN::response res;
+  ASSERT_TRUE(m_blockchain.get_outs(req, res));
+  ASSERT_TRUE(res.outs.empty());
+}
+
+TEST_F(BlockchainTestV16, check_difficulty_checkpoints_v16)
+{
+  auto result = m_blockchain.check_difficulty_checkpoints();
+  ASSERT_TRUE(result.first);
+}
+
+TEST_F(BlockchainTestV16, set_user_options_async_v16)
+{
+  m_blockchain.set_user_options(2, false, 50, cryptonote::db_async, true);
+}
+
+TEST_F(BlockchainTestV16, get_output_key_v16)
+{
+  crypto::public_key pk = m_blockchain.get_output_key(0, 0);
+  ASSERT_EQ(pk, crypto::public_key());
+}

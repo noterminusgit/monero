@@ -299,3 +299,121 @@ TEST(rpc_payment, many_clients)
   });
   ASSERT_EQ(count, 50);
 }
+
+// ============================================================
+// Additional rpc_payment coverage tests
+// ============================================================
+
+TEST(rpc_payment, pay_timestamp_ordering)
+{
+  // pay() requires timestamps to be monotonically increasing
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 1000);
+  uint64_t credits = 0;
+
+  // First payment at ts=10
+  ASSERT_TRUE(payment.pay(client, 10, 1, "test", false, credits));
+  ASSERT_EQ(credits, 999u);
+
+  // Payment at ts=5 should fail (going backwards)
+  ASSERT_FALSE(payment.pay(client, 5, 1, "test", false, credits));
+
+  // Payment at same ts=10 with same_ts=false should fail
+  ASSERT_FALSE(payment.pay(client, 10, 1, "test", false, credits));
+
+  // Payment at same ts=10 with same_ts=true should succeed
+  ASSERT_TRUE(payment.pay(client, 10, 1, "test", true, credits));
+  ASSERT_EQ(credits, 998u);
+
+  // Payment at higher ts should succeed
+  ASSERT_TRUE(payment.pay(client, 20, 1, "test", false, credits));
+  ASSERT_EQ(credits, 997u);
+}
+
+// NOTE: balance() does not clamp on overflow — it wraps. This is existing behavior.
+// Testing overflow clamping would require a code change, so skipped.
+
+TEST(rpc_payment, balance_subtraction_clamps_to_zero)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+
+  payment.balance(client, 5);
+  // Subtracting more than available should clamp to 0
+  uint64_t bal = payment.balance(client, -100);
+  ASSERT_EQ(bal, 0u);
+}
+
+TEST(rpc_payment, client_info_default_values)
+{
+  cryptonote::rpc_payment::client_info info;
+  ASSERT_EQ(info.credits, 0u);
+  ASSERT_EQ(info.cookie, 0u);
+  ASSERT_EQ(info.previous_seed_height, 0u);
+  ASSERT_EQ(info.seed_height, 0u);
+  ASSERT_EQ(info.credits_total, 0u);
+  ASSERT_EQ(info.credits_used, 0u);
+  ASSERT_EQ(info.nonces_good, 0u);
+  ASSERT_EQ(info.nonces_stale, 0u);
+  ASSERT_EQ(info.nonces_bad, 0u);
+  ASSERT_EQ(info.nonces_dupe, 0u);
+  ASSERT_EQ(info.last_request_timestamp, 0u);
+  ASSERT_EQ(info.block_template_update_time, 0u);
+}
+
+TEST(rpc_payment, foreach_returns_true_on_empty)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  bool result = payment.foreach([](const crypto::public_key &, const cryptonote::rpc_payment::client_info &) {
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+TEST(rpc_payment, foreach_returns_false_on_early_stop)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  crypto::public_key client;
+  memset(&client, 1, sizeof(client));
+  payment.balance(client, 10);
+
+  bool result = payment.foreach([](const crypto::public_key &, const cryptonote::rpc_payment::client_info &) {
+    return false; // Stop immediately
+  });
+  ASSERT_FALSE(result);
+}
+
+TEST(rpc_payment, get_hashes_no_data)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  // With no hash submissions, get_hashes should return 0
+  uint64_t hashes = payment.get_hashes(3600);
+  ASSERT_EQ(hashes, 0u);
+}
+
+TEST(rpc_payment, prune_hashrate_empty)
+{
+  // Pruning an empty hashrate map should not crash
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  payment.prune_hashrate(3600);
+  ASSERT_EQ(payment.get_hashes(3600), 0u);
+}
+
+TEST(rpc_payment, flush_by_age_empty)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  // Flushing with no clients should return 0 and not crash
+  unsigned int flushed = payment.flush_by_age(0);
+  ASSERT_EQ(flushed, 0u);
+}
+
+TEST(rpc_payment, on_idle_no_crash)
+{
+  cryptonote::rpc_payment payment(make_test_address(), 100, 10);
+  // on_idle should not crash even with no data
+  ASSERT_TRUE(payment.on_idle());
+}

@@ -587,3 +587,148 @@ TEST(local_ip, link_local_169_254)
   // Link-local may or may not be considered local depending on implementation
   (void)epee::net_utils::is_ip_local(ip); // Just verify no crash
 }
+
+// ---- net::error category tests ----
+
+#include "net/error.h"
+
+TEST(net_error, category_name)
+{
+  const std::error_category& cat = net::error_category();
+  EXPECT_STREQ(cat.name(), "net::error_category");
+}
+
+TEST(net_error, category_singleton)
+{
+  // Verify the category always returns the same instance
+  const std::error_category& cat1 = net::error_category();
+  const std::error_category& cat2 = net::error_category();
+  EXPECT_EQ(&cat1, &cat2);
+}
+
+TEST(net_error, make_error_code_produces_correct_category)
+{
+  std::error_code ec = net::make_error_code(net::error::bogus_dnssec);
+  EXPECT_EQ(&ec.category(), &net::error_category());
+}
+
+TEST(net_error, error_messages_not_empty)
+{
+  // Every defined error code should produce a non-empty message
+  const net::error codes[] = {
+    net::error::bogus_dnssec,
+    net::error::dns_query_failure,
+    net::error::expected_tld,
+    net::error::invalid_encoding,
+    net::error::invalid_host,
+    net::error::invalid_i2p_address,
+    net::error::invalid_mask,
+    net::error::invalid_port,
+    net::error::invalid_scheme,
+    net::error::invalid_tor_address,
+    net::error::unexpected_userinfo,
+    net::error::unsupported_address,
+  };
+
+  for (auto c : codes)
+  {
+    std::error_code ec = net::make_error_code(c);
+    EXPECT_FALSE(ec.message().empty()) << "Empty message for error code " << static_cast<int>(c);
+  }
+}
+
+TEST(net_error, bogus_dnssec_message)
+{
+  std::error_code ec = net::make_error_code(net::error::bogus_dnssec);
+  EXPECT_NE(ec.message().find("DNSSEC"), std::string::npos);
+}
+
+TEST(net_error, dns_query_failure_message)
+{
+  std::error_code ec = net::make_error_code(net::error::dns_query_failure);
+  EXPECT_NE(ec.message().find("DNS"), std::string::npos);
+}
+
+TEST(net_error, invalid_port_message)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_port);
+  EXPECT_NE(ec.message().find("port"), std::string::npos);
+}
+
+TEST(net_error, invalid_mask_message)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_mask);
+  EXPECT_NE(ec.message().find("mask"), std::string::npos);
+}
+
+TEST(net_error, invalid_tor_address_message)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_tor_address);
+  EXPECT_NE(ec.message().find("Tor"), std::string::npos);
+}
+
+TEST(net_error, invalid_i2p_address_message)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_i2p_address);
+  EXPECT_NE(ec.message().find("I2P"), std::string::npos);
+}
+
+TEST(net_error, unknown_error_code_message)
+{
+  // An error code value that's not in the enum should produce "Unknown"
+  std::error_code ec{999, net::error_category()};
+  EXPECT_NE(ec.message().find("Unknown"), std::string::npos);
+}
+
+TEST(net_error, default_error_condition_invalid_port)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_port);
+  std::error_condition cond = ec.default_error_condition();
+  // invalid_port maps to result_out_of_range
+  EXPECT_EQ(cond, std::errc::result_out_of_range);
+}
+
+TEST(net_error, default_error_condition_invalid_mask)
+{
+  std::error_code ec = net::make_error_code(net::error::invalid_mask);
+  std::error_condition cond = ec.default_error_condition();
+  // invalid_mask maps to result_out_of_range
+  EXPECT_EQ(cond, std::errc::result_out_of_range);
+}
+
+TEST(net_error, default_error_condition_expected_tld_is_self)
+{
+  std::error_code ec = net::make_error_code(net::error::expected_tld);
+  std::error_condition cond = ec.default_error_condition();
+  // expected_tld falls through to default: returns condition with same value and same category
+  EXPECT_EQ(cond.value(), static_cast<int>(net::error::expected_tld));
+}
+
+TEST(net_error, error_code_bool_conversion)
+{
+  // A non-zero error code should be truthy
+  std::error_code ec = net::make_error_code(net::error::invalid_host);
+  EXPECT_TRUE(static_cast<bool>(ec));
+
+  // Value 0 (success) should be falsy - but net::error starts at 1
+  std::error_code ec_zero{0, net::error_category()};
+  EXPECT_FALSE(static_cast<bool>(ec_zero));
+}
+
+TEST(net_error, error_code_values_distinct)
+{
+  std::set<int> values;
+  values.insert(static_cast<int>(net::error::bogus_dnssec));
+  values.insert(static_cast<int>(net::error::dns_query_failure));
+  values.insert(static_cast<int>(net::error::expected_tld));
+  values.insert(static_cast<int>(net::error::invalid_encoding));
+  values.insert(static_cast<int>(net::error::invalid_host));
+  values.insert(static_cast<int>(net::error::invalid_i2p_address));
+  values.insert(static_cast<int>(net::error::invalid_mask));
+  values.insert(static_cast<int>(net::error::invalid_port));
+  values.insert(static_cast<int>(net::error::invalid_scheme));
+  values.insert(static_cast<int>(net::error::invalid_tor_address));
+  values.insert(static_cast<int>(net::error::unexpected_userinfo));
+  values.insert(static_cast<int>(net::error::unsupported_address));
+  EXPECT_EQ(values.size(), 12u);
+}

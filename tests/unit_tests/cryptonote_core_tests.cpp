@@ -28,6 +28,7 @@
 
 #include "gtest/gtest.h"
 #include "cryptonote_core/cryptonote_tx_utils.h"
+#include "cryptonote_core/cryptonote_core.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "cryptonote_basic/cryptonote_basic_impl.h"
 #include "ringct/rctSigs.h"
@@ -391,4 +392,251 @@ TEST(CryptonoteCore, ConstructMinerTxV14)
   {
     EXPECT_FALSE(tx.vout.empty());
   }
+}
+
+// =============================================================================
+// Additional coverage tests for cryptonote_core.cpp
+// =============================================================================
+
+// --- check_tx_inputs_keyimages_diff (static) tests ---
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffEmptyTx)
+{
+  // An empty tx has no inputs, so the method returns false because
+  // CHECKED_GET_SPECIFIC_VARIANT fails on non-txin_to_key types.
+  // Actually, with no inputs, the loop body never runs, so it returns true.
+  cryptonote::transaction tx;
+  // We need at least one txin_to_key input for it to do anything useful
+  // Empty vin means the loop is skipped, return true
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffSingleInput)
+{
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  in.k_image = crypto::rand<crypto::key_image>();
+  in.key_offsets.push_back(0);
+  tx.vin.push_back(in);
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffDuplicateKeyImage)
+{
+  cryptonote::transaction tx;
+  crypto::key_image ki = crypto::rand<crypto::key_image>();
+  cryptonote::txin_to_key in1;
+  in1.amount = 1000;
+  in1.k_image = ki;
+  in1.key_offsets.push_back(0);
+  tx.vin.push_back(in1);
+
+  cryptonote::txin_to_key in2;
+  in2.amount = 2000;
+  in2.k_image = ki; // same key image
+  in2.key_offsets.push_back(1);
+  tx.vin.push_back(in2);
+
+  EXPECT_FALSE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffDistinctKeyImages)
+{
+  cryptonote::transaction tx;
+  for (int i = 0; i < 5; ++i)
+  {
+    cryptonote::txin_to_key in;
+    in.amount = 1000 * (i + 1);
+    in.k_image = crypto::rand<crypto::key_image>();
+    in.key_offsets.push_back(i);
+    tx.vin.push_back(in);
+  }
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+// --- check_tx_inputs_ring_members_diff (static) tests ---
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffEmptyTx)
+{
+  cryptonote::transaction tx;
+  // Empty tx, loop skipped, returns true
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffValidOffsets)
+{
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  in.k_image = crypto::rand<crypto::key_image>();
+  // Key offsets: first is absolute, rest are relative (should be > 0)
+  in.key_offsets = {100, 5, 10, 3};
+  tx.vin.push_back(in);
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffZeroOffset)
+{
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  in.k_image = crypto::rand<crypto::key_image>();
+  // A zero offset at position > 0 means duplicate ring member
+  in.key_offsets = {100, 0, 10};
+  tx.vin.push_back(in);
+  // At HF >= 6, this should fail
+  EXPECT_FALSE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffZeroOffsetBeforeHF6)
+{
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  in.k_image = crypto::rand<crypto::key_image>();
+  in.key_offsets = {100, 0, 10};
+  tx.vin.push_back(in);
+  // Before HF 6, zero offsets are allowed
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 5));
+}
+
+// --- check_tx_inputs_keyimages_domain (static) tests ---
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDomainEmptyTx)
+{
+  cryptonote::transaction tx;
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_domain(tx));
+}
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDomainIdentityKeyImage)
+{
+  // A key image that is the identity point should be rejected
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  // Set key image to identity (all zeros is the identity in ed25519)
+  memset(&in.k_image, 0, sizeof(in.k_image));
+  // The identity check uses rct::ki2rct(k_image) == rct::identity()
+  // rct::identity() returns { {1, 0, 0, ...} } (the curve identity point encoding)
+  // A zeroed key_image might not be the identity in the ed25519 encoding.
+  // Let's construct the actual identity point:
+  rct::key identity = rct::identity();
+  memcpy(&in.k_image, identity.bytes, sizeof(in.k_image));
+  in.key_offsets.push_back(0);
+  tx.vin.push_back(in);
+  EXPECT_FALSE(cryptonote::core::check_tx_inputs_keyimages_domain(tx));
+}
+
+// --- check_tx_semantic (static) tests ---
+
+TEST(CryptonoteCore, CheckTxSemanticEmptyInputs)
+{
+  // A tx with no inputs should fail semantic check
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_verification_context tvc = {};
+  EXPECT_FALSE(cryptonote::core::check_tx_semantic(tx, tvc, 1));
+  EXPECT_TRUE(tvc.m_verifivation_failed);
+  EXPECT_TRUE(tvc.m_invalid_input);
+}
+
+TEST(CryptonoteCore, CheckTxSemanticV1TxZeroMoneyOut)
+{
+  // A v1 tx where amount_in <= amount_out should fail
+  cryptonote::transaction tx;
+  tx.version = 1;
+
+  // Add a valid input type
+  cryptonote::txin_to_key in;
+  in.amount = 100;
+  in.k_image = crypto::rand<crypto::key_image>();
+  in.key_offsets.push_back(0);
+  tx.vin.push_back(in);
+
+  // Add output with same amount (inputs must be > outputs for v1)
+  cryptonote::tx_out out;
+  out.amount = 100;
+  cryptonote::txout_to_key tk;
+  crypto::generate_keys(tk.key, *reinterpret_cast<crypto::secret_key*>(&tk.key));
+  out.target = tk;
+  tx.vout.push_back(out);
+
+  cryptonote::tx_verification_context tvc = {};
+  EXPECT_FALSE(cryptonote::core::check_tx_semantic(tx, tvc, 1));
+  // Either m_overspend or some other check triggers
+  EXPECT_TRUE(tvc.m_verifivation_failed);
+}
+
+// --- get_max_tx_size additional ---
+
+TEST(CryptonoteCore, MaxTxSizeLessThanHalfBlockSize)
+{
+  size_t max_size = cryptonote::get_max_tx_size();
+  // The max tx size should be exactly CRYPTONOTE_MAX_TX_SIZE
+  EXPECT_EQ(max_size, CRYPTONOTE_MAX_TX_SIZE);
+}
+
+// --- is_valid_decomposed_amount tests ---
+
+TEST(CryptonoteCore, ValidDecomposedAmountZero)
+{
+  // Zero might not be in the decomposed list
+  // Actually the list starts from 1, so 0 is not valid
+  EXPECT_FALSE(cryptonote::is_valid_decomposed_amount(0));
+}
+
+TEST(CryptonoteCore, ValidDecomposedAmountOne)
+{
+  EXPECT_TRUE(cryptonote::is_valid_decomposed_amount(1));
+}
+
+TEST(CryptonoteCore, ValidDecomposedAmountTen)
+{
+  EXPECT_TRUE(cryptonote::is_valid_decomposed_amount(10));
+}
+
+TEST(CryptonoteCore, ValidDecomposedAmountHundred)
+{
+  EXPECT_TRUE(cryptonote::is_valid_decomposed_amount(100));
+}
+
+TEST(CryptonoteCore, ValidDecomposedAmountInvalid)
+{
+  // 15 is not a decomposed amount (not of the form d * 10^n)
+  EXPECT_FALSE(cryptonote::is_valid_decomposed_amount(15));
+}
+
+TEST(CryptonoteCore, ValidDecomposedAmount1XMR)
+{
+  // 1 XMR = 1e12
+  EXPECT_TRUE(cryptonote::is_valid_decomposed_amount(1000000000000ULL));
+}
+
+// --- get_block_reward edge cases ---
+
+TEST(CryptonoteCore, BlockRewardVersion1WithSmallMedian)
+{
+  uint64_t reward = 0;
+  bool r = cryptonote::get_block_reward(1000, 500, UINT64_C(10000000000000), reward, 1);
+  ASSERT_TRUE(r);
+  EXPECT_GT(reward, 0u);
+}
+
+TEST(CryptonoteCore, BlockRewardVersion1BlockEqualMedian)
+{
+  uint64_t reward = 0;
+  // Block weight == median: no penalty
+  bool r = cryptonote::get_block_reward(300000, 300000, UINT64_C(10000000000000), reward, 1);
+  ASSERT_TRUE(r);
+  EXPECT_GT(reward, 0u);
+}
+
+TEST(CryptonoteCore, BlockRewardVersion1BlockSlightlyOverMedian)
+{
+  uint64_t reward_at = 0, reward_over = 0;
+  cryptonote::get_block_reward(300000, 300000, UINT64_C(10000000000000), reward_at, 1);
+  cryptonote::get_block_reward(300000, 310000, UINT64_C(10000000000000), reward_over, 1);
+  // Slightly over median should have slightly reduced reward
+  EXPECT_LE(reward_over, reward_at);
 }
