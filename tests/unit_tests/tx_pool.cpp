@@ -855,6 +855,12 @@ namespace
       out.target = otk;
       tx.vout.push_back(out);
 
+      // Add a dummy signature so serialization round-trips correctly.
+      // v1 txs need one signature per vin entry, each with key_offsets.size() crypto::signature entries.
+      std::vector<crypto::signature> sigs(in.key_offsets.size());
+      memset(sigs.data(), 0, sigs.size() * sizeof(crypto::signature));
+      tx.signatures.push_back(sigs);
+
       return tx;
     }
 

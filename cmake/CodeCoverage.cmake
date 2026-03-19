@@ -90,6 +90,7 @@ function(setup_target_for_coverage)
     COMMAND ${LCOV_PATH} --directory ${CMAKE_BINARY_DIR} --capture --initial
             --output-file ${COVERAGE_NAME}.base
             --rc lcov_branch_coverage=1
+            --ignore-errors mismatch,gcov
 
     # 3. Run the test executable
     COMMAND ${COVERAGE_EXECUTABLE} --output-on-failure
@@ -98,6 +99,7 @@ function(setup_target_for_coverage)
     COMMAND ${LCOV_PATH} --directory ${CMAKE_BINARY_DIR} --capture
             --output-file ${COVERAGE_NAME}.info
             --rc lcov_branch_coverage=1
+            --ignore-errors mismatch,gcov
 
     # 5. Combine baseline and test coverage
     COMMAND ${LCOV_PATH}
@@ -105,6 +107,7 @@ function(setup_target_for_coverage)
             -a ${COVERAGE_NAME}.info
             --output-file ${COVERAGE_NAME}.total
             --rc lcov_branch_coverage=1
+            --ignore-errors mismatch,gcov
 
     # 6. Filter out external, test, and system paths
     COMMAND ${LCOV_PATH}
@@ -116,6 +119,7 @@ function(setup_target_for_coverage)
             '*/gtest/*'
             --output-file ${COVERAGE_NAME}.filtered
             --rc lcov_branch_coverage=1
+            --ignore-errors mismatch,gcov
 
     # 7. Generate HTML report
     COMMAND ${GENHTML_PATH}
@@ -123,11 +127,13 @@ function(setup_target_for_coverage)
             --title "Monero Code Coverage"
             --legend --show-details
             --branch-coverage
+            --ignore-errors mismatch,gcov
             ${COVERAGE_NAME}.filtered
 
     # 8. Print summary
     COMMAND ${LCOV_PATH} --summary ${COVERAGE_NAME}.filtered
             --rc lcov_branch_coverage=1
+            --ignore-errors mismatch,gcov
 
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
     DEPENDS ${COVERAGE_DEPENDENCIES}
