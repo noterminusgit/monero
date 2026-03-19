@@ -1230,3 +1230,226 @@ TEST_F(TxPoolWithDB, add_tx_get_pool_info_returns_tx)
   ASSERT_EQ(added_txs.size(), 1u);
   ASSERT_EQ(added_txs[0].first, txid);
 }
+
+// ========================================================================
+// set_relayed tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, set_relayed_updates_metadata)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // Call set_relayed with fluff method
+  std::vector<bool> just_broadcasted;
+  epee::span<const crypto::hash> hash_span(&txid, 1);
+  m_pool.set_relayed(hash_span, cryptonote::relay_method::fluff, just_broadcasted);
+
+  // The tx should still be in the pool after set_relayed
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
+}
+
+TEST_F(TxPoolWithDB, set_relayed_empty_hashes)
+{
+  // Calling set_relayed with an empty span should not crash
+  std::vector<bool> just_broadcasted;
+  epee::span<const crypto::hash> empty_span;
+  m_pool.set_relayed(empty_span, cryptonote::relay_method::fluff, just_broadcasted);
+  ASSERT_TRUE(just_broadcasted.empty());
+}
+
+TEST_F(TxPoolWithDB, set_relayed_nonexistent_hash)
+{
+  // Calling set_relayed with a hash not in the pool should not crash
+  crypto::hash fake_hash = crypto::rand<crypto::hash>();
+  std::vector<bool> just_broadcasted;
+  epee::span<const crypto::hash> hash_span(&fake_hash, 1);
+  m_pool.set_relayed(hash_span, cryptonote::relay_method::fluff, just_broadcasted);
+  // Should have processed one entry (but it wasn't found, so not broadcasted)
+  ASSERT_EQ(just_broadcasted.size(), 1u);
+  ASSERT_FALSE(just_broadcasted[0]);
+}
+
+// ========================================================================
+// get_relayable_transactions tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, get_relayable_transactions_empty_pool)
+{
+  std::vector<std::tuple<crypto::hash, cryptonote::blobdata, cryptonote::relay_method>> txs;
+  ASSERT_TRUE(m_pool.get_relayable_transactions(txs));
+  ASSERT_TRUE(txs.empty());
+}
+
+TEST_F(TxPoolWithDB, get_relayable_transactions_with_block_relayed_tx)
+{
+  // Add a tx with relay_method::block (kept_by_block)
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // Txs added via relay_method::block are already considered broadcasted.
+  // get_relayable_transactions returns txs that need relaying (not yet fully relayed).
+  // A block-relayed tx is already at the highest relay level, so it should not appear.
+  std::vector<std::tuple<crypto::hash, cryptonote::blobdata, cryptonote::relay_method>> txs;
+  ASSERT_TRUE(m_pool.get_relayable_transactions(txs));
+  // The tx was relayed via block, so it should not be in the relayable list
+  ASSERT_TRUE(txs.empty());
+}
+
+// ========================================================================
+// Duplicate/conflict tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, add_duplicate_tx_to_pool)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // Adding the same tx again (same txid) should not increase the count
+  crypto::hash txid2;
+  add_test_tx_to_pool(tx, txid2);
+  ASSERT_EQ(txid, txid2);
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+}
+
+TEST_F(TxPoolWithDB, add_tx_with_same_key_image)
+{
+  // Create two different txs that share the same key image
+  cryptonote::transaction tx1 = make_test_tx(1000000, 999000);
+  crypto::hash txid1;
+  ASSERT_TRUE(add_test_tx_to_pool(tx1, txid1));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // Build a second tx reusing the same key image from tx1
+  cryptonote::transaction tx2;
+  tx2.version = 1;
+  tx2.unlock_time = 0;
+
+  cryptonote::txin_to_key in;
+  in.amount = 2000000;
+  in.key_offsets.push_back(0);
+  // Reuse the key image from tx1
+  in.k_image = boost::get<cryptonote::txin_to_key>(tx1.vin[0]).k_image;
+  tx2.vin.push_back(in);
+
+  cryptonote::tx_out out;
+  out.amount = 1990000;
+  cryptonote::txout_to_key otk;
+  otk.key = crypto::rand<crypto::public_key>();
+  out.target = otk;
+  tx2.vout.push_back(out);
+
+  std::vector<crypto::signature> sigs(in.key_offsets.size());
+  memset(sigs.data(), 0, sigs.size() * sizeof(crypto::signature));
+  tx2.signatures.push_back(sigs);
+
+  crypto::hash txid2;
+  // The second add may succeed (marked as double spend) or fail.
+  // Either way it should not crash and pool should remain consistent.
+  add_test_tx_to_pool(tx2, txid2);
+
+  // Pool should have at least 1 tx (the original), possibly 2 if double-spend is allowed
+  ASSERT_GE(m_pool.get_transactions_count(), 1u);
+  ASSERT_LE(m_pool.get_transactions_count(), 2u);
+}
+
+// ========================================================================
+// More fill_block_template tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, fill_block_template_empty_pool)
+{
+  cryptonote::block bl;
+  size_t total_weight = 0;
+  uint64_t fee = 0;
+  uint64_t expected_reward = 0;
+  ASSERT_TRUE(m_pool.fill_block_template(bl, 300000, 0, total_weight, fee, expected_reward, 1));
+  ASSERT_EQ(total_weight, 0u);
+  ASSERT_EQ(fee, 0u);
+}
+
+TEST_F(TxPoolWithDB, fill_block_template_respects_weight_limit)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  cryptonote::block bl;
+  size_t total_weight = 0;
+  uint64_t fee = 0;
+  uint64_t expected_reward = 0;
+  // Use a very small median_weight (1 byte) so the tx cannot possibly fit
+  ASSERT_TRUE(m_pool.fill_block_template(bl, 1, 0, total_weight, fee, expected_reward, 1));
+  // With such a small weight limit, the tx should not have been included
+  ASSERT_EQ(fee, 0u);
+  ASSERT_EQ(total_weight, 0u);
+}
+
+// ========================================================================
+// Pool metadata tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, get_transaction_category_for_block_tx)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // A tx added via relay_method::block should be visible in the broadcasted category
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::broadcasted));
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
+}
+
+TEST_F(TxPoolWithDB, pool_cookie_increments_per_add)
+{
+  uint64_t cookie0 = m_pool.cookie();
+
+  cryptonote::transaction tx1 = make_test_tx();
+  crypto::hash txid1;
+  ASSERT_TRUE(add_test_tx_to_pool(tx1, txid1));
+  uint64_t cookie1 = m_pool.cookie();
+  ASSERT_NE(cookie0, cookie1);
+
+  cryptonote::transaction tx2 = make_test_tx();
+  crypto::hash txid2;
+  ASSERT_TRUE(add_test_tx_to_pool(tx2, txid2));
+  uint64_t cookie2 = m_pool.cookie();
+  ASSERT_NE(cookie1, cookie2);
+
+  cryptonote::transaction tx3 = make_test_tx();
+  crypto::hash txid3;
+  ASSERT_TRUE(add_test_tx_to_pool(tx3, txid3));
+  uint64_t cookie3 = m_pool.cookie();
+  ASSERT_NE(cookie2, cookie3);
+}
+
+// ========================================================================
+// on_idle tests
+// ========================================================================
+
+TEST_F(TxPoolWithDB, on_idle_empty_pool)
+{
+  // Calling on_idle on an empty pool should not crash
+  m_pool.on_idle();
+  ASSERT_EQ(m_pool.get_transactions_count(), 0u);
+}
+
+TEST_F(TxPoolWithDB, on_idle_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // on_idle removes stuck txs (those older than CRYPTONOTE_MEMPOOL_TX_LIVETIME).
+  // A freshly added tx should not be removed.
+  m_pool.on_idle();
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
+}

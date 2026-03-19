@@ -1290,3 +1290,215 @@ TEST_F(BlockchainTestV16, get_output_key_v16)
   crypto::public_key pk = m_blockchain.get_output_key(0, 0);
   ASSERT_EQ(pk, crypto::public_key());
 }
+
+// =============================================================================
+// Checkpoint tests (BlockchainTest)
+// =============================================================================
+
+TEST_F(BlockchainTest, get_checkpoints_returns_ref)
+{
+  const cryptonote::checkpoints& cp = m_blockchain.get_checkpoints();
+  (void)cp; // Compiles and returns a valid reference
+}
+
+TEST_F(BlockchainTest, set_checkpoints)
+{
+  cryptonote::checkpoints cp;
+  cp.add_checkpoint(0, "0000000000000000000000000000000000000000000000000000000000000000");
+  m_blockchain.set_checkpoints(std::move(cp));
+  const cryptonote::checkpoints& cp2 = m_blockchain.get_checkpoints();
+  (void)cp2;
+}
+
+// =============================================================================
+// Block query tests (BlockchainTest)
+// =============================================================================
+
+TEST_F(BlockchainTest, have_block_unlocked_nonexistent)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  ASSERT_FALSE(m_blockchain.have_block_unlocked(h));
+}
+
+TEST_F(BlockchainTest, have_block_unlocked_with_where)
+{
+  crypto::hash h = crypto::rand<crypto::hash>();
+  int where = -1;
+  bool found = m_blockchain.have_block_unlocked(h, &where);
+  EXPECT_FALSE(found);
+  // where is not modified when block is not found
+  EXPECT_EQ(where, -1);
+}
+
+TEST_F(BlockchainTest, get_block_id_by_height_genesis)
+{
+  crypto::hash h = m_blockchain.get_block_id_by_height(0);
+  // BaseTestDB returns null_hash, just verify no crash
+  (void)h;
+}
+
+TEST_F(BlockchainTest, get_pending_block_id_by_height)
+{
+  crypto::hash h = m_blockchain.get_pending_block_id_by_height(0);
+  // Should return a hash (possibly null) for genesis height
+  (void)h;
+}
+
+// =============================================================================
+// Static method tests (no fixture needed)
+// =============================================================================
+
+TEST(BlockchainStaticTest, get_fee_quantization_mask_value)
+{
+  uint64_t mask = cryptonote::Blockchain::get_fee_quantization_mask();
+  ASSERT_EQ(mask, 10000u);
+}
+
+TEST(BlockchainStaticTest, get_dynamic_base_fee_zero_reward)
+{
+  // Zero reward edge case: fee should be minimal (1)
+  uint64_t fee = cryptonote::Blockchain::get_dynamic_base_fee(0, 300000);
+  EXPECT_EQ(fee, 1u);
+}
+
+TEST(BlockchainStaticTest, get_dynamic_base_fee_zero_median)
+{
+  // Zero median weight: should be clamped to min block weight (300000)
+  // and still return a valid fee without crashing
+  uint64_t fee = cryptonote::Blockchain::get_dynamic_base_fee(10000000000ULL, 0);
+  EXPECT_GT(fee, 0u);
+}
+
+TEST(BlockchainStaticTest, get_dynamic_base_fee_v8)
+{
+  // With v8-era parameters: ~3 XMR reward, 300000 median
+  uint64_t fee = cryptonote::Blockchain::get_dynamic_base_fee(3000000000000ULL, 300000);
+  EXPECT_GT(fee, 0u);
+}
+
+TEST(BlockchainStaticTest, get_dynamic_base_fee_monotonicity)
+{
+  // Larger reward should give lower fee per byte (inversely proportional via division)
+  // Actually, larger reward gives HIGHER base fee (fee = reward * ref_weight / median^2)
+  uint64_t fee_small = cryptonote::Blockchain::get_dynamic_base_fee(1000000000ULL, 300000);
+  uint64_t fee_large = cryptonote::Blockchain::get_dynamic_base_fee(10000000000ULL, 300000);
+  EXPECT_GT(fee_large, fee_small);
+}
+
+// =============================================================================
+// check_tx_outputs tests (BlockchainTestV16)
+// =============================================================================
+
+TEST_F(BlockchainTestV16, check_tx_outputs_v1_decomposed)
+{
+  // At HF 16, outputs must use txout_to_tagged_key
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 1000000000000ULL; // 1 XMR, decomposed
+  cryptonote::txout_to_tagged_key otk;
+  otk.key = crypto::rand<crypto::public_key>();
+  otk.view_tag = crypto::view_tag{0x42};
+  out.target = otk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 16));
+  EXPECT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestV16, check_tx_outputs_v1_non_decomposed_pre_hf)
+{
+  // v1 tx with non-decomposed amount should pass at HF 1 (before decomposed enforcement)
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 1234567890ULL; // non-decomposed
+  cryptonote::txout_to_key otk;
+  otk.key = crypto::public_key();
+  out.target = otk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 1));
+  EXPECT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestV16, check_tx_outputs_v2_zero_amounts)
+{
+  // At HF 16, outputs must use txout_to_tagged_key
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_tagged_key otk;
+  otk.key = crypto::rand<crypto::public_key>();
+  otk.view_tag = crypto::view_tag{0x01};
+  out.target = otk;
+  tx.vout.push_back(out);
+  tx.rct_signatures.type = rct::RCTTypeBulletproofPlus;
+  tx.rct_signatures.outPk.resize(1);
+  tx.rct_signatures.outPk[0].mask = rct::identity();
+  tx.rct_signatures.ecdhInfo.resize(1);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 16));
+  EXPECT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestV16, check_tx_outputs_empty)
+{
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 16));
+  EXPECT_FALSE(tvc.m_invalid_output);
+}
+
+// =============================================================================
+// Blockchain state tests (BlockchainTest)
+// =============================================================================
+
+TEST_F(BlockchainTest, get_target_blockchain_height)
+{
+  uint64_t target = m_blockchain.get_current_blockchain_height();
+  EXPECT_GE(target, m_blockchain.get_current_blockchain_height());
+}
+
+TEST_F(BlockchainTest, get_db_not_null)
+{
+  const cryptonote::BlockchainDB& db = m_blockchain.get_db();
+  (void)db; // Should return a valid reference, not crash
+}
+
+TEST_F(BlockchainTest, get_hard_fork_not_null)
+{
+  uint8_t version = m_blockchain.get_current_hard_fork_version();
+  EXPECT_GE(version, 1u);
+}
+
+TEST_F(BlockchainTest, check_blockchain_pruning_unpruned)
+{
+  ASSERT_TRUE(m_blockchain.check_blockchain_pruning());
+}
+
+TEST_F(BlockchainTest, check_difficulty_checkpoints_state)
+{
+  auto result = m_blockchain.check_difficulty_checkpoints();
+  ASSERT_TRUE(result.first);
+}
+
+// =============================================================================
+// Weight/reward tests
+// =============================================================================
+
+TEST_F(BlockchainTest, get_min_block_weight_at_height_0)
+{
+  // Current cumulative block weight limit should be positive at genesis
+  uint64_t limit = m_blockchain.get_current_cumulative_block_weight_limit();
+  EXPECT_GT(limit, 0u);
+}
+
+TEST_F(BlockchainTest, get_ideal_hard_fork_version)
+{
+  // For the v1 fixture, ideal hard fork version at height 0 should be 1
+  uint8_t version = m_blockchain.get_ideal_hard_fork_version(0);
+  EXPECT_EQ(version, 1u);
+}

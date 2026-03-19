@@ -60,6 +60,8 @@ public:
   static void set_unattended(tools::wallet2& w, bool v) { w.m_unattended = v; }
   static tools::fee_algorithm get_fee_algorithm_val(tools::wallet2& w) { return w.get_fee_algorithm(); }
   static void set_default_priority(tools::wallet2& w, tools::fee_priority p) { w.m_default_priority = p; }
+  static bool is_spent(const tools::wallet2& w, size_t idx, bool strict = true) { return w.is_spent(idx, strict); }
+  static bool is_spent(const tools::wallet2& w, const tools::wallet2::transfer_details& td, bool strict = true) { return w.is_spent(td, strict); }
 };
 
 namespace
@@ -5459,4 +5461,305 @@ TEST_F(Wallet2GeneratedTest, get_payments_multiple_for_same_id)
   std::list<tools::wallet2::payment_details> results;
   m_wallet.get_payments(pid, results);
   ASSERT_EQ(results.size(), 5u);
+}
+
+// ---------------------------------------------------------------------------
+// Address book tests (add, modify, delete)
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, add_address_book_row_and_verify)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  crypto::hash8 pid;
+  memset(&pid, 0x02, sizeof(pid));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, &pid, "test entry", false));
+  auto book = m_wallet.get_address_book();
+  ASSERT_EQ(book.size(), 1u);
+  ASSERT_EQ(book[0].m_description, "test entry");
+  ASSERT_EQ(book[0].m_is_subaddress, false);
+}
+
+TEST_F(Wallet2GeneratedTest, add_multiple_address_book_rows_count)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  for (int i = 0; i < 3; ++i)
+  {
+    std::string desc = "entry_" + std::to_string(i);
+    ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, desc, false));
+  }
+  auto book = m_wallet.get_address_book();
+  ASSERT_EQ(book.size(), 3u);
+}
+
+TEST_F(Wallet2GeneratedTest, set_address_book_row_modify)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, "original", false));
+
+  cryptonote::account_public_address addr2;
+  memset(&addr2, 0x03, sizeof(addr2));
+  ASSERT_TRUE(m_wallet.set_address_book_row(0, addr2, nullptr, "modified", true));
+
+  auto book = m_wallet.get_address_book();
+  ASSERT_EQ(book.size(), 1u);
+  ASSERT_EQ(book[0].m_description, "modified");
+  ASSERT_EQ(book[0].m_is_subaddress, true);
+}
+
+TEST_F(Wallet2GeneratedTest, set_address_book_row_out_of_bounds_returns_false)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  ASSERT_FALSE(m_wallet.set_address_book_row(99, addr, nullptr, "oob", false));
+}
+
+TEST_F(Wallet2GeneratedTest, delete_address_book_row_single)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, "to delete", false));
+  ASSERT_EQ(m_wallet.get_address_book().size(), 1u);
+  ASSERT_TRUE(m_wallet.delete_address_book_row(0));
+  ASSERT_EQ(m_wallet.get_address_book().size(), 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, delete_address_book_row_out_of_bounds_returns_false)
+{
+  ASSERT_FALSE(m_wallet.delete_address_book_row(0));
+  ASSERT_FALSE(m_wallet.delete_address_book_row(42));
+}
+
+TEST_F(Wallet2GeneratedTest, delete_address_book_row_middle_preserves_order)
+{
+  cryptonote::account_public_address addr;
+  memset(&addr, 0x01, sizeof(addr));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, "first", false));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, "second", false));
+  ASSERT_TRUE(m_wallet.add_address_book_row(addr, nullptr, "third", false));
+  ASSERT_EQ(m_wallet.get_address_book().size(), 3u);
+
+  ASSERT_TRUE(m_wallet.delete_address_book_row(1));
+  auto book = m_wallet.get_address_book();
+  ASSERT_EQ(book.size(), 2u);
+  ASSERT_EQ(book[0].m_description, "first");
+  ASSERT_EQ(book[1].m_description, "third");
+}
+
+// ---------------------------------------------------------------------------
+// Freeze / thaw / spent tests
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, freeze_sets_frozen_flag)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  ASSERT_FALSE(m_wallet.frozen(0));
+  m_wallet.freeze(0);
+  ASSERT_TRUE(m_wallet.frozen(0));
+}
+
+TEST_F(Wallet2GeneratedTest, thaw_clears_frozen_flag)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  m_wallet.freeze(0);
+  ASSERT_TRUE(m_wallet.frozen(0));
+  m_wallet.thaw(0);
+  ASSERT_FALSE(m_wallet.frozen(0));
+}
+
+TEST_F(Wallet2GeneratedTest, is_spent_strict_requires_height)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = true;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  // strict requires spent_height > 0, so should return false
+  ASSERT_FALSE(wallet_accessor_test::is_spent(m_wallet, 0, true));
+  // non-strict only checks m_spent flag
+  ASSERT_TRUE(wallet_accessor_test::is_spent(m_wallet, 0, false));
+}
+
+TEST_F(Wallet2GeneratedTest, is_spent_with_height_both_modes)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = true;
+  td.m_frozen = false;
+  td.m_spent_height = 100;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 50;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  // Both strict and non-strict should return true
+  ASSERT_TRUE(wallet_accessor_test::is_spent(m_wallet, 0, true));
+  ASSERT_TRUE(wallet_accessor_test::is_spent(m_wallet, 0, false));
+}
+
+TEST_F(Wallet2GeneratedTest, frozen_via_transfer_details_ref)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  // Check frozen(const transfer_details&) overload
+  ASSERT_FALSE(m_wallet.frozen(transfers[0]));
+  m_wallet.freeze(0);
+  ASSERT_TRUE(m_wallet.frozen(transfers[0]));
+}
+
+TEST_F(Wallet2GeneratedTest, freeze_thaw_via_key_image)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 1000000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  ASSERT_FALSE(m_wallet.frozen(td.m_key_image));
+  m_wallet.freeze(td.m_key_image);
+  ASSERT_TRUE(m_wallet.frozen(td.m_key_image));
+  m_wallet.thaw(td.m_key_image);
+  ASSERT_FALSE(m_wallet.frozen(td.m_key_image));
+}
+
+// ---------------------------------------------------------------------------
+// Static utility tests
+// ---------------------------------------------------------------------------
+
+TEST(Wallet2StaticTest, wallet_valid_path_format_empty_string)
+{
+  ASSERT_FALSE(tools::wallet2::wallet_valid_path_format(""));
+}
+
+TEST(Wallet2StaticTest, wallet_valid_path_format_nonempty_strings)
+{
+  ASSERT_TRUE(tools::wallet2::wallet_valid_path_format("foo"));
+  ASSERT_TRUE(tools::wallet2::wallet_valid_path_format("/tmp/my_wallet"));
+}
+
+TEST(Wallet2StaticTest, make_background_wallet_file_name_suffix)
+{
+  std::string result = tools::wallet2::make_background_wallet_file_name("/tmp/mywallet");
+  ASSERT_EQ(result, "/tmp/mywallet.background");
+}
+
+TEST(Wallet2StaticTest, make_background_keys_file_name_double_suffix)
+{
+  std::string result = tools::wallet2::make_background_keys_file_name("/tmp/mywallet");
+  ASSERT_EQ(result, "/tmp/mywallet.background.keys");
+}
+
+// ---------------------------------------------------------------------------
+// Subaddress tests
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, get_subaddress_spend_public_key_main)
+{
+  // (0,0) should return the main account's spend public key
+  crypto::public_key main_spend = m_wallet.get_subaddress_spend_public_key({0, 0});
+  cryptonote::account_public_address main_addr = m_wallet.get_address();
+  ASSERT_EQ(main_spend, main_addr.m_spend_public_key);
+}
+
+TEST_F(Wallet2GeneratedTest, get_subaddress_spend_public_keys_range_first_matches_main)
+{
+  // Get keys for account 0, indices [0, 3)
+  std::vector<crypto::public_key> keys = m_wallet.get_subaddress_spend_public_keys(0, 0, 3);
+  ASSERT_EQ(keys.size(), 3u);
+  // First key should match the main spend key
+  cryptonote::account_public_address main_addr = m_wallet.get_address();
+  ASSERT_EQ(keys[0], main_addr.m_spend_public_key);
+}
+
+TEST_F(Wallet2GeneratedTest, get_num_subaddress_accounts_is_one)
+{
+  // After generate, there should be exactly 1 account (the primary)
+  ASSERT_EQ(m_wallet.get_num_subaddress_accounts(), 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_num_subaddresses_at_least_one)
+{
+  // Account 0 should have at least 1 subaddress (the primary)
+  ASSERT_GE(m_wallet.get_num_subaddresses(0), 1u);
+  // Non-existent account should return 0
+  ASSERT_EQ(m_wallet.get_num_subaddresses(999), 0u);
 }
