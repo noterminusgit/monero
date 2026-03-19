@@ -63,9 +63,9 @@ make coverage   # generates HTML report
 - [x] Existing ZMQ RPC tests (`zmq_rpc.cpp`) and RPC version tests (`rpc_version_str.cpp`)
 
 **Remaining items:**
-- [ ] P2P protocol message serialization/deserialization
+- [x] P2P protocol message serialization/deserialization — 53 tests in test_protocol_pack.cpp + 15 tests in p2p_net_node_tests.cpp (all NOTIFY_* messages, CORE_SYNC_DATA, basic_node_data, COMMAND_PING, COMMAND_REQUEST_SUPPORT_FLAGS, block_complete_entry, tx_blob_entry, connection_info)
 - [ ] Peer handshake and ban logic
-- [ ] Network address parsing and validation
+- [x] Network address parsing and validation — already covered by 63 tests in net.cpp (tor_address, i2p_address, socks, dandelionpp)
 - [ ] Levin protocol framing tests
 
 ---
@@ -81,7 +81,7 @@ make coverage   # generates HTML report
 - [x] Seed recovery (deterministic address recovery, unique seeds)
 - [x] Testnet/stagenet subaddress prefixes
 - [ ] Transaction construction (inputs selection, change, coin selection)
-- [ ] Payment proof generation and verification (tx_proof, spend_proof, reserve_proof)
+- [x] Payment proof generation and verification — 7 tests in tx_proof.cpp (V1/V2 proof roundtrips, wrong keys, corrupted signatures, cross-message verification, zero-point checks)
 - [ ] Reserve proof and tx key management
 
 ---
@@ -123,7 +123,8 @@ make coverage   # generates HTML report
 | `e55bdf5bd` | 133 | Session 2-3: Parser utils, device registry, string tools, core extensions |
 | (uncommitted) | ~2800+ | Session 4: Massive expansion across wallet, crypto, P2P, RPC, and core |
 | (uncommitted) | 39 | Session 5: Phase 5 wallet tests + 4 bug fixes |
-| **Total** | **~3600+** | |
+| (uncommitted) | 87 | Session 6: P2P protocol serialization, tx proofs, wallet fee tests |
+| **Total** | **~3700+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
@@ -138,6 +139,10 @@ make coverage   # generates HTML report
 - `tests/unit_tests/account.cpp` (+10 tests)
 - `tests/unit_tests/checkpoints.cpp` (+9 tests)
 - `tests/unit_tests/command_line.cpp` (+1 test)
+- `tests/unit_tests/test_protocol_pack.cpp` (+52 tests — P2P protocol message roundtrips)
+- `tests/unit_tests/p2p_net_node_tests.cpp` (+15 tests — P2P node data, CORE_SYNC_DATA, ping, support flags)
+- `tests/unit_tests/tx_proof.cpp` (+7 tests — proof verification edge cases)
+- `tests/unit_tests/wallet2_core.cpp` (+12 tests — fee multiplier, fee estimation)
 
 ---
 

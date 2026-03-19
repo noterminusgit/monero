@@ -455,3 +455,301 @@ TEST(P2PNetNode, IPv4SubnetDoesNotMatch)
   epee::net_utils::ipv4_network_address addr(MAKE_IP(192, 168, 2, 100), 8080);
   EXPECT_FALSE(subnet.matches(addr));
 }
+
+// ---- P2P protocol structure serialization tests ----
+
+#include "storages/portable_storage_template_helper.h"
+#include "cryptonote_protocol/cryptonote_protocol_defs.h"
+#include "crypto/crypto.h"
+#include "cryptonote_config.h"
+
+TEST(P2PProtocol, BasicNodeDataSerializationRoundtrip)
+{
+  nodetool::basic_node_data original;
+  original.network_id = ::config::NETWORK_ID;
+  original.peer_id = 0xDEADBEEFCAFEBABE;
+  original.my_port = 18080;
+  original.rpc_port = 18081;
+  original.rpc_credits_per_hash = 100;
+  original.support_flags = 0x01;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  nodetool::basic_node_data restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.network_id, restored.network_id);
+  EXPECT_EQ(original.peer_id, restored.peer_id);
+  EXPECT_EQ(original.my_port, restored.my_port);
+  EXPECT_EQ(original.rpc_port, restored.rpc_port);
+  EXPECT_EQ(original.rpc_credits_per_hash, restored.rpc_credits_per_hash);
+  EXPECT_EQ(original.support_flags, restored.support_flags);
+}
+
+TEST(P2PProtocol, BasicNodeDataDefaultOptionalFields)
+{
+  // When optional fields are zero, they should still roundtrip correctly
+  nodetool::basic_node_data original;
+  original.network_id = ::config::testnet::NETWORK_ID;
+  original.peer_id = 1;
+  original.my_port = 28080;
+  original.rpc_port = 0;
+  original.rpc_credits_per_hash = 0;
+  original.support_flags = 0;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+
+  nodetool::basic_node_data restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.network_id, restored.network_id);
+  EXPECT_EQ(original.peer_id, restored.peer_id);
+  EXPECT_EQ(original.my_port, restored.my_port);
+  EXPECT_EQ(0, restored.rpc_port);
+  EXPECT_EQ(0u, restored.rpc_credits_per_hash);
+  EXPECT_EQ(0u, restored.support_flags);
+}
+
+TEST(P2PProtocol, BasicNodeDataNetworkIdPreserved)
+{
+  // Verify that the 16-byte network_id POD blob survives serialization byte-for-byte
+  nodetool::basic_node_data original;
+  original.network_id = ::config::stagenet::NETWORK_ID;
+  original.peer_id = 0;
+  original.my_port = 38080;
+  original.rpc_port = 0;
+  original.rpc_credits_per_hash = 0;
+  original.support_flags = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::basic_node_data restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(0, memcmp(&original.network_id, &restored.network_id, sizeof(original.network_id)));
+}
+
+TEST(P2PProtocol, PingResponseSerializationRoundtrip)
+{
+  nodetool::COMMAND_PING::response_t original;
+  original.status = PING_OK_RESPONSE_STATUS_TEXT;
+  original.peer_id = 0x1234567890ABCDEF;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  nodetool::COMMAND_PING::response_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.status, restored.status);
+  EXPECT_EQ(original.peer_id, restored.peer_id);
+}
+
+TEST(P2PProtocol, PingResponseEmptyStatus)
+{
+  nodetool::COMMAND_PING::response_t original;
+  original.status = "";
+  original.peer_id = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::COMMAND_PING::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ("", restored.status);
+  EXPECT_EQ(0u, restored.peer_id);
+}
+
+TEST(P2PProtocol, PingRequestSerializationRoundtrip)
+{
+  // Ping request has no fields but should serialize/deserialize successfully
+  nodetool::COMMAND_PING::request_t original;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::COMMAND_PING::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+}
+
+TEST(P2PProtocol, SupportFlagsResponseSerializationRoundtrip)
+{
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::response_t original;
+  original.support_flags = 0xFFFFFFFF;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::response_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.support_flags, restored.support_flags);
+}
+
+TEST(P2PProtocol, SupportFlagsResponseZero)
+{
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::response_t original;
+  original.support_flags = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::response_t restored;
+  restored.support_flags = 999; // pre-fill to verify it gets overwritten
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(0u, restored.support_flags);
+}
+
+TEST(P2PProtocol, SupportFlagsRequestSerializationRoundtrip)
+{
+  // Request has no fields but should serialize/deserialize successfully
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::request_t original;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+}
+
+TEST(P2PProtocol, CoreSyncDataSerializationRoundtrip)
+{
+  cryptonote::CORE_SYNC_DATA original;
+  original.current_height = 2500000;
+  original.cumulative_difficulty = 0xFEDCBA9876543210;
+  original.cumulative_difficulty_top64 = 0x0123456789ABCDEF;
+  original.top_id = crypto::rand<crypto::hash>();
+  original.top_version = 16;
+  original.pruning_seed = 384;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  cryptonote::CORE_SYNC_DATA restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.current_height, restored.current_height);
+  EXPECT_EQ(original.cumulative_difficulty, restored.cumulative_difficulty);
+  EXPECT_EQ(original.cumulative_difficulty_top64, restored.cumulative_difficulty_top64);
+  EXPECT_EQ(original.top_id, restored.top_id);
+  EXPECT_EQ(original.top_version, restored.top_version);
+  EXPECT_EQ(original.pruning_seed, restored.pruning_seed);
+}
+
+TEST(P2PProtocol, CoreSyncDataDefaultOptionalFields)
+{
+  cryptonote::CORE_SYNC_DATA original;
+  original.current_height = 1;
+  original.cumulative_difficulty = 1;
+  original.cumulative_difficulty_top64 = 0;
+  original.top_id = crypto::rand<crypto::hash>();
+  original.top_version = 0;
+  original.pruning_seed = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  cryptonote::CORE_SYNC_DATA restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(original.current_height, restored.current_height);
+  EXPECT_EQ(original.cumulative_difficulty, restored.cumulative_difficulty);
+  EXPECT_EQ(0u, restored.cumulative_difficulty_top64);
+  EXPECT_EQ(original.top_id, restored.top_id);
+  EXPECT_EQ(0, restored.top_version);
+  EXPECT_EQ(0u, restored.pruning_seed);
+}
+
+TEST(P2PProtocol, CoreSyncDataTopIdBlobPreserved)
+{
+  // Ensure the 32-byte hash POD blob survives roundtrip
+  cryptonote::CORE_SYNC_DATA original;
+  original.current_height = 100;
+  original.cumulative_difficulty = 50;
+  original.cumulative_difficulty_top64 = 0;
+  original.top_id = crypto::rand<crypto::hash>();
+  original.top_version = 0;
+  original.pruning_seed = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  cryptonote::CORE_SYNC_DATA restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(0, memcmp(original.top_id.data, restored.top_id.data, sizeof(crypto::hash)));
+}
+
+TEST(P2PProtocol, CoreSyncDataLargeHeight)
+{
+  cryptonote::CORE_SYNC_DATA original;
+  original.current_height = UINT64_MAX;
+  original.cumulative_difficulty = UINT64_MAX;
+  original.cumulative_difficulty_top64 = UINT64_MAX;
+  original.top_id = crypto::rand<crypto::hash>();
+  original.top_version = 255;
+  original.pruning_seed = UINT32_MAX;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  cryptonote::CORE_SYNC_DATA restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(UINT64_MAX, restored.current_height);
+  EXPECT_EQ(UINT64_MAX, restored.cumulative_difficulty);
+  EXPECT_EQ(UINT64_MAX, restored.cumulative_difficulty_top64);
+  EXPECT_EQ(255, restored.top_version);
+  EXPECT_EQ(UINT32_MAX, restored.pruning_seed);
+}
+
+TEST(P2PProtocol, NetworkConfigSerializationRoundtrip)
+{
+  nodetool::network_config original;
+  original.max_out_connection_count = 8;
+  original.max_in_connection_count = 32;
+  original.handshake_interval = 60;
+  original.packet_max_size = 50000000;
+  original.config_id = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::network_config restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(original.max_out_connection_count, restored.max_out_connection_count);
+  EXPECT_EQ(original.max_in_connection_count, restored.max_in_connection_count);
+  EXPECT_EQ(original.handshake_interval, restored.handshake_interval);
+  EXPECT_EQ(original.packet_max_size, restored.packet_max_size);
+  EXPECT_EQ(original.config_id, restored.config_id);
+}
+
+TEST(P2PProtocol, CommandIds)
+{
+  // Verify command IDs match expected values from the protocol
+  // Use local copies to avoid ODR-use of static const members
+  const int ping_id = nodetool::COMMAND_PING::ID;
+  const int support_flags_id = nodetool::COMMAND_REQUEST_SUPPORT_FLAGS::ID;
+  EXPECT_EQ(1003, ping_id);
+  EXPECT_EQ(1007, support_flags_id);
+}

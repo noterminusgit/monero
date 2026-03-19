@@ -4108,3 +4108,157 @@ TEST(Wallet2TestnetTest, stagenet_subaddress_prefix)
   // Stagenet subaddresses start with '7'
   EXPECT_EQ(sub_str[0], '7');
 }
+
+// ===========================================================================
+// Phase 6: fee_algorithm_utilities tests
+// ===========================================================================
+
+TEST(FeeAlgorithmTest, as_integral_values)
+{
+  // Verify the integral values of each fee_algorithm enum member
+  EXPECT_EQ(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::Unset), -1);
+  EXPECT_EQ(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::PreHardforkV3), 0);
+  EXPECT_EQ(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV3), 1);
+  EXPECT_EQ(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV5), 2);
+  EXPECT_EQ(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV8), 3);
+}
+
+TEST(FeeAlgorithmTest, integral_ordering)
+{
+  // Fee algorithms should be ordered chronologically
+  EXPECT_LT(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::PreHardforkV3),
+             tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV3));
+  EXPECT_LT(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV3),
+             tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV5));
+  EXPECT_LT(tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV5),
+             tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV8));
+}
+
+// ===========================================================================
+// Phase 6: get_fee_multiplier for HardforkV3 algorithm
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_hardforkv3_unimportant)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // fee_steps[1] = { Elevated, {1, 20, 166} }
+  uint64_t mult = m_wallet.get_fee_multiplier(tools::fee_priority::Unimportant, tools::fee_algorithm::HardforkV3);
+  EXPECT_EQ(mult, 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_hardforkv3_normal)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // fee_steps[1] = { Elevated, {1, 20, 166} }
+  uint64_t mult = m_wallet.get_fee_multiplier(tools::fee_priority::Normal, tools::fee_algorithm::HardforkV3);
+  EXPECT_EQ(mult, 20u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_hardforkv3_elevated)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // fee_steps[1] = { Elevated, {1, 20, 166} }
+  uint64_t mult = m_wallet.get_fee_multiplier(tools::fee_priority::Elevated, tools::fee_algorithm::HardforkV3);
+  EXPECT_EQ(mult, 166u);
+}
+
+// ===========================================================================
+// Phase 6: get_fee_multiplier for HardforkV5 algorithm
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_hardforkv5_all_priorities)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // fee_steps[2] = { Priority, {1, 4, 20, 166} }
+  EXPECT_EQ(m_wallet.get_fee_multiplier(tools::fee_priority::Unimportant, tools::fee_algorithm::HardforkV5), 1u);
+  EXPECT_EQ(m_wallet.get_fee_multiplier(tools::fee_priority::Normal, tools::fee_algorithm::HardforkV5), 4u);
+  EXPECT_EQ(m_wallet.get_fee_multiplier(tools::fee_priority::Elevated, tools::fee_algorithm::HardforkV5), 20u);
+  EXPECT_EQ(m_wallet.get_fee_multiplier(tools::fee_priority::Priority, tools::fee_algorithm::HardforkV5), 166u);
+}
+
+// ===========================================================================
+// Phase 6: get_fee_multiplier Default priority resolution
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_default_priority_resolves_for_v8)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // For HardforkV8 (>= HardforkV5), Default with no m_default_priority set resolves to Normal
+  // fee_steps[3] = { Priority, {1, 5, 25, 1000} }
+  // Normal is index 1 -> multiplier 5
+  wallet_accessor_test::set_default_priority(m_wallet, tools::fee_priority::Default);
+  uint64_t mult = m_wallet.get_fee_multiplier(tools::fee_priority::Default, tools::fee_algorithm::HardforkV8);
+  EXPECT_EQ(mult, 5u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_default_priority_resolves_for_pre_v3)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // For PreHardforkV3 (< HardforkV5), Default resolves to Unimportant
+  // fee_steps[0] = { Elevated, {1, 2, 3} }
+  // Unimportant is index 0 -> multiplier 1
+  wallet_accessor_test::set_default_priority(m_wallet, tools::fee_priority::Default);
+  uint64_t mult = m_wallet.get_fee_multiplier(tools::fee_priority::Default, tools::fee_algorithm::PreHardforkV3);
+  EXPECT_EQ(mult, 1u);
+}
+
+// ===========================================================================
+// Phase 6: get_fee_multiplier returns 1 for priority exceeding max
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, get_fee_multiplier_priority_exceeds_max_returns_1)
+{
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  // PreHardforkV3: fee_steps[0].maximum_priority = Elevated
+  // Priority > Elevated falls through and returns 1
+  uint64_t mult1 = m_wallet.get_fee_multiplier(tools::fee_priority::Priority, tools::fee_algorithm::PreHardforkV3);
+  EXPECT_EQ(mult1, 1u);
+  // HardforkV3: fee_steps[1].maximum_priority = Elevated
+  uint64_t mult2 = m_wallet.get_fee_multiplier(tools::fee_priority::Priority, tools::fee_algorithm::HardforkV3);
+  EXPECT_EQ(mult2, 1u);
+}
+
+// ===========================================================================
+// Phase 6: estimate_fee edge cases
+// ===========================================================================
+
+TEST(Wallet2StaticTest, estimate_fee_mask_one_no_rounding)
+{
+  // With mask=1, fee should not be rounded at all
+  uint64_t fee = tools::wallet2::estimate_fee(true, true, 2, 15, 2, 0,
+    false, true, true, true, 20000, 1);
+  // Mask=1 means every value is a multiple of 1
+  EXPECT_EQ(fee % 1, 0u);
+  // Compare with mask=10000 - they might differ due to rounding
+  uint64_t fee_rounded = tools::wallet2::estimate_fee(true, true, 2, 15, 2, 0,
+    false, true, true, true, 20000, 10000);
+  EXPECT_LE(fee, fee_rounded);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_higher_mixin_higher_fee)
+{
+  // Higher mixin count increases transaction size, so fee should be higher
+  uint64_t fee_mixin_10 = tools::wallet2::estimate_fee(true, true, 2, 10, 2, 0,
+    false, true, true, true, 20000, 1);
+  uint64_t fee_mixin_15 = tools::wallet2::estimate_fee(true, true, 2, 15, 2, 0,
+    false, true, true, true, 20000, 1);
+  EXPECT_GT(fee_mixin_15, fee_mixin_10);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_non_per_byte_scales_with_size)
+{
+  // In non-per-byte mode, fee = ceil(size/1024) * fee_per_kb
+  // More inputs => larger size => higher fee
+  uint64_t fee_1 = tools::wallet2::estimate_fee(false, true, 1, 15, 2, 0,
+    false, true, true, true, 100000, 1);
+  uint64_t fee_10 = tools::wallet2::estimate_fee(false, true, 10, 15, 2, 0,
+    false, true, true, true, 100000, 1);
+  EXPECT_GT(fee_10, fee_1);
+}
