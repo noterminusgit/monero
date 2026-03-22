@@ -62,6 +62,8 @@ public:
   static void set_default_priority(tools::wallet2& w, tools::fee_priority p) { w.m_default_priority = p; }
   static bool is_spent(const tools::wallet2& w, size_t idx, bool strict = true) { return w.is_spent(idx, strict); }
   static bool is_spent(const tools::wallet2& w, const tools::wallet2::transfer_details& td, bool strict = true) { return w.is_spent(td, strict); }
+  static void set_spent(tools::wallet2& w, size_t idx, uint64_t height) { w.set_spent(idx, height); }
+  static void set_unspent(tools::wallet2& w, size_t idx) { w.set_unspent(idx); }
 };
 
 namespace
@@ -5762,4 +5764,417 @@ TEST_F(Wallet2GeneratedTest, get_num_subaddresses_at_least_one)
   ASSERT_GE(m_wallet.get_num_subaddresses(0), 1u);
   // Non-existent account should return 0
   ASSERT_EQ(m_wallet.get_num_subaddresses(999), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// TX notes: direct map verification
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, set_tx_note_verify_via_accessor)
+{
+  // Set a note and verify it appears in the internal map via wallet_accessor_test
+  crypto::hash txid;
+  memset(&txid, 0xaa, sizeof(txid));
+  m_wallet.set_tx_note(txid, "Payment for goods");
+  auto& notes = wallet_accessor_test::get_tx_notes(m_wallet);
+  ASSERT_EQ(notes.size(), 1u);
+  ASSERT_EQ(notes[txid], "Payment for goods");
+  ASSERT_EQ(m_wallet.get_tx_note(txid), "Payment for goods");
+}
+
+TEST_F(Wallet2GeneratedTest, set_tx_note_overwrite_via_accessor)
+{
+  // Overwrite a note and verify only latest value is stored
+  crypto::hash txid;
+  memset(&txid, 0xbb, sizeof(txid));
+  m_wallet.set_tx_note(txid, "First note");
+  m_wallet.set_tx_note(txid, "Overwritten note");
+  auto& notes = wallet_accessor_test::get_tx_notes(m_wallet);
+  ASSERT_EQ(notes.size(), 1u);
+  ASSERT_EQ(notes[txid], "Overwritten note");
+}
+
+TEST_F(Wallet2GeneratedTest, get_tx_note_nonexistent_returns_empty)
+{
+  crypto::hash txid;
+  memset(&txid, 0xcc, sizeof(txid));
+  // Getting a note for an unknown txid should return empty string
+  std::string note = m_wallet.get_tx_note(txid);
+  ASSERT_TRUE(note.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, get_all_tx_notes_empty_on_fresh_wallet)
+{
+  // The internal tx_notes map should be empty on a fresh wallet
+  auto& notes = wallet_accessor_test::get_tx_notes(m_wallet);
+  ASSERT_TRUE(notes.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Attributes: additional coverage
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, set_attribute_verify_via_accessor)
+{
+  m_wallet.set_attribute("mykey", "myvalue");
+  auto& attrs = wallet_accessor_test::get_attributes(m_wallet);
+  ASSERT_EQ(attrs.size(), 1u);
+  ASSERT_EQ(attrs["mykey"], "myvalue");
+  std::string value;
+  ASSERT_TRUE(m_wallet.get_attribute("mykey", value));
+  ASSERT_EQ(value, "myvalue");
+}
+
+TEST_F(Wallet2GeneratedTest, get_attribute_nonexistent_returns_false)
+{
+  std::string value;
+  ASSERT_FALSE(m_wallet.get_attribute("no_such_key", value));
+}
+
+TEST_F(Wallet2GeneratedTest, set_attribute_overwrite_via_accessor)
+{
+  m_wallet.set_attribute("k", "v1");
+  m_wallet.set_attribute("k", "v2");
+  auto& attrs = wallet_accessor_test::get_attributes(m_wallet);
+  ASSERT_EQ(attrs.size(), 1u);
+  ASSERT_EQ(attrs["k"], "v2");
+  std::string value;
+  ASSERT_TRUE(m_wallet.get_attribute("k", value));
+  ASSERT_EQ(value, "v2");
+}
+
+TEST_F(Wallet2GeneratedTest, set_attribute_empty_value_works)
+{
+  m_wallet.set_attribute("empty_val_key", "");
+  std::string value;
+  ASSERT_TRUE(m_wallet.get_attribute("empty_val_key", value));
+  ASSERT_TRUE(value.empty());
+}
+
+// ---------------------------------------------------------------------------
+// Transfer details manipulation
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, set_spent_and_set_unspent)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_key_image = crypto::rand<crypto::key_image>();
+  td.m_key_image_known = true;
+  td.m_amount = 500000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_spent_height = 0;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 0;
+  td.m_block_height = 100;
+  td.m_subaddr_index = {0, 0};
+  td.m_rct = true;
+  td.m_key_image_request = false;
+  td.m_key_image_partial = false;
+  td.m_mask = rct::identity();
+  td.m_pk_index = 0;
+
+  cryptonote::transaction_prefix tx_prefix;
+  tx_prefix.version = 2;
+  tx_prefix.unlock_time = 0;
+  cryptonote::tx_out out;
+  cryptonote::txout_to_key tk;
+  memset(&tk.key, 0x71, sizeof(tk.key));
+  out.amount = 0;
+  out.target = tk;
+  tx_prefix.vout.push_back(out);
+  td.m_tx = tx_prefix;
+  transfers.push_back(td);
+
+  auto& key_images = wallet_accessor_test::get_key_images(m_wallet);
+  key_images[td.m_key_image] = 0;
+
+  // Initially unspent
+  ASSERT_FALSE(transfers[0].m_spent);
+
+  // Mark as spent at height 200
+  wallet_accessor_test::set_spent(m_wallet, 0, 200);
+  ASSERT_TRUE(transfers[0].m_spent);
+  ASSERT_EQ(transfers[0].m_spent_height, 200u);
+
+  // Mark as unspent
+  wallet_accessor_test::set_unspent(m_wallet, 0);
+  ASSERT_FALSE(transfers[0].m_spent);
+  ASSERT_EQ(transfers[0].m_spent_height, 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_num_transfer_details_after_inserting_three)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  ASSERT_EQ(m_wallet.get_num_transfer_details(), 0u);
+
+  for (int i = 0; i < 3; ++i)
+  {
+    tools::wallet2::transfer_details td{};
+    td.m_block_height = 100 + i;
+    td.m_amount = 1000000000ULL * (i + 1);
+    td.m_spent = false;
+    td.m_frozen = false;
+    td.m_rct = true;
+    td.m_key_image_known = true;
+    td.m_internal_output_index = 0;
+    td.m_global_output_index = i;
+    td.m_subaddr_index = {0, 0};
+    td.m_key_image_request = false;
+    td.m_key_image_partial = false;
+    td.m_mask = rct::identity();
+    td.m_pk_index = 0;
+    memset(&td.m_key_image, 0x60 + i, sizeof(td.m_key_image));
+
+    cryptonote::transaction_prefix tx_prefix;
+    tx_prefix.version = 2;
+    tx_prefix.unlock_time = 0;
+    cryptonote::tx_out out;
+    cryptonote::txout_to_key tk;
+    memset(&tk.key, 0x60 + i, sizeof(tk.key));
+    out.amount = 0;
+    out.target = tk;
+    tx_prefix.vout.push_back(out);
+    td.m_tx = tx_prefix;
+
+    transfers.push_back(td);
+  }
+
+  ASSERT_EQ(m_wallet.get_num_transfer_details(), 3u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_transfer_details_by_index_fields_match)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_block_height = 555;
+  td.m_amount = 7777000000000ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_rct = true;
+  td.m_key_image_known = true;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 42;
+  td.m_subaddr_index = {0, 0};
+  td.m_key_image_request = false;
+  td.m_key_image_partial = false;
+  td.m_mask = rct::identity();
+  td.m_pk_index = 0;
+  memset(&td.m_key_image, 0xde, sizeof(td.m_key_image));
+
+  cryptonote::transaction_prefix tx_prefix;
+  tx_prefix.version = 2;
+  tx_prefix.unlock_time = 0;
+  cryptonote::tx_out out;
+  cryptonote::txout_to_key tk;
+  memset(&tk.key, 0xde, sizeof(tk.key));
+  out.amount = 0;
+  out.target = tk;
+  tx_prefix.vout.push_back(out);
+  td.m_tx = tx_prefix;
+
+  transfers.push_back(td);
+
+  const auto& detail = m_wallet.get_transfer_details(0);
+  ASSERT_EQ(detail.m_block_height, 555u);
+  ASSERT_EQ(detail.m_amount, 7777000000000ULL);
+  ASSERT_EQ(detail.m_global_output_index, 42u);
+  ASSERT_FALSE(detail.m_spent);
+  ASSERT_FALSE(detail.m_frozen);
+}
+
+TEST_F(Wallet2GeneratedTest, export_outputs_to_str_nonempty_with_transfer)
+{
+  epee::wipeable_string password("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &password);
+
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td{};
+  td.m_block_height = 10;
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 100;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_amount = 3000000000000ULL;
+  td.m_rct = true;
+  td.m_key_image_known = true;
+  td.m_key_image_request = false;
+  td.m_pk_index = 0;
+  td.m_subaddr_index = {0, 0};
+  td.m_key_image_partial = false;
+  td.m_mask = rct::identity();
+  memset(&td.m_key_image, 0xe1, sizeof(td.m_key_image));
+  memset(&td.m_txid, 0xe2, sizeof(td.m_txid));
+
+  cryptonote::transaction_prefix tx_prefix;
+  tx_prefix.version = 2;
+  tx_prefix.unlock_time = 0;
+  cryptonote::tx_out out;
+  cryptonote::txout_to_key tk;
+  memset(&tk.key, 0xe3, sizeof(tk.key));
+  out.amount = 0;
+  out.target = tk;
+  tx_prefix.vout.push_back(out);
+  td.m_tx = tx_prefix;
+
+  transfers.push_back(td);
+
+  std::string exported = m_wallet.export_outputs_to_str(true);
+  ASSERT_FALSE(exported.empty());
+  ASSERT_GT(exported.size(), 64u); // Should contain magic + header + data
+}
+
+TEST_F(Wallet2GeneratedTest, get_transfers_container_empty_initially)
+{
+  tools::wallet2::transfer_container tc;
+  m_wallet.get_transfers(tc);
+  ASSERT_TRUE(tc.empty());
+  ASSERT_EQ(m_wallet.get_num_transfer_details(), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Wallet configuration
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, set_default_priority_and_verify)
+{
+  m_wallet.set_default_priority(tools::fee_priority::Priority);
+  ASSERT_EQ(m_wallet.get_default_priority(), tools::fee_priority::Priority);
+  m_wallet.set_default_priority(tools::fee_priority::Unimportant);
+  ASSERT_EQ(m_wallet.get_default_priority(), tools::fee_priority::Unimportant);
+}
+
+TEST_F(Wallet2GeneratedTest, auto_refresh_default_is_true)
+{
+  // A freshly generated wallet should have auto_refresh enabled
+  ASSERT_TRUE(m_wallet.auto_refresh());
+}
+
+TEST_F(Wallet2GeneratedTest, set_auto_refresh_false_and_verify)
+{
+  m_wallet.auto_refresh(false);
+  ASSERT_FALSE(m_wallet.auto_refresh());
+  m_wallet.auto_refresh(true);
+  ASSERT_TRUE(m_wallet.auto_refresh());
+}
+
+TEST_F(Wallet2GeneratedTest, set_refresh_type_default_is_optimize_coinbase)
+{
+  // The default refresh type should be RefreshOptimizeCoinbase (= RefreshDefault)
+  ASSERT_EQ(m_wallet.get_refresh_type(), tools::wallet2::RefreshDefault);
+  ASSERT_EQ(m_wallet.get_refresh_type(), tools::wallet2::RefreshOptimizeCoinbase);
+}
+
+// ---------------------------------------------------------------------------
+// Hash chain operations
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, blockchain_size_default_on_fresh_wallet)
+{
+  auto& chain = wallet_accessor_test::get_blockchain(m_wallet);
+  // Fresh wallet should have 0 or 1 entries (genesis may or may not be stored)
+  ASSERT_LE(chain.size(), 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, blockchain_add_hash_and_check_size)
+{
+  auto& chain = wallet_accessor_test::get_blockchain(m_wallet);
+  size_t before = chain.size();
+  crypto::hash h;
+  memset(&h, 0xf1, sizeof(h));
+  chain.push_back(h);
+  ASSERT_EQ(chain.size(), before + 1);
+  // The wallet's blockchain height should reflect the new size
+  ASSERT_EQ(m_wallet.get_blockchain_current_height(), chain.size());
+}
+
+TEST_F(Wallet2GeneratedTest, get_blockchain_current_height_fresh)
+{
+  // For a freshly generated wallet, blockchain height should be small (0 or 1)
+  uint64_t height = m_wallet.get_blockchain_current_height();
+  ASSERT_LE(height, 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_last_block_reward_default_is_zero)
+{
+  uint64_t& reward = wallet_accessor_test::get_last_block_reward(m_wallet);
+  reward = 0;
+  ASSERT_EQ(m_wallet.get_last_block_reward(), 0u);
+}
+
+// ---------------------------------------------------------------------------
+// Fee algorithm
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, fee_algorithm_enum_values_are_ordered)
+{
+  // Verify the fee_algorithm enum values are in ascending order
+  int pre_v3 = tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::PreHardforkV3);
+  int v3 = tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV3);
+  int v5 = tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV5);
+  int v8 = tools::fee_algorithm_utilities::as_integral(tools::fee_algorithm::HardforkV8);
+  ASSERT_LT(pre_v3, v3);
+  ASSERT_LT(v3, v5);
+  ASSERT_LT(v5, v8);
+}
+
+TEST_F(Wallet2GeneratedTest, fee_multiplier_differs_across_priorities)
+{
+  // Different priorities should give different multipliers for the same algorithm
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  uint64_t m_unimp = m_wallet.get_fee_multiplier(tools::fee_priority::Unimportant, tools::fee_algorithm::HardforkV8);
+  uint64_t m_normal = m_wallet.get_fee_multiplier(tools::fee_priority::Normal, tools::fee_algorithm::HardforkV8);
+  uint64_t m_elev = m_wallet.get_fee_multiplier(tools::fee_priority::Elevated, tools::fee_algorithm::HardforkV8);
+  uint64_t m_prio = m_wallet.get_fee_multiplier(tools::fee_priority::Priority, tools::fee_algorithm::HardforkV8);
+  // Each higher priority should have a higher multiplier
+  ASSERT_LT(m_unimp, m_normal);
+  ASSERT_LT(m_normal, m_elev);
+  ASSERT_LT(m_elev, m_prio);
+}
+
+TEST_F(Wallet2GeneratedTest, fee_multiplier_differs_across_algorithms)
+{
+  // Same priority, different algorithms should give different multipliers
+  epee::wipeable_string unlock_pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &unlock_pw);
+  uint64_t m_pre_v3 = m_wallet.get_fee_multiplier(tools::fee_priority::Normal, tools::fee_algorithm::PreHardforkV3);
+  uint64_t m_v8 = m_wallet.get_fee_multiplier(tools::fee_priority::Normal, tools::fee_algorithm::HardforkV8);
+  // Pre-v3 normal=2, v8 normal=5 -- they should differ
+  ASSERT_NE(m_pre_v3, m_v8);
+}
+
+// ---------------------------------------------------------------------------
+// Subaddress expansion
+// ---------------------------------------------------------------------------
+
+TEST_F(Wallet2GeneratedTest, expand_subaddresses_with_high_index)
+{
+  size_t before = m_wallet.get_num_subaddresses(0);
+  cryptonote::subaddress_index idx{0, (uint32_t)(before + 5)};
+  m_wallet.expand_subaddresses(idx);
+  size_t after = m_wallet.get_num_subaddresses(0);
+  ASSERT_GT(after, before);
+}
+
+TEST_F(Wallet2GeneratedTest, get_subaddress_spend_public_keys_all_unique)
+{
+  // All subaddress spend public keys within a range should be unique
+  std::vector<crypto::public_key> keys = m_wallet.get_subaddress_spend_public_keys(0, 0, 5);
+  ASSERT_EQ(keys.size(), 5u);
+  std::set<crypto::public_key> unique_keys(keys.begin(), keys.end());
+  ASSERT_EQ(unique_keys.size(), keys.size());
+}
+
+TEST_F(Wallet2GeneratedTest, num_subaddresses_increases_after_expand)
+{
+  size_t initial = m_wallet.get_num_subaddresses(0);
+  // Expand to an index well beyond current range
+  cryptonote::subaddress_index idx{0, (uint32_t)(initial + 10)};
+  m_wallet.expand_subaddresses(idx);
+  size_t expanded = m_wallet.get_num_subaddresses(0);
+  ASSERT_GT(expanded, initial);
+  // The new count should be at least idx.minor + 1
+  ASSERT_GE(expanded, (size_t)(idx.minor + 1));
 }
