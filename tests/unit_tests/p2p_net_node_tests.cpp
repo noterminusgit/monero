@@ -753,3 +753,967 @@ TEST(P2PProtocol, CommandIds)
   EXPECT_EQ(1003, ping_id);
   EXPECT_EQ(1007, support_flags_id);
 }
+
+// ---- Peerlist removal operations ----
+
+TEST(P2PNetNode, PeerlistRemoveFromWhite)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe.id = 1;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_white(pe);
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+
+  plm.remove_from_peer_white(pe);
+  EXPECT_EQ(0u, plm.get_white_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistRemoveFromGray)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 4, 4, 18080);
+  pe.id = 2;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_gray(pe);
+  EXPECT_EQ(1u, plm.get_gray_peers_count());
+
+  plm.remove_from_peer_gray(pe);
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistRemoveNonExistentWhite)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(1, 2, 3, 4, 18080);
+  pe.id = 1;
+  pe.last_seen = 0;
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  // Removing a non-existent peer should not crash and return true
+  EXPECT_TRUE(plm.remove_from_peer_white(pe));
+  EXPECT_EQ(0u, plm.get_white_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistRemoveNonExistentGray)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(1, 2, 3, 4, 18080);
+  pe.id = 1;
+  pe.last_seen = 0;
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  EXPECT_TRUE(plm.remove_from_peer_gray(pe));
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+}
+
+// ---- Peerlist anchor operations ----
+
+TEST(P2PNetNode, PeerlistAnchorAppend)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::anchor_peerlist_entry ape;
+  ape.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  ape.id = 100;
+  ape.first_seen = time(NULL);
+
+  EXPECT_TRUE(plm.append_with_peer_anchor(ape));
+}
+
+TEST(P2PNetNode, PeerlistAnchorDuplicateIgnored)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::anchor_peerlist_entry ape;
+  ape.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  ape.id = 100;
+  ape.first_seen = time(NULL);
+
+  EXPECT_TRUE(plm.append_with_peer_anchor(ape));
+  // Adding same address again should succeed (no-op)
+  EXPECT_TRUE(plm.append_with_peer_anchor(ape));
+}
+
+TEST(P2PNetNode, PeerlistGetAndEmptyAnchor)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::anchor_peerlist_entry ape1;
+  ape1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  ape1.id = 1;
+  ape1.first_seen = 1000;
+
+  nodetool::anchor_peerlist_entry ape2;
+  ape2.adr = make_ipv4_addr(8, 8, 4, 4, 18080);
+  ape2.id = 2;
+  ape2.first_seen = 2000;
+
+  plm.append_with_peer_anchor(ape1);
+  plm.append_with_peer_anchor(ape2);
+
+  std::vector<nodetool::anchor_peerlist_entry> apl;
+  EXPECT_TRUE(plm.get_and_empty_anchor_peerlist(apl));
+  EXPECT_EQ(2u, apl.size());
+
+  // After emptying, getting again should return empty
+  std::vector<nodetool::anchor_peerlist_entry> apl2;
+  EXPECT_TRUE(plm.get_and_empty_anchor_peerlist(apl2));
+  EXPECT_EQ(0u, apl2.size());
+}
+
+TEST(P2PNetNode, PeerlistRemoveFromAnchor)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  nodetool::anchor_peerlist_entry ape;
+  ape.adr = addr;
+  ape.id = 1;
+  ape.first_seen = 1000;
+
+  plm.append_with_peer_anchor(ape);
+  EXPECT_TRUE(plm.remove_from_peer_anchor(addr));
+
+  // After removal, anchor list should be empty
+  std::vector<nodetool::anchor_peerlist_entry> apl;
+  plm.get_and_empty_anchor_peerlist(apl);
+  EXPECT_EQ(0u, apl.size());
+}
+
+// ---- Peerlist merge ----
+
+TEST(P2PNetNode, PeerlistMerge)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  std::vector<nodetool::peerlist_entry> peers;
+  for (int i = 1; i <= 5; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    peers.push_back(pe);
+  }
+
+  EXPECT_TRUE(plm.merge_peerlist(peers));
+  // merge_peerlist adds to gray
+  EXPECT_EQ(5u, plm.get_gray_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistMergeSkipsLoopback)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, false);
+
+  std::vector<nodetool::peerlist_entry> peers;
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(127, 0, 0, 1, 18080);
+  pe.id = 1;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+  peers.push_back(pe);
+
+  EXPECT_TRUE(plm.merge_peerlist(peers));
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistMergeWithFilter)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  std::vector<nodetool::peerlist_entry> peers;
+  for (int i = 1; i <= 5; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    peers.push_back(pe);
+  }
+
+  // Filter that only accepts peers with id > 3
+  auto filter = [](const nodetool::peerlist_entry& pe) { return pe.id > 3; };
+  EXPECT_TRUE(plm.merge_peerlist(peers, filter));
+  EXPECT_EQ(2u, plm.get_gray_peers_count()); // only id=4 and id=5
+}
+
+// ---- Peerlist get by index ----
+
+TEST(P2PNetNode, PeerlistGetWhitePeerByIndex)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 0;
+  pe1.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_white(pe1);
+
+  nodetool::peerlist_entry result;
+  EXPECT_TRUE(plm.get_white_peer_by_index(result, 0));
+  EXPECT_EQ(pe1.id, result.id);
+  EXPECT_EQ(pe1.adr, result.adr);
+}
+
+TEST(P2PNetNode, PeerlistGetWhitePeerByIndexOutOfBounds)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry result;
+  EXPECT_FALSE(plm.get_white_peer_by_index(result, 0));
+  EXPECT_FALSE(plm.get_white_peer_by_index(result, 100));
+}
+
+TEST(P2PNetNode, PeerlistGetGrayPeerByIndex)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 4, 4, 18080);
+  pe1.id = 2;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 0;
+  pe1.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_gray(pe1);
+
+  nodetool::peerlist_entry result;
+  EXPECT_TRUE(plm.get_gray_peer_by_index(result, 0));
+  EXPECT_EQ(pe1.id, result.id);
+}
+
+TEST(P2PNetNode, PeerlistGetGrayPeerByIndexOutOfBounds)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry result;
+  EXPECT_FALSE(plm.get_gray_peer_by_index(result, 0));
+}
+
+// ---- Peerlist get_peerlist ----
+
+TEST(P2PNetNode, PeerlistGetPeerlistBothLists)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 0;
+  pe1.rpc_credits_per_hash = 0;
+
+  nodetool::peerlist_entry pe2;
+  pe2.adr = make_ipv4_addr(8, 8, 4, 4, 18080);
+  pe2.id = 2;
+  pe2.last_seen = time(NULL);
+  pe2.pruning_seed = 0;
+  pe2.rpc_port = 0;
+  pe2.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_white(pe1);
+  plm.append_with_peer_gray(pe2);
+
+  std::vector<nodetool::peerlist_entry> gray, white;
+  plm.get_peerlist(gray, white);
+  EXPECT_EQ(1u, white.size());
+  EXPECT_EQ(1u, gray.size());
+}
+
+TEST(P2PNetNode, PeerlistGetPeerlistTypes)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 0;
+  pe1.rpc_credits_per_hash = 0;
+
+  plm.append_with_peer_white(pe1);
+
+  nodetool::peerlist_types peers;
+  plm.get_peerlist(peers);
+  EXPECT_EQ(1u, peers.white.size());
+  EXPECT_EQ(0u, peers.gray.size());
+}
+
+// ---- Peerlist get_peerlist_head ----
+
+TEST(P2PNetNode, PeerlistGetHead)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 10; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL) + i; // different times
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  std::vector<nodetool::peerlist_entry> head;
+  EXPECT_TRUE(plm.get_peerlist_head(head, false, 5));
+  EXPECT_EQ(5u, head.size());
+}
+
+TEST(P2PNetNode, PeerlistGetHeadAnonymized)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 5; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = 1000 + i;
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  std::vector<nodetool::peerlist_entry> head;
+  EXPECT_TRUE(plm.get_peerlist_head(head, true, 3));
+  EXPECT_LE(head.size(), 3u);
+  // Anonymized peers should have last_seen = 0
+  for (const auto& pe : head)
+    EXPECT_EQ(0, pe.last_seen);
+}
+
+TEST(P2PNetNode, PeerlistGetHeadEmpty)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  std::vector<nodetool::peerlist_entry> head;
+  EXPECT_TRUE(plm.get_peerlist_head(head, false, 10));
+  EXPECT_EQ(0u, head.size());
+}
+
+// ---- Peerlist foreach ----
+
+TEST(P2PNetNode, PeerlistForEachWhite)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 3; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  int count = 0;
+  plm.foreach(true, [&count](const nodetool::peerlist_entry& pe) {
+    ++count;
+    return true; // continue
+  });
+  EXPECT_EQ(3, count);
+}
+
+TEST(P2PNetNode, PeerlistForEachGray)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 4; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_gray(pe);
+  }
+
+  int count = 0;
+  plm.foreach(false, [&count](const nodetool::peerlist_entry& pe) {
+    ++count;
+    return true;
+  });
+  EXPECT_EQ(4, count);
+}
+
+TEST(P2PNetNode, PeerlistForEachEarlyStop)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 5; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  int count = 0;
+  bool result = plm.foreach(true, [&count](const nodetool::peerlist_entry& pe) {
+    ++count;
+    return count < 2; // stop after 2nd
+  });
+  EXPECT_FALSE(result); // should return false when stopped early
+  EXPECT_EQ(2, count);
+}
+
+// ---- Peerlist filter ----
+
+TEST(P2PNetNode, PeerlistFilterWhite)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 5; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+  EXPECT_EQ(5u, plm.get_white_peers_count());
+
+  // Filter out peers with odd id (drop returns true)
+  size_t filtered = plm.filter(true, [](const nodetool::peerlist_entry& pe) {
+    return pe.id % 2 != 0; // drop odd
+  });
+  EXPECT_EQ(3u, filtered); // 1, 3, 5 removed
+  EXPECT_EQ(2u, plm.get_white_peers_count()); // 2, 4 remain
+}
+
+TEST(P2PNetNode, PeerlistFilterGray)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 4; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_gray(pe);
+  }
+
+  // Filter out all
+  size_t filtered = plm.filter(false, [](const nodetool::peerlist_entry&) { return true; });
+  EXPECT_EQ(4u, filtered);
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistFilterNone)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  for (int i = 1; i <= 3; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, 8, static_cast<uint8_t>(i), 1, 18080);
+    pe.id = i;
+    pe.last_seen = time(NULL);
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  // Filter that drops nothing
+  size_t filtered = plm.filter(true, [](const nodetool::peerlist_entry&) { return false; });
+  EXPECT_EQ(0u, filtered);
+  EXPECT_EQ(3u, plm.get_white_peers_count());
+}
+
+// ---- Peerlist is_host_allowed ----
+
+TEST(P2PNetNode, IsHostAllowed_PublicIP)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, false);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  EXPECT_TRUE(plm.is_host_allowed(addr));
+}
+
+TEST(P2PNetNode, IsHostAllowed_LoopbackRejected)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(127, 0, 0, 1, 18080);
+  EXPECT_FALSE(plm.is_host_allowed(addr));
+}
+
+TEST(P2PNetNode, IsHostAllowed_LocalRejectedWhenDisabled)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, false);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(192, 168, 1, 1, 18080);
+  EXPECT_FALSE(plm.is_host_allowed(addr));
+}
+
+TEST(P2PNetNode, IsHostAllowed_LocalAcceptedWhenEnabled)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(192, 168, 1, 1, 18080);
+  EXPECT_TRUE(plm.is_host_allowed(addr));
+}
+
+// ---- Peerlist set_peer_just_seen ----
+
+TEST(P2PNetNode, PeerlistSetPeerJustSeen)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  epee::net_utils::network_address addr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  EXPECT_TRUE(plm.set_peer_just_seen(42, addr, 0, 18081, 0));
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+
+  // Calling again should update, not add duplicate
+  EXPECT_TRUE(plm.set_peer_just_seen(42, addr, 384, 18081, 100));
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+}
+
+// ---- Peerlist white-gray interaction ----
+
+TEST(P2PNetNode, PeerlistWhiteRemovesFromGray)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe.id = 1;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  // First add to gray
+  plm.append_with_peer_gray(pe);
+  EXPECT_EQ(1u, plm.get_gray_peers_count());
+  EXPECT_EQ(0u, plm.get_white_peers_count());
+
+  // Now add same address to white - should remove from gray
+  plm.append_with_peer_white(pe);
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistGraySkipsIfInWhite)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe.id = 1;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+
+  // First add to white
+  plm.append_with_peer_white(pe);
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+
+  // Try adding same address to gray - should be skipped
+  plm.append_with_peer_gray(pe);
+  EXPECT_EQ(0u, plm.get_gray_peers_count());
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+}
+
+// ---- Peerlist get_random_gray_peer ----
+
+TEST(P2PNetNode, PeerlistGetRandomGrayPeerEmpty)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  EXPECT_FALSE(plm.get_random_gray_peer(pe));
+}
+
+TEST(P2PNetNode, PeerlistGetRandomGrayPeerNonEmpty)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe.id = 1;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+  plm.append_with_peer_gray(pe);
+
+  nodetool::peerlist_entry result;
+  EXPECT_TRUE(plm.get_random_gray_peer(result));
+  EXPECT_EQ(pe.adr, result.adr);
+}
+
+// ---- Peerlist init with pre-populated data ----
+
+TEST(P2PNetNode, PeerlistInitWithPrePopulated)
+{
+  nodetool::peerlist_types init_peers;
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 0;
+  pe1.rpc_credits_per_hash = 0;
+  init_peers.white.push_back(pe1);
+
+  nodetool::peerlist_entry pe2;
+  pe2.adr = make_ipv4_addr(8, 8, 4, 4, 18080);
+  pe2.id = 2;
+  pe2.last_seen = time(NULL);
+  pe2.pruning_seed = 0;
+  pe2.rpc_port = 0;
+  pe2.rpc_credits_per_hash = 0;
+  init_peers.gray.push_back(pe2);
+
+  nodetool::peerlist_manager plm;
+  plm.init(std::move(init_peers), true);
+
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+  EXPECT_EQ(1u, plm.get_gray_peers_count());
+}
+
+// ---- print_peerlist_to_string ----
+
+TEST(P2PNetNode, PrintPeerlistToString)
+{
+  std::vector<nodetool::peerlist_entry> pl;
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe.id = 0xDEADBEEF;
+  pe.last_seen = time(NULL);
+  pe.pruning_seed = 384;
+  pe.rpc_port = 18081;
+  pe.rpc_credits_per_hash = 0;
+  pl.push_back(pe);
+
+  std::string result = nodetool::print_peerlist_to_string(pl);
+  EXPECT_FALSE(result.empty());
+  EXPECT_NE(result.find("8.8.8.8"), std::string::npos);
+  EXPECT_NE(result.find("deadbeef"), std::string::npos);
+}
+
+TEST(P2PNetNode, PrintPeerlistToStringEmpty)
+{
+  std::vector<nodetool::peerlist_entry> pl;
+  std::string result = nodetool::print_peerlist_to_string(pl);
+  EXPECT_TRUE(result.empty());
+}
+
+TEST(P2PNetNode, PrintPeerlistToStringNeverSeen)
+{
+  std::vector<nodetool::peerlist_entry> pl;
+
+  nodetool::peerlist_entry pe;
+  pe.adr = make_ipv4_addr(1, 2, 3, 4, 80);
+  pe.id = 0;
+  pe.last_seen = 0; // never seen
+  pe.pruning_seed = 0;
+  pe.rpc_port = 0;
+  pe.rpc_credits_per_hash = 0;
+  pl.push_back(pe);
+
+  std::string result = nodetool::print_peerlist_to_string(pl);
+  EXPECT_NE(result.find("never"), std::string::npos);
+}
+
+// ---- Peerlist entry serialization ----
+
+TEST(P2PProtocol, PeerlistEntrySerializationRoundtrip)
+{
+  nodetool::peerlist_entry original;
+  original.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  original.id = 0xDEADBEEFCAFEBABE;
+  original.last_seen = 1234567890;
+  original.pruning_seed = 384;
+  original.rpc_port = 18081;
+  original.rpc_credits_per_hash = 100;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  nodetool::peerlist_entry restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.adr, restored.adr);
+  EXPECT_EQ(original.id, restored.id);
+  EXPECT_EQ(original.last_seen, restored.last_seen);
+  EXPECT_EQ(original.pruning_seed, restored.pruning_seed);
+  EXPECT_EQ(original.rpc_port, restored.rpc_port);
+  EXPECT_EQ(original.rpc_credits_per_hash, restored.rpc_credits_per_hash);
+}
+
+TEST(P2PProtocol, PeerlistEntryDefaultOptionals)
+{
+  nodetool::peerlist_entry original;
+  original.adr = make_ipv4_addr(1, 2, 3, 4, 80);
+  original.id = 1;
+  original.last_seen = 0;
+  original.pruning_seed = 0;
+  original.rpc_port = 0;
+  original.rpc_credits_per_hash = 0;
+
+  epee::byte_slice blob;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, blob));
+
+  nodetool::peerlist_entry restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size())));
+
+  EXPECT_EQ(0, restored.last_seen);
+  EXPECT_EQ(0u, restored.pruning_seed);
+  EXPECT_EQ(0, restored.rpc_port);
+  EXPECT_EQ(0u, restored.rpc_credits_per_hash);
+}
+
+TEST(P2PProtocol, AnchorPeerlistEntrySerializationRoundtrip)
+{
+  nodetool::anchor_peerlist_entry original;
+  original.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  original.id = 42;
+  original.first_seen = 9999999;
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+  ASSERT_FALSE(blob.empty());
+
+  nodetool::anchor_peerlist_entry restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.adr, restored.adr);
+  EXPECT_EQ(original.id, restored.id);
+  EXPECT_EQ(original.first_seen, restored.first_seen);
+}
+
+// ---- Additional protocol command IDs ----
+
+TEST(P2PProtocol, AllCommandIdsExpected)
+{
+  // Verify all BC_COMMANDS_POOL_BASE offsets
+  const int new_block_id = cryptonote::NOTIFY_NEW_BLOCK::ID;
+  const int new_txs_id = cryptonote::NOTIFY_NEW_TRANSACTIONS::ID;
+  const int req_get_objects_id = cryptonote::NOTIFY_REQUEST_GET_OBJECTS::ID;
+  const int resp_get_objects_id = cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::ID;
+  const int req_chain_id = cryptonote::NOTIFY_REQUEST_CHAIN::ID;
+  const int resp_chain_id = cryptonote::NOTIFY_RESPONSE_CHAIN_ENTRY::ID;
+  const int new_fluffy_id = cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::ID;
+  const int req_fluffy_missing_id = cryptonote::NOTIFY_REQUEST_FLUFFY_MISSING_TX::ID;
+  const int get_txpool_complement_id = cryptonote::NOTIFY_GET_TXPOOL_COMPLEMENT::ID;
+
+  EXPECT_EQ(2001, new_block_id);
+  EXPECT_EQ(2002, new_txs_id);
+  EXPECT_EQ(2003, req_get_objects_id);
+  EXPECT_EQ(2004, resp_get_objects_id);
+  EXPECT_EQ(2006, req_chain_id);
+  EXPECT_EQ(2007, resp_chain_id);
+  EXPECT_EQ(2008, new_fluffy_id);
+  EXPECT_EQ(2009, req_fluffy_missing_id);
+  EXPECT_EQ(2010, get_txpool_complement_id);
+}
+
+// ---- Peerlist update preserves pruning_seed ----
+
+TEST(P2PNetNode, PeerlistWhiteUpdatePreservesPruningSeed)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  // Add peer with pruning_seed
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 384;
+  pe1.rpc_port = 18081;
+  pe1.rpc_credits_per_hash = 0;
+  plm.append_with_peer_white(pe1);
+
+  // Update with no pruning_seed (simulating older node)
+  nodetool::peerlist_entry pe2;
+  pe2.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe2.id = 1;
+  pe2.last_seen = time(NULL) + 100;
+  pe2.pruning_seed = 0;  // older node doesn't have this
+  pe2.rpc_port = 0;
+  pe2.rpc_credits_per_hash = 0;
+  plm.append_with_peer_white(pe2);
+
+  EXPECT_EQ(1u, plm.get_white_peers_count());
+
+  // Verify the pruning_seed was preserved
+  nodetool::peerlist_entry result;
+  EXPECT_TRUE(plm.get_white_peer_by_index(result, 0));
+  EXPECT_EQ(384u, result.pruning_seed);
+}
+
+TEST(P2PNetNode, PeerlistWhiteUpdatePreservesRpcPort)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  nodetool::peerlist_entry pe1;
+  pe1.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe1.id = 1;
+  pe1.last_seen = time(NULL);
+  pe1.pruning_seed = 0;
+  pe1.rpc_port = 18081;
+  pe1.rpc_credits_per_hash = 0;
+  plm.append_with_peer_white(pe1);
+
+  // Update with no rpc_port
+  nodetool::peerlist_entry pe2;
+  pe2.adr = make_ipv4_addr(8, 8, 8, 8, 18080);
+  pe2.id = 1;
+  pe2.last_seen = time(NULL) + 100;
+  pe2.pruning_seed = 0;
+  pe2.rpc_port = 0;
+  pe2.rpc_credits_per_hash = 0;
+  plm.append_with_peer_white(pe2);
+
+  nodetool::peerlist_entry result;
+  EXPECT_TRUE(plm.get_white_peer_by_index(result, 0));
+  EXPECT_EQ(18081, result.rpc_port);
+}
+
+// ---- Multiple peers in peerlist ----
+
+TEST(P2PNetNode, PeerlistMultipleWhitePeers)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  const int count = 20;
+  for (int i = 0; i < count; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, static_cast<uint8_t>(i + 1), 0, 1, 18080);
+    pe.id = i + 1;
+    pe.last_seen = time(NULL) + i;
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_white(pe);
+  }
+
+  EXPECT_EQ(static_cast<size_t>(count), plm.get_white_peers_count());
+}
+
+TEST(P2PNetNode, PeerlistMultipleGrayPeers)
+{
+  nodetool::peerlist_manager plm;
+  plm.init(nodetool::peerlist_types{}, true);
+
+  const int count = 20;
+  for (int i = 0; i < count; ++i)
+  {
+    nodetool::peerlist_entry pe;
+    pe.adr = make_ipv4_addr(8, static_cast<uint8_t>(i + 1), 0, 1, 18080);
+    pe.id = i + 1;
+    pe.last_seen = time(NULL) + i;
+    pe.pruning_seed = 0;
+    pe.rpc_port = 0;
+    pe.rpc_credits_per_hash = 0;
+    plm.append_with_peer_gray(pe);
+  }
+
+  EXPECT_EQ(static_cast<size_t>(count), plm.get_gray_peers_count());
+}

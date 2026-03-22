@@ -538,3 +538,347 @@ TEST(get_account_address_from_str, parses_old_address_format)
   cryptonote::address_parse_info info;
   ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, "002391bbbb24dea6fd95232e97594a27769d0153d053d2102b789c498f57a2b00b69cd6f2f5c529c1660f2f4a2b50178d6640c20ce71fe26373041af97c5b10236fc"));
 }
+
+// ===== Additional base58 edge case tests =====
+
+TEST(base58_encode_decode, empty_string_roundtrip)
+{
+  // Encoding empty data should produce empty string
+  std::string enc = base58::encode("");
+  ASSERT_EQ(enc, "");
+
+  // Decoding empty string should produce empty data
+  std::string dec;
+  ASSERT_TRUE(base58::decode("", dec));
+  ASSERT_EQ(dec, "");
+}
+
+TEST(base58_encode_decode, single_byte_roundtrip_zero)
+{
+  std::string data("\x00", 1);
+  std::string enc = base58::encode(data);
+  ASSERT_FALSE(enc.empty());
+
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, single_byte_roundtrip_one)
+{
+  std::string data("\x01", 1);
+  std::string enc = base58::encode(data);
+  ASSERT_FALSE(enc.empty());
+
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, single_byte_roundtrip_max)
+{
+  std::string data("\xFF", 1);
+  std::string enc = base58::encode(data);
+  ASSERT_FALSE(enc.empty());
+
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, multi_block_roundtrip)
+{
+  // Data spanning multiple full blocks (8 bytes each) plus a partial block
+  std::string data;
+  for (int i = 0; i < 25; ++i)
+    data.push_back(static_cast<char>(i));
+
+  std::string enc = base58::encode(data);
+  ASSERT_FALSE(enc.empty());
+
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, all_byte_values_roundtrip)
+{
+  // All 256 byte values in one string
+  std::string data;
+  for (int i = 0; i < 256; ++i)
+    data.push_back(static_cast<char>(i));
+
+  std::string enc = base58::encode(data);
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_decode, invalid_base58_character_0)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode("0123456789A", dec));  // '0' is not in base58 alphabet
+}
+
+TEST(base58_decode, invalid_base58_character_I)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode("I23456789AB", dec));  // 'I' not in base58 alphabet
+}
+
+TEST(base58_decode, invalid_base58_character_O)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode("O23456789AB", dec));  // 'O' not in base58 alphabet
+}
+
+TEST(base58_decode, invalid_base58_character_l)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode("l23456789AB", dec));  // 'l' not in base58 alphabet
+}
+
+TEST(base58_decode, invalid_base58_character_underscore)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode("_23456789AB", dec));
+}
+
+TEST(base58_decode, invalid_base58_character_space)
+{
+  std::string dec;
+  ASSERT_FALSE(base58::decode(" 23456789AB", dec));
+}
+
+// ===== encode_addr / decode_addr roundtrips =====
+
+TEST(base58_addr, tag_zero_roundtrip)
+{
+  std::string data(64, '\x42');
+  std::string addr = base58::encode_addr(0, data);
+  ASSERT_FALSE(addr.empty());
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 0u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, tag_mainnet_18_roundtrip)
+{
+  // Tag 18 is used for mainnet addresses
+  std::string data(64, '\xAB');
+  std::string addr = base58::encode_addr(18, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 18u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, tag_testnet_53_roundtrip)
+{
+  // Tag 53 is used for testnet addresses
+  std::string data(64, '\xCD');
+  std::string addr = base58::encode_addr(53, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 53u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, tag_stagenet_24_roundtrip)
+{
+  // Tag 24 is used for stagenet addresses
+  std::string data(64, '\xEF');
+  std::string addr = base58::encode_addr(24, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 24u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, short_data_payload)
+{
+  std::string data(1, '\x42');
+  std::string addr = base58::encode_addr(18, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 18u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, medium_data_payload)
+{
+  std::string data(32, '\x99');
+  std::string addr = base58::encode_addr(42, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 42u);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, large_tag_value_roundtrip)
+{
+  std::string data(8, '\x55');
+  std::string addr = base58::encode_addr(0x7F, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 0x7Fu);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, two_byte_tag_roundtrip)
+{
+  std::string data(8, '\x77');
+  std::string addr = base58::encode_addr(0xFF, data);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_TRUE(base58::decode_addr(addr, dec_tag, dec_data));
+  ASSERT_EQ(dec_tag, 0xFFu);
+  ASSERT_EQ(dec_data, data);
+}
+
+TEST(base58_addr, corrupted_checksum_fails)
+{
+  std::string data(64, '\x42');
+  std::string addr = base58::encode_addr(18, data);
+
+  // Corrupt the last character of the address (affects checksum)
+  addr.back() = (addr.back() == '1') ? '2' : '1';
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_FALSE(base58::decode_addr(addr, dec_tag, dec_data));
+}
+
+TEST(base58_addr, corrupted_middle_byte_fails)
+{
+  std::string data(64, '\x42');
+  std::string addr = base58::encode_addr(18, data);
+
+  // Corrupt a character in the middle of the address
+  size_t mid = addr.size() / 2;
+  addr[mid] = (addr[mid] == '1') ? '2' : '1';
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_FALSE(base58::decode_addr(addr, dec_tag, dec_data));
+}
+
+TEST(base58_addr, invalid_char_in_addr_fails)
+{
+  std::string data(64, '\x42');
+  std::string addr = base58::encode_addr(18, data);
+
+  // Replace a char with an invalid base58 character
+  addr[5] = '0';  // '0' is not in base58
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_FALSE(base58::decode_addr(addr, dec_tag, dec_data));
+}
+
+TEST(base58_addr, truncated_addr_fails)
+{
+  std::string data(64, '\x42');
+  std::string addr = base58::encode_addr(18, data);
+
+  // Remove last few characters
+  std::string truncated = addr.substr(0, addr.size() - 3);
+
+  uint64_t dec_tag;
+  std::string dec_data;
+  ASSERT_FALSE(base58::decode_addr(truncated, dec_tag, dec_data));
+}
+
+TEST(base58_addr, different_tags_produce_different_addrs)
+{
+  std::string data(64, '\x42');
+  std::string addr1 = base58::encode_addr(18, data);
+  std::string addr2 = base58::encode_addr(53, data);
+  std::string addr3 = base58::encode_addr(24, data);
+
+  ASSERT_NE(addr1, addr2);
+  ASSERT_NE(addr1, addr3);
+  ASSERT_NE(addr2, addr3);
+}
+
+TEST(base58_addr, different_data_produce_different_addrs)
+{
+  std::string data1(64, '\x00');
+  std::string data2(64, '\xFF');
+  std::string addr1 = base58::encode_addr(18, data1);
+  std::string addr2 = base58::encode_addr(18, data2);
+
+  ASSERT_NE(addr1, addr2);
+}
+
+TEST(base58_encode_decode, exact_full_block_8_bytes)
+{
+  std::string data(8, '\xAB');
+  std::string enc = base58::encode(data);
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, two_full_blocks_16_bytes)
+{
+  std::string data(16, '\xCD');
+  std::string enc = base58::encode(data);
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, three_full_blocks_24_bytes)
+{
+  std::string data(24, '\xEF');
+  std::string enc = base58::encode(data);
+  std::string dec;
+  ASSERT_TRUE(base58::decode(enc, dec));
+  ASSERT_EQ(dec, data);
+}
+
+TEST(base58_encode_decode, partial_block_sizes)
+{
+  // Test every possible partial block size (1 through 7)
+  for (int remainder = 1; remainder <= 7; ++remainder)
+  {
+    std::string data(8 + remainder, static_cast<char>(remainder));
+    std::string enc = base58::encode(data);
+    std::string dec;
+    ASSERT_TRUE(base58::decode(enc, dec));
+    ASSERT_EQ(dec, data);
+  }
+}
+
+TEST(base58_encode, deterministic)
+{
+  std::string data(32, '\x42');
+  std::string enc1 = base58::encode(data);
+  std::string enc2 = base58::encode(data);
+  ASSERT_EQ(enc1, enc2);
+}
+
+TEST(base58_addr, encode_deterministic)
+{
+  std::string data(64, '\x42');
+  std::string addr1 = base58::encode_addr(18, data);
+  std::string addr2 = base58::encode_addr(18, data);
+  ASSERT_EQ(addr1, addr2);
+}

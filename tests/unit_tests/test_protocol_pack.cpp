@@ -1455,3 +1455,421 @@ TEST(protocol_pack, core_sync_data_null_hash)
   ASSERT_EQ(crypto::null_hash, restored.top_id);
   ASSERT_EQ(1u, restored.current_height);
 }
+
+// ===========================================================================
+// 38. Double roundtrip – NOTIFY_NEW_TRANSACTIONS buffer stability
+// ===========================================================================
+TEST(protocol_pack, notify_new_transactions_double_roundtrip)
+{
+  cryptonote::NOTIFY_NEW_TRANSACTIONS::request_t original;
+  original.txs.push_back("tx_data_1");
+  original.txs.push_back("tx_data_2");
+  original._ = "pad";
+  original.dandelionpp_fluff = false;
+
+  // First roundtrip
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_NEW_TRANSACTIONS::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  // Second roundtrip
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 39. NOTIFY_RESPONSE_GET_OBJECTS with pruned blocks
+// ===========================================================================
+TEST(protocol_pack, notify_response_get_objects_pruned_blocks)
+{
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t original;
+
+  original.blocks.push_back(make_bce_pruned());
+  original.blocks.push_back(make_bce_pruned());
+  original.current_blockchain_height = 100000;
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(2u, restored.blocks.size());
+  for (size_t i = 0; i < 2; ++i)
+  {
+    ASSERT_EQ(true, restored.blocks[i].pruned);
+    ASSERT_EQ(original.blocks[i].block, restored.blocks[i].block);
+    ASSERT_EQ(original.blocks[i].block_weight, restored.blocks[i].block_weight);
+    ASSERT_EQ(original.blocks[i].txs.size(), restored.blocks[i].txs.size());
+    for (size_t t = 0; t < original.blocks[i].txs.size(); ++t)
+    {
+      ASSERT_EQ(original.blocks[i].txs[t].blob, restored.blocks[i].txs[t].blob);
+      ASSERT_EQ(original.blocks[i].txs[t].prunable_hash, restored.blocks[i].txs[t].prunable_hash);
+    }
+  }
+  ASSERT_EQ(100000u, restored.current_blockchain_height);
+}
+
+// ===========================================================================
+// 40. NOTIFY_RESPONSE_GET_OBJECTS with mixed pruned and unpruned blocks
+// ===========================================================================
+TEST(protocol_pack, notify_response_get_objects_mixed_pruned)
+{
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t original;
+
+  original.blocks.push_back(make_bce_unpruned());
+  original.blocks.push_back(make_bce_pruned());
+  original.blocks.push_back(make_bce_unpruned());
+  original.current_blockchain_height = 50000;
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(3u, restored.blocks.size());
+  ASSERT_EQ(false, restored.blocks[0].pruned);
+  ASSERT_EQ(true, restored.blocks[1].pruned);
+  ASSERT_EQ(false, restored.blocks[2].pruned);
+  ASSERT_EQ(50000u, restored.current_blockchain_height);
+}
+
+// ===========================================================================
+// 41. Double roundtrip – NOTIFY_REQUEST_FLUFFY_MISSING_TX
+// ===========================================================================
+TEST(protocol_pack, notify_request_fluffy_missing_tx_double_roundtrip)
+{
+  cryptonote::NOTIFY_REQUEST_FLUFFY_MISSING_TX::request_t original;
+  original.block_hash = crypto::rand<crypto::hash>();
+  original.current_blockchain_height = 12345;
+  original.missing_tx_indices.push_back(1);
+  original.missing_tx_indices.push_back(5);
+  original.missing_tx_indices.push_back(10);
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_REQUEST_FLUFFY_MISSING_TX::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 42. Double roundtrip – NOTIFY_GET_TXPOOL_COMPLEMENT
+// ===========================================================================
+TEST(protocol_pack, notify_get_txpool_complement_double_roundtrip)
+{
+  cryptonote::NOTIFY_GET_TXPOOL_COMPLEMENT::request_t original;
+  for (int i = 0; i < 3; ++i)
+    original.hashes.push_back(crypto::rand<crypto::hash>());
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_GET_TXPOOL_COMPLEMENT::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 43. Double roundtrip – block_complete_entry pruned
+// ===========================================================================
+TEST(protocol_pack, block_complete_entry_pruned_double_roundtrip)
+{
+  cryptonote::block_complete_entry original = make_bce_pruned();
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::block_complete_entry middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 44. NOTIFY_NEW_FLUFFY_BLOCK – large height
+// ===========================================================================
+TEST(protocol_pack, notify_new_fluffy_block_max_height)
+{
+  cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::request_t original;
+  original.current_blockchain_height = UINT64_MAX;
+  original.b.block = "b";
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::request_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(UINT64_MAX, restored.current_blockchain_height);
+}
+
+// ===========================================================================
+// 45. block_complete_entry – single tx unpruned
+// ===========================================================================
+TEST(protocol_pack, block_complete_entry_single_tx_unpruned)
+{
+  cryptonote::block_complete_entry original;
+  original.pruned = false;
+  original.block = "single_tx_block";
+  original.block_weight = 0;
+  original.txs.push_back(cryptonote::tx_blob_entry{"the_only_tx", crypto::null_hash});
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::block_complete_entry restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(1u, restored.txs.size());
+  ASSERT_EQ("the_only_tx", restored.txs[0].blob);
+  ASSERT_EQ(false, restored.pruned);
+}
+
+// ===========================================================================
+// 46. NOTIFY_RESPONSE_CHAIN_ENTRY – first_block non-empty
+// ===========================================================================
+TEST(protocol_pack, notify_response_chain_entry_first_block)
+{
+  cryptonote::NOTIFY_RESPONSE_CHAIN_ENTRY::request_t original;
+  original.start_height = 0;
+  original.total_height = 1;
+  original.cumulative_difficulty = 1;
+  original.cumulative_difficulty_top64 = 0;
+  original.first_block = "genesis_block_blob_data_here";
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_RESPONSE_CHAIN_ENTRY::request_t restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ("genesis_block_blob_data_here", restored.first_block);
+}
+
+// ===========================================================================
+// 47. connection_info with only string fields populated
+// ===========================================================================
+TEST(protocol_pack, connection_info_string_fields)
+{
+  cryptonote::connection_info original{};
+  original.address = "1.2.3.4:18080";
+  original.host = "1.2.3.4";
+  original.ip = "1.2.3.4";
+  original.port = "18080";
+  original.peer_id = "abcdef";
+  original.state = "synchronizing";
+  original.connection_id = "uuid-here";
+
+  epee::byte_slice buff;
+  bool res = epee::serialization::store_t_to_binary(original, buff);
+  ASSERT_TRUE(res);
+
+  cryptonote::connection_info restored{};
+  res = epee::serialization::load_t_from_binary(restored, epee::to_span(buff));
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ("1.2.3.4:18080", restored.address);
+  ASSERT_EQ("1.2.3.4", restored.host);
+  ASSERT_EQ("1.2.3.4", restored.ip);
+  ASSERT_EQ("18080", restored.port);
+  ASSERT_EQ("abcdef", restored.peer_id);
+  ASSERT_EQ("synchronizing", restored.state);
+  ASSERT_EQ("uuid-here", restored.connection_id);
+}
+
+// ===========================================================================
+// 48. NOTIFY_RESPONSE_GET_OBJECTS double roundtrip
+// ===========================================================================
+TEST(protocol_pack, notify_response_get_objects_double_roundtrip)
+{
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t original;
+  original.blocks.push_back(make_bce_unpruned());
+  original.missed_ids.push_back(crypto::rand<crypto::hash>());
+  original.current_blockchain_height = 42;
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_RESPONSE_GET_OBJECTS::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 49. NOTIFY_REQUEST_GET_OBJECTS double roundtrip
+// ===========================================================================
+TEST(protocol_pack, notify_request_get_objects_double_roundtrip)
+{
+  cryptonote::NOTIFY_REQUEST_GET_OBJECTS::request_t original;
+  for (int i = 0; i < 5; ++i)
+    original.blocks.push_back(crypto::rand<crypto::hash>());
+  original.prune = true;
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_REQUEST_GET_OBJECTS::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 50. NOTIFY_NEW_BLOCK double roundtrip
+// ===========================================================================
+TEST(protocol_pack, notify_new_block_double_roundtrip)
+{
+  cryptonote::NOTIFY_NEW_BLOCK::request_t original;
+  original.b = make_bce_unpruned();
+  original.current_blockchain_height = 777;
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_NEW_BLOCK::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 51. tx_blob_entry double roundtrip
+// ===========================================================================
+TEST(protocol_pack, tx_blob_entry_double_roundtrip)
+{
+  cryptonote::tx_blob_entry original;
+  original.blob = "test_blob_data";
+  original.prunable_hash = crypto::rand<crypto::hash>();
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::tx_blob_entry middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 52. NOTIFY_NEW_FLUFFY_BLOCK double roundtrip
+// ===========================================================================
+TEST(protocol_pack, notify_new_fluffy_block_double_roundtrip)
+{
+  cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::request_t original;
+  original.b = make_bce_unpruned();
+  original.current_blockchain_height = 555;
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_NEW_FLUFFY_BLOCK::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}
+
+// ===========================================================================
+// 53. NOTIFY_REQUEST_CHAIN double roundtrip
+// ===========================================================================
+TEST(protocol_pack, notify_request_chain_double_roundtrip)
+{
+  cryptonote::NOTIFY_REQUEST_CHAIN::request_t original;
+  for (int i = 0; i < 3; ++i)
+    original.block_ids.push_back(crypto::rand<crypto::hash>());
+  original.prune = true;
+
+  epee::byte_slice buff1;
+  bool res = epee::serialization::store_t_to_binary(original, buff1);
+  ASSERT_TRUE(res);
+
+  cryptonote::NOTIFY_REQUEST_CHAIN::request_t middle;
+  res = epee::serialization::load_t_from_binary(middle, epee::to_span(buff1));
+  ASSERT_TRUE(res);
+
+  epee::byte_slice buff2;
+  res = epee::serialization::store_t_to_binary(middle, buff2);
+  ASSERT_TRUE(res);
+
+  ASSERT_EQ(buff1.size(), buff2.size());
+  ASSERT_EQ(0, memcmp(buff1.data(), buff2.data(), buff1.size()));
+}

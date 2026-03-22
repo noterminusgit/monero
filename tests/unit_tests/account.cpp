@@ -636,3 +636,372 @@ TEST(account, integrated_address_testnet)
   ASSERT_EQ(info.payment_id, payment_id);
   ASSERT_EQ(info.address, addr);
 }
+
+// ===== create_from_keys / create_from_viewkey tests =====
+
+TEST(account, create_from_keys_roundtrip)
+{
+  // Generate an account, extract its keys, then recreate from those keys
+  cryptonote::account_base original;
+  original.generate();
+  const auto& orig_keys = original.get_keys();
+
+  cryptonote::account_base restored;
+  restored.create_from_keys(
+    orig_keys.m_account_address,
+    orig_keys.m_spend_secret_key,
+    orig_keys.m_view_secret_key);
+
+  const auto& rest_keys = restored.get_keys();
+  ASSERT_EQ(rest_keys.m_account_address.m_spend_public_key,
+            orig_keys.m_account_address.m_spend_public_key);
+  ASSERT_EQ(rest_keys.m_account_address.m_view_public_key,
+            orig_keys.m_account_address.m_view_public_key);
+  ASSERT_EQ(rest_keys.m_spend_secret_key, orig_keys.m_spend_secret_key);
+  ASSERT_EQ(rest_keys.m_view_secret_key, orig_keys.m_view_secret_key);
+}
+
+TEST(account, create_from_keys_address_str_matches)
+{
+  cryptonote::account_base original;
+  original.generate();
+  const auto& orig_keys = original.get_keys();
+
+  std::string orig_addr = original.get_public_address_str(cryptonote::MAINNET);
+
+  cryptonote::account_base restored;
+  restored.create_from_keys(
+    orig_keys.m_account_address,
+    orig_keys.m_spend_secret_key,
+    orig_keys.m_view_secret_key);
+
+  std::string rest_addr = restored.get_public_address_str(cryptonote::MAINNET);
+  ASSERT_EQ(orig_addr, rest_addr);
+}
+
+TEST(account, create_from_viewkey_produces_view_only)
+{
+  cryptonote::account_base original;
+  original.generate();
+  const auto& orig_keys = original.get_keys();
+
+  cryptonote::account_base view_only;
+  view_only.create_from_viewkey(
+    orig_keys.m_account_address,
+    orig_keys.m_view_secret_key);
+
+  const auto& vo_keys = view_only.get_keys();
+
+  // View key should match
+  ASSERT_EQ(vo_keys.m_view_secret_key, orig_keys.m_view_secret_key);
+
+  // Address should match
+  ASSERT_EQ(vo_keys.m_account_address.m_spend_public_key,
+            orig_keys.m_account_address.m_spend_public_key);
+  ASSERT_EQ(vo_keys.m_account_address.m_view_public_key,
+            orig_keys.m_account_address.m_view_public_key);
+
+  // Spend secret key should be zero (view-only has no spend key)
+  crypto::secret_key zero_key;
+  memset(&unwrap(unwrap(zero_key)), 0, sizeof(zero_key));
+  ASSERT_EQ(vo_keys.m_spend_secret_key, zero_key);
+}
+
+TEST(account, create_from_viewkey_address_string_matches_original)
+{
+  cryptonote::account_base original;
+  original.generate();
+  const auto& orig_keys = original.get_keys();
+
+  cryptonote::account_base view_only;
+  view_only.create_from_viewkey(
+    orig_keys.m_account_address,
+    orig_keys.m_view_secret_key);
+
+  // Both should produce the same address string
+  ASSERT_EQ(
+    original.get_public_address_str(cryptonote::MAINNET),
+    view_only.get_public_address_str(cryptonote::MAINNET));
+}
+
+TEST(account, forget_spend_key_zeroes_spend_secret)
+{
+  cryptonote::account_base account;
+  account.generate();
+
+  // Before forgetting, spend key should be non-null
+  ASSERT_NE(account.get_keys().m_spend_secret_key, crypto::null_skey);
+
+  account.forget_spend_key();
+
+  // After forgetting, spend key should be all zeros
+  crypto::secret_key zero_key;
+  memset(&unwrap(unwrap(zero_key)), 0, sizeof(zero_key));
+  ASSERT_EQ(account.get_keys().m_spend_secret_key, zero_key);
+
+  // Multisig keys should also be cleared
+  ASSERT_TRUE(account.get_keys().m_multisig_keys.empty());
+}
+
+TEST(account, set_spend_key_roundtrip)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto original_spend = account.get_keys().m_spend_secret_key;
+
+  // Forget and re-set the spend key
+  account.forget_spend_key();
+  ASSERT_NE(account.get_keys().m_spend_secret_key, original_spend);
+
+  account.set_spend_key(original_spend);
+  ASSERT_EQ(account.get_keys().m_spend_secret_key, original_spend);
+}
+
+TEST(account, generate_two_random_mode)
+{
+  // Test the two_random=true path which generates independent spend and view keys
+  cryptonote::account_base account;
+  crypto::secret_key recovery_key = account.generate(crypto::secret_key(), false, true);
+  const auto& keys = account.get_keys();
+
+  // Keys should be valid
+  ASSERT_NE(keys.m_spend_secret_key, crypto::null_skey);
+  ASSERT_NE(keys.m_view_secret_key, crypto::null_skey);
+  ASSERT_NE(keys.m_account_address.m_spend_public_key, crypto::null_pkey);
+  ASSERT_NE(keys.m_account_address.m_view_public_key, crypto::null_pkey);
+
+  // Public keys should match their secret keys
+  crypto::public_key spend_pub, view_pub;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(keys.m_spend_secret_key, spend_pub));
+  ASSERT_TRUE(crypto::secret_key_to_public_key(keys.m_view_secret_key, view_pub));
+  ASSERT_EQ(spend_pub, keys.m_account_address.m_spend_public_key);
+  ASSERT_EQ(view_pub, keys.m_account_address.m_view_public_key);
+}
+
+TEST(account, address_stagenet_prefix)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& addr = account.get_keys().m_account_address;
+
+  std::string str = cryptonote::get_account_address_as_str(cryptonote::STAGENET, false, addr);
+  ASSERT_FALSE(str.empty());
+  // Stagenet addresses start with '5'
+  ASSERT_EQ(str[0], '5');
+
+  cryptonote::address_parse_info info;
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::STAGENET, str));
+  ASSERT_EQ(info.address, addr);
+  ASSERT_FALSE(info.is_subaddress);
+}
+
+TEST(account, address_public_keys_are_valid_curve_points)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& addr = account.get_keys().m_account_address;
+
+  // Both public keys should be valid curve points
+  ASSERT_TRUE(crypto::check_key(addr.m_spend_public_key));
+  ASSERT_TRUE(crypto::check_key(addr.m_view_public_key));
+}
+
+TEST(account, different_accounts_different_addresses)
+{
+  cryptonote::account_base account1, account2;
+  account1.generate();
+  account2.generate();
+
+  const auto& addr1 = account1.get_keys().m_account_address;
+  const auto& addr2 = account2.get_keys().m_account_address;
+
+  ASSERT_NE(addr1.m_spend_public_key, addr2.m_spend_public_key);
+  ASSERT_NE(addr1.m_view_public_key, addr2.m_view_public_key);
+
+  // Address strings should also differ
+  ASSERT_NE(
+    account1.get_public_address_str(cryptonote::MAINNET),
+    account2.get_public_address_str(cryptonote::MAINNET));
+}
+
+TEST(account, mainnet_testnet_stagenet_prefixes_differ)
+{
+  cryptonote::account_base account;
+  account.generate();
+
+  std::string mainnet_str = account.get_public_address_str(cryptonote::MAINNET);
+  std::string testnet_str = account.get_public_address_str(cryptonote::TESTNET);
+  std::string stagenet_str = account.get_public_address_str(cryptonote::STAGENET);
+
+  // First characters should differ between networks
+  ASSERT_EQ(mainnet_str[0], '4');
+  ASSERT_TRUE(testnet_str[0] == '9' || testnet_str[0] == 'A');
+  ASSERT_EQ(stagenet_str[0], '5');
+}
+
+TEST(account, integrated_address_stagenet_roundtrip)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& addr = account.get_keys().m_account_address;
+
+  crypto::hash8 payment_id;
+  memset(&payment_id, 0xEE, sizeof(payment_id));
+
+  std::string integrated_str = cryptonote::get_account_integrated_address_as_str(
+    cryptonote::STAGENET, addr, payment_id);
+  ASSERT_FALSE(integrated_str.empty());
+
+  cryptonote::address_parse_info info;
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::STAGENET, integrated_str));
+  ASSERT_TRUE(info.has_payment_id);
+  ASSERT_EQ(info.payment_id, payment_id);
+  ASSERT_EQ(info.address, addr);
+}
+
+TEST(account, make_multisig_basic)
+{
+  // Generate two accounts and create a basic multisig setup
+  cryptonote::account_base account1, account2;
+  account1.generate();
+  account2.generate();
+  const auto& keys1 = account1.get_keys();
+  const auto& keys2 = account2.get_keys();
+
+  // Create a multisig account using view key from account1 and spend from account2
+  cryptonote::account_base ms_account;
+  ms_account.generate();
+
+  std::vector<crypto::secret_key> ms_keys;
+  ms_keys.push_back(keys1.m_spend_secret_key);
+
+  bool result = ms_account.make_multisig(
+    keys1.m_view_secret_key,
+    keys2.m_spend_secret_key,
+    keys2.m_account_address.m_spend_public_key,
+    ms_keys);
+  ASSERT_TRUE(result);
+
+  // Verify multisig keys were set
+  ASSERT_EQ(ms_account.get_multisig_keys().size(), 1u);
+  ASSERT_EQ(ms_account.get_keys().m_view_secret_key, keys1.m_view_secret_key);
+}
+
+TEST(account, derive_secret_and_public_key_consistency)
+{
+  cryptonote::account_base sender, receiver;
+  sender.generate();
+  receiver.generate();
+  const auto& receiver_keys = receiver.get_keys();
+
+  // Create a tx key pair
+  crypto::public_key tx_pub;
+  crypto::secret_key tx_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+
+  // Sender side: derive shared secret using receiver's view pub key
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(
+    receiver_keys.m_account_address.m_view_public_key, tx_sec, derivation));
+
+  // Derive ephemeral public key (sender side)
+  crypto::public_key eph_pub;
+  ASSERT_TRUE(crypto::derive_public_key(derivation, 0,
+    receiver_keys.m_account_address.m_spend_public_key, eph_pub));
+
+  // Receiver side: derive shared secret using tx pub key
+  crypto::key_derivation derivation2;
+  ASSERT_TRUE(crypto::generate_key_derivation(tx_pub,
+    receiver_keys.m_view_secret_key, derivation2));
+
+  // Derivations should match
+  ASSERT_EQ(0, memcmp(&derivation, &derivation2, sizeof(derivation)));
+
+  // Receiver derives the ephemeral public key to verify
+  crypto::public_key eph_pub2;
+  ASSERT_TRUE(crypto::derive_public_key(derivation2, 0,
+    receiver_keys.m_account_address.m_spend_public_key, eph_pub2));
+  ASSERT_EQ(eph_pub, eph_pub2);
+
+  // Receiver derives the ephemeral secret key to spend
+  crypto::secret_key eph_sec;
+  crypto::derive_secret_key(derivation2, 0,
+    receiver_keys.m_spend_secret_key, eph_sec);
+
+  // Verify that the derived secret key produces the derived public key
+  crypto::public_key eph_pub_check;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(eph_sec, eph_pub_check));
+  ASSERT_EQ(eph_pub, eph_pub_check);
+}
+
+TEST(account, derive_view_tag)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& keys = account.get_keys();
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(
+    keys.m_account_address.m_view_public_key,
+    keys.m_view_secret_key, derivation));
+
+  // Derive view tags at different output indices
+  crypto::view_tag vt0, vt1;
+  crypto::derive_view_tag(derivation, 0, vt0);
+  crypto::derive_view_tag(derivation, 1, vt1);
+
+  // View tags are deterministic - same input should give same output
+  crypto::view_tag vt0_again;
+  crypto::derive_view_tag(derivation, 0, vt0_again);
+  ASSERT_EQ(vt0.data, vt0_again.data);
+}
+
+TEST(account, derive_subaddress_public_key)
+{
+  cryptonote::account_base account;
+  account.generate();
+  const auto& keys = account.get_keys();
+
+  // Create key derivation
+  crypto::public_key tx_pub;
+  crypto::secret_key tx_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(
+    keys.m_account_address.m_view_public_key, tx_sec, derivation));
+
+  // Derive a public key
+  crypto::public_key derived_pub;
+  ASSERT_TRUE(crypto::derive_public_key(derivation, 0,
+    keys.m_account_address.m_spend_public_key, derived_pub));
+
+  // Reverse: derive_subaddress_public_key should recover the original spend key
+  crypto::public_key recovered_spend;
+  ASSERT_TRUE(crypto::derive_subaddress_public_key(derived_pub, derivation, 0, recovered_spend));
+  ASSERT_EQ(recovered_spend, keys.m_account_address.m_spend_public_key);
+}
+
+TEST(account, signature_wrong_key_fails)
+{
+  cryptonote::account_base account1, account2;
+  account1.generate();
+  account2.generate();
+
+  crypto::hash msg;
+  memset(&msg, 0x42, sizeof(msg));
+
+  // Sign with account1's keys
+  crypto::signature sig;
+  crypto::generate_signature(msg,
+    account1.get_keys().m_account_address.m_spend_public_key,
+    account1.get_keys().m_spend_secret_key, sig);
+
+  // Should verify with account1's pub key
+  ASSERT_TRUE(crypto::check_signature(msg,
+    account1.get_keys().m_account_address.m_spend_public_key, sig));
+
+  // Should NOT verify with account2's pub key
+  ASSERT_FALSE(crypto::check_signature(msg,
+    account2.get_keys().m_account_address.m_spend_public_key, sig));
+}

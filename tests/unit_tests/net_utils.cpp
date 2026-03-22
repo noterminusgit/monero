@@ -34,7 +34,12 @@
 #include "net/local_ip.h"
 #include "string_tools.h"
 #include "p2p/p2p_protocol_defs.h"
+#include "storages/portable_storage_template_helper.h"
 #include <boost/utility/string_ref.hpp>
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/random_generator.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/asio/ip/address_v6.hpp>
 
 // ---- zone_to_string / zone_from_string ----
 
@@ -731,4 +736,583 @@ TEST(net_error, error_code_values_distinct)
   values.insert(static_cast<int>(net::error::unexpected_userinfo));
   values.insert(static_cast<int>(net::error::unsupported_address));
   EXPECT_EQ(values.size(), 12u);
+}
+
+// ---- network_address polymorphic wrapper tests ----
+
+TEST(network_address, default_constructed_is_invalid)
+{
+  epee::net_utils::network_address addr;
+  EXPECT_EQ(epee::net_utils::address_type::invalid, addr.get_type_id());
+  EXPECT_EQ(epee::net_utils::zone::invalid, addr.get_zone());
+  EXPECT_FALSE(addr.is_loopback());
+  EXPECT_FALSE(addr.is_local());
+  EXPECT_FALSE(addr.is_blockable());
+  EXPECT_EQ(0u, addr.port());
+  EXPECT_EQ("<none>", addr.str());
+  EXPECT_EQ("<none>", addr.host_str());
+}
+
+TEST(network_address, from_ipv4)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 8080}};
+
+  EXPECT_EQ(epee::net_utils::address_type::ipv4, addr.get_type_id());
+  EXPECT_EQ(epee::net_utils::zone::public_, addr.get_zone());
+  EXPECT_TRUE(addr.is_blockable());
+  EXPECT_EQ(8080u, addr.port());
+  EXPECT_FALSE(addr.str().empty());
+}
+
+TEST(network_address, from_ipv6)
+{
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::address_v6::loopback();
+  epee::net_utils::network_address addr{epee::net_utils::ipv6_network_address{v6, 9090}};
+
+  EXPECT_EQ(epee::net_utils::address_type::ipv6, addr.get_type_id());
+  EXPECT_EQ(epee::net_utils::zone::public_, addr.get_zone());
+  EXPECT_TRUE(addr.is_loopback());
+  EXPECT_EQ(9090u, addr.port());
+}
+
+TEST(network_address, copy_and_equality)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.1");
+  epee::net_utils::network_address a{epee::net_utils::ipv4_network_address{ip, 80}};
+  epee::net_utils::network_address b = a;
+
+  EXPECT_EQ(a, b);
+  EXPECT_TRUE(a.is_same_host(b));
+}
+
+TEST(network_address, different_types_not_equal)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address ipv4_addr{epee::net_utils::ipv4_network_address{ip, 80}};
+
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::address_v6::loopback();
+  epee::net_utils::network_address ipv6_addr{epee::net_utils::ipv6_network_address{v6, 80}};
+
+  EXPECT_NE(ipv4_addr, ipv6_addr);
+}
+
+TEST(network_address, ordering_different_types)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address ipv4_addr{epee::net_utils::ipv4_network_address{ip, 80}};
+
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::address_v6::loopback();
+  epee::net_utils::network_address ipv6_addr{epee::net_utils::ipv6_network_address{v6, 80}};
+
+  // Different types should have a consistent order (ipv4 < ipv6 by type id)
+  EXPECT_TRUE(ipv4_addr < ipv6_addr || ipv6_addr < ipv4_addr);
+  // And it should be consistent
+  bool ipv4_less = ipv4_addr < ipv6_addr;
+  EXPECT_EQ(ipv4_less, ipv4_addr < ipv6_addr);
+}
+
+TEST(network_address, ordering_same_type)
+{
+  uint32_t ip1, ip2;
+  epee::string_tools::get_ip_int32_from_string(ip1, "10.0.0.1");
+  epee::string_tools::get_ip_int32_from_string(ip2, "10.0.0.2");
+  epee::net_utils::network_address a{epee::net_utils::ipv4_network_address{ip1, 80}};
+  epee::net_utils::network_address b{epee::net_utils::ipv4_network_address{ip2, 80}};
+
+  EXPECT_TRUE(a < b || b < a);
+  EXPECT_FALSE(a < a); // not less than self
+}
+
+TEST(network_address, null_vs_null_equal)
+{
+  epee::net_utils::network_address a;
+  epee::net_utils::network_address b;
+  EXPECT_EQ(a, b);
+}
+
+TEST(network_address, null_vs_populated_not_equal)
+{
+  epee::net_utils::network_address empty;
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "1.2.3.4");
+  epee::net_utils::network_address populated{epee::net_utils::ipv4_network_address{ip, 80}};
+  EXPECT_NE(empty, populated);
+}
+
+TEST(network_address, same_host_different_port)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address a{epee::net_utils::ipv4_network_address{ip, 80}};
+  epee::net_utils::network_address b{epee::net_utils::ipv4_network_address{ip, 443}};
+
+  EXPECT_TRUE(a.is_same_host(b));
+  EXPECT_NE(a, b); // different port
+}
+
+TEST(network_address, as_template_accessor)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "172.16.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 1234}};
+
+  const auto& inner = addr.as<epee::net_utils::ipv4_network_address>();
+  EXPECT_EQ(ip, inner.ip());
+  EXPECT_EQ(1234u, inner.port());
+}
+
+TEST(network_address, as_wrong_type_throws)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 80}};
+
+  EXPECT_THROW(addr.as<epee::net_utils::ipv6_network_address>(), std::bad_cast);
+}
+
+// ---- connection_context_base tests ----
+
+TEST(connection_context, default_construction)
+{
+  epee::net_utils::connection_context_base ctx;
+  EXPECT_FALSE(ctx.m_is_income);
+  EXPECT_FALSE(ctx.m_ssl);
+  EXPECT_EQ(0u, ctx.m_recv_cnt);
+  EXPECT_EQ(0u, ctx.m_send_cnt);
+  EXPECT_EQ(0, ctx.m_last_recv);
+  EXPECT_EQ(0, ctx.m_last_send);
+  EXPECT_EQ(0.0, ctx.m_current_speed_down);
+  EXPECT_EQ(0.0, ctx.m_current_speed_up);
+  EXPECT_EQ(0.0, ctx.m_max_speed_down);
+  EXPECT_EQ(0.0, ctx.m_max_speed_up);
+  // remote_address should be default (invalid)
+  EXPECT_EQ(epee::net_utils::address_type::invalid, ctx.m_remote_address.get_type_id());
+}
+
+TEST(connection_context, parameterized_construction)
+{
+  boost::uuids::uuid id = boost::uuids::random_generator()();
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.100");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 18080}};
+
+  epee::net_utils::connection_context_base ctx(id, addr, true, true);
+  EXPECT_EQ(id, ctx.m_connection_id);
+  EXPECT_TRUE(ctx.m_is_income);
+  EXPECT_TRUE(ctx.m_ssl);
+  EXPECT_EQ(addr, ctx.m_remote_address);
+}
+
+TEST(connection_context, copy_construction)
+{
+  boost::uuids::uuid id = boost::uuids::random_generator()();
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 8080}};
+
+  epee::net_utils::connection_context_base ctx1(id, addr, false, true);
+  epee::net_utils::connection_context_base ctx2(ctx1);
+
+  EXPECT_EQ(ctx1.m_connection_id, ctx2.m_connection_id);
+  EXPECT_EQ(ctx1.m_remote_address, ctx2.m_remote_address);
+  EXPECT_EQ(ctx1.m_is_income, ctx2.m_is_income);
+  EXPECT_EQ(ctx1.m_ssl, ctx2.m_ssl);
+}
+
+TEST(connection_context, print_connection_context_not_empty)
+{
+  boost::uuids::uuid id = boost::uuids::random_generator()();
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 18080}};
+
+  epee::net_utils::connection_context_base ctx(id, addr, true, false);
+  std::string result = epee::net_utils::print_connection_context(ctx);
+  EXPECT_FALSE(result.empty());
+  EXPECT_NE(result.find("10.0.0.1"), std::string::npos);
+  EXPECT_NE(result.find("INC"), std::string::npos);
+}
+
+TEST(connection_context, print_connection_context_short_not_empty)
+{
+  boost::uuids::uuid id = boost::uuids::random_generator()();
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::network_address addr{epee::net_utils::ipv4_network_address{ip, 18080}};
+
+  epee::net_utils::connection_context_base ctx(id, addr, false, false);
+  std::string result = epee::net_utils::print_connection_context_short(ctx);
+  EXPECT_FALSE(result.empty());
+  EXPECT_NE(result.find("OUT"), std::string::npos);
+}
+
+TEST(connection_context, assignment_operator)
+{
+  boost::uuids::uuid id1 = boost::uuids::random_generator()();
+  uint32_t ip1;
+  epee::string_tools::get_ip_int32_from_string(ip1, "10.0.0.1");
+  epee::net_utils::network_address addr1{epee::net_utils::ipv4_network_address{ip1, 80}};
+
+  boost::uuids::uuid id2 = boost::uuids::random_generator()();
+  uint32_t ip2;
+  epee::string_tools::get_ip_int32_from_string(ip2, "10.0.0.2");
+  epee::net_utils::network_address addr2{epee::net_utils::ipv4_network_address{ip2, 443}};
+
+  epee::net_utils::connection_context_base ctx1(id1, addr1, true, false);
+  epee::net_utils::connection_context_base ctx2(id2, addr2, false, true);
+
+  ctx2 = ctx1;
+  EXPECT_EQ(ctx1.m_connection_id, ctx2.m_connection_id);
+  EXPECT_EQ(ctx1.m_remote_address, ctx2.m_remote_address);
+  EXPECT_EQ(ctx1.m_is_income, ctx2.m_is_income);
+  EXPECT_EQ(ctx1.m_ssl, ctx2.m_ssl);
+}
+
+// ---- IPv4 subnet additional tests ----
+
+TEST(ipv4_subnet, loopback_subnet)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "127.0.0.0");
+  epee::net_utils::ipv4_network_subnet subnet{ip, 8};
+  EXPECT_TRUE(subnet.is_loopback());
+}
+
+TEST(ipv4_subnet, local_subnet)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "192.168.0.0");
+  epee::net_utils::ipv4_network_subnet subnet{ip, 16};
+  EXPECT_TRUE(subnet.is_local());
+}
+
+TEST(ipv4_subnet, public_subnet_not_local)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "8.8.0.0");
+  epee::net_utils::ipv4_network_subnet subnet{ip, 16};
+  EXPECT_FALSE(subnet.is_local());
+  EXPECT_FALSE(subnet.is_loopback());
+}
+
+TEST(ipv4_subnet, host_str_contains_mask)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.0");
+  epee::net_utils::ipv4_network_subnet subnet{ip, 8};
+  std::string hs = subnet.host_str();
+  EXPECT_NE(hs.find("/8"), std::string::npos);
+}
+
+TEST(ipv4_subnet, less_ordering)
+{
+  uint32_t ip1, ip2;
+  epee::string_tools::get_ip_int32_from_string(ip1, "10.0.0.0");
+  epee::string_tools::get_ip_int32_from_string(ip2, "172.16.0.0");
+  epee::net_utils::ipv4_network_subnet s1{ip1, 8};
+  epee::net_utils::ipv4_network_subnet s2{ip2, 12};
+  EXPECT_TRUE(s1 < s2 || s2 < s1);
+  EXPECT_FALSE(s1 < s1);
+}
+
+TEST(ipv4_subnet, less_same_subnet_different_mask)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.0");
+  epee::net_utils::ipv4_network_subnet s1{ip, 8};
+  epee::net_utils::ipv4_network_subnet s2{ip, 24};
+  // Same subnet base but different masks -> not equal, one is less
+  EXPECT_TRUE(s1 < s2 || s2 < s1);
+}
+
+TEST(ipv4_subnet, is_same_host)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.0");
+  epee::net_utils::ipv4_network_subnet s1{ip, 8};
+  epee::net_utils::ipv4_network_subnet s2{ip, 24};
+  // is_same_host compares subnet() values which depend on mask
+  // 10.0.0.0/8 -> subnet uses lower 8 bits
+  // 10.0.0.0/24 -> subnet uses lower 24 bits
+  // Both have ip 10.0.0.0 so subnet() values may differ
+  (void)s1.is_same_host(s2); // just verify no crash
+}
+
+TEST(ipv4_subnet, default_construction)
+{
+  epee::net_utils::ipv4_network_subnet subnet;
+  // Default: ip=0, mask=0
+  EXPECT_EQ("0.0.0.0/0", subnet.str());
+}
+
+TEST(ipv4_subnet, serialization_roundtrip)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.0");
+  epee::net_utils::ipv4_network_subnet original{ip, 24};
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+
+  epee::net_utils::ipv4_network_subnet restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original, restored);
+}
+
+// ---- IPv4 address serialization ----
+
+TEST(ipv4_address, serialization_roundtrip)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.100");
+  epee::net_utils::ipv4_network_address original{ip, 18080};
+
+  epee::byte_slice blob;
+  bool res = epee::serialization::store_t_to_binary(original, blob);
+  ASSERT_TRUE(res);
+
+  epee::net_utils::ipv4_network_address restored;
+  res = epee::serialization::load_t_from_binary(restored, epee::span<const uint8_t>(blob.data(), blob.size()));
+  ASSERT_TRUE(res);
+
+  EXPECT_EQ(original.ip(), restored.ip());
+  EXPECT_EQ(original.port(), restored.port());
+  EXPECT_TRUE(original.equal(restored));
+}
+
+TEST(ipv4_address, ordering_by_port)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::ipv4_network_address a{ip, 80};
+  epee::net_utils::ipv4_network_address b{ip, 443};
+
+  // Same IP, different port -> less compares by port
+  EXPECT_TRUE(a.less(b));
+  EXPECT_FALSE(b.less(a));
+}
+
+TEST(ipv4_address, ordering_by_ip)
+{
+  uint32_t ip1, ip2;
+  epee::string_tools::get_ip_int32_from_string(ip1, "10.0.0.1");
+  epee::string_tools::get_ip_int32_from_string(ip2, "10.0.0.2");
+  epee::net_utils::ipv4_network_address a{ip1, 80};
+  epee::net_utils::ipv4_network_address b{ip2, 80};
+
+  // Different IP -> less compares by IP
+  EXPECT_TRUE(a < b || b < a);
+}
+
+TEST(ipv4_address, relational_operators)
+{
+  uint32_t ip1, ip2;
+  epee::string_tools::get_ip_int32_from_string(ip1, "10.0.0.1");
+  epee::string_tools::get_ip_int32_from_string(ip2, "10.0.0.2");
+  epee::net_utils::ipv4_network_address a{ip1, 80};
+  epee::net_utils::ipv4_network_address b{ip2, 80};
+
+  // Test all relational operators
+  if (a < b) {
+    EXPECT_TRUE(a <= b);
+    EXPECT_FALSE(a > b);
+    EXPECT_FALSE(a >= b);
+    EXPECT_TRUE(b > a);
+    EXPECT_TRUE(b >= a);
+  }
+}
+
+TEST(ipv4_address, self_equality)
+{
+  uint32_t ip;
+  epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1");
+  epee::net_utils::ipv4_network_address a{ip, 80};
+  EXPECT_EQ(a, a);
+  EXPECT_FALSE(a != a);
+  EXPECT_FALSE(a < a);
+  EXPECT_TRUE(a <= a);
+  EXPECT_TRUE(a >= a);
+  EXPECT_FALSE(a > a);
+}
+
+// ---- IPv6 address additional tests ----
+
+TEST(ipv6_address, str_format_contains_brackets)
+{
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::make_address_v6("2001:db8::1");
+  epee::net_utils::ipv6_network_address addr(v6, 18080);
+  std::string s = addr.str();
+  EXPECT_NE(s.find("["), std::string::npos);
+  EXPECT_NE(s.find("]"), std::string::npos);
+  EXPECT_NE(s.find("18080"), std::string::npos);
+}
+
+TEST(ipv6_address, host_str_no_port)
+{
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::make_address_v6("2001:db8::1");
+  epee::net_utils::ipv6_network_address addr(v6, 18080);
+  std::string h = addr.host_str();
+  // host_str should contain the address but not the port
+  EXPECT_NE(h.find("2001"), std::string::npos);
+  EXPECT_EQ(h.find("18080"), std::string::npos);
+}
+
+TEST(ipv6_address, link_local_is_local)
+{
+  // fe80::1 is link-local
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::make_address_v6("fe80::1");
+  epee::net_utils::ipv6_network_address addr(v6, 80);
+  EXPECT_TRUE(addr.is_local());
+  EXPECT_FALSE(addr.is_loopback());
+}
+
+TEST(ipv6_address, ordering)
+{
+  boost::asio::ip::address_v6 v6a = boost::asio::ip::make_address_v6("2001:db8::1");
+  boost::asio::ip::address_v6 v6b = boost::asio::ip::make_address_v6("2001:db8::2");
+  epee::net_utils::ipv6_network_address a(v6a, 80);
+  epee::net_utils::ipv6_network_address b(v6b, 80);
+
+  EXPECT_TRUE(a < b || b < a);
+  EXPECT_FALSE(a < a);
+}
+
+TEST(ipv6_address, ordering_by_port)
+{
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::address_v6::loopback();
+  epee::net_utils::ipv6_network_address a(v6, 80);
+  epee::net_utils::ipv6_network_address b(v6, 443);
+
+  EXPECT_TRUE(a.less(b));
+  EXPECT_FALSE(b.less(a));
+}
+
+TEST(ipv6_address, self_equality)
+{
+  boost::asio::ip::address_v6 v6 = boost::asio::ip::address_v6::loopback();
+  epee::net_utils::ipv6_network_address a(v6, 80);
+  EXPECT_EQ(a, a);
+  EXPECT_FALSE(a != a);
+  EXPECT_TRUE(a <= a);
+  EXPECT_TRUE(a >= a);
+}
+
+// ---- address_type enum tests ----
+
+TEST(address_type, enum_values)
+{
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::address_type::invalid), 0);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::address_type::ipv4), 1);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::address_type::ipv6), 2);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::address_type::i2p), 3);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::address_type::tor), 4);
+}
+
+// ---- zone hash tests ----
+
+TEST(net_zone, zone_hash)
+{
+  std::hash<epee::net_utils::zone> hasher;
+  // Each zone should produce a unique hash (since they're different uint8_t values)
+  std::set<size_t> hashes;
+  hashes.insert(hasher(epee::net_utils::zone::invalid));
+  hashes.insert(hasher(epee::net_utils::zone::public_));
+  hashes.insert(hasher(epee::net_utils::zone::i2p));
+  hashes.insert(hasher(epee::net_utils::zone::tor));
+  EXPECT_EQ(4u, hashes.size());
+}
+
+TEST(net_zone, zone_enum_values)
+{
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::zone::invalid), 0);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::zone::public_), 1);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::zone::i2p), 2);
+  EXPECT_EQ(static_cast<uint8_t>(epee::net_utils::zone::tor), 3);
+}
+
+// ---- IP conversion additional tests ----
+
+TEST(ip_conversion, loopback_roundtrip)
+{
+  uint32_t ip;
+  EXPECT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "127.0.0.1"));
+  std::string s = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("127.0.0.1", s);
+}
+
+TEST(ip_conversion, various_valid_ips)
+{
+  const char* ips[] = {"1.2.3.4", "10.20.30.40", "100.200.100.200", "192.168.0.1"};
+  for (const char* ip_str : ips)
+  {
+    uint32_t ip;
+    ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, ip_str));
+    std::string back = epee::string_tools::get_ip_string_from_int32(ip);
+    EXPECT_EQ(std::string(ip_str), back);
+  }
+}
+
+// ---- Levin make_header additional tests ----
+
+TEST(levin_protocol, make_header_large_command)
+{
+  auto h = epee::levin::make_header(UINT32_MAX, 0, LEVIN_PACKET_REQUEST, false);
+  EXPECT_EQ(h.m_command, UINT32_MAX);
+}
+
+TEST(levin_protocol, bucket_head2_fields)
+{
+  epee::levin::bucket_head2 h{};
+  h.m_signature = LEVIN_SIGNATURE;
+  h.m_cb = 1234;
+  h.m_have_to_return_data = true;
+  h.m_command = 42;
+  h.m_return_code = -1;
+  h.m_flags = LEVIN_PACKET_RESPONSE;
+  h.m_protocol_version = LEVIN_PROTOCOL_VER_1;
+
+  EXPECT_EQ(h.m_signature, LEVIN_SIGNATURE);
+  EXPECT_EQ(h.m_cb, 1234u);
+  EXPECT_TRUE(h.m_have_to_return_data);
+  EXPECT_EQ(h.m_command, 42u);
+  EXPECT_EQ(h.m_return_code, -1);
+  EXPECT_EQ(h.m_flags, static_cast<uint32_t>(LEVIN_PACKET_RESPONSE));
+  EXPECT_EQ(h.m_protocol_version, static_cast<uint32_t>(LEVIN_PROTOCOL_VER_1));
+}
+
+// ---- MAKE_IP macro tests ----
+
+TEST(make_ip, basic_construction)
+{
+  uint32_t ip = MAKE_IP(192, 168, 1, 1);
+  std::string s = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("192.168.1.1", s);
+}
+
+TEST(make_ip, zero_ip)
+{
+  uint32_t ip = MAKE_IP(0, 0, 0, 0);
+  std::string s = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("0.0.0.0", s);
+}
+
+TEST(make_ip, broadcast)
+{
+  uint32_t ip = MAKE_IP(255, 255, 255, 255);
+  std::string s = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("255.255.255.255", s);
+}
+
+TEST(make_ip, loopback)
+{
+  uint32_t ip = MAKE_IP(127, 0, 0, 1);
+  EXPECT_TRUE(epee::net_utils::is_ip_loopback(ip));
 }

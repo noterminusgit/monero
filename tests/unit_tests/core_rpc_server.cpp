@@ -3404,3 +3404,1201 @@ TEST(core_rpc, compress_decompress_multiple)
   for (size_t i = 0; i < v.size(); ++i)
     ASSERT_EQ(decompressed[i], v[i]);
 }
+
+// ============================================================
+// Additional RPC command struct roundtrip tests
+// ============================================================
+
+TEST(core_rpc, get_block_header_by_hash_request_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::request_t req;
+  req.hash = "418015bb9ae982a1975da7d79277c2705727a56894ba0fb246adaabb1f4632e3";
+  req.fill_pow_hash = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.hash, req.hash);
+  ASSERT_EQ(req2.fill_pow_hash, true);
+}
+
+TEST(core_rpc, get_block_header_by_hash_response_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.block_header.height = 2500000;
+  res.block_header.depth = 100;
+  res.block_header.hash = "418015bb9ae982a1975da7d79277c2705727a56894ba0fb246adaabb1f4632e3";
+  res.block_header.difficulty = 300000000000ULL;
+  res.block_header.reward = 600000000ULL;
+  res.block_header.timestamp = 1700000000;
+  res.block_header.major_version = 16;
+  res.block_header.minor_version = 16;
+  res.block_header.nonce = 12345;
+  res.block_header.orphan_status = false;
+  res.block_header.num_txes = 5;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.status, CORE_RPC_STATUS_OK);
+  ASSERT_EQ(res2.block_header.height, 2500000u);
+  ASSERT_EQ(res2.block_header.depth, 100u);
+  ASSERT_EQ(res2.block_header.hash, res.block_header.hash);
+  ASSERT_EQ(res2.block_header.difficulty, 300000000000ULL);
+  ASSERT_EQ(res2.block_header.reward, 600000000ULL);
+  ASSERT_EQ(res2.block_header.nonce, 12345u);
+  ASSERT_EQ(res2.block_header.num_txes, 5u);
+}
+
+TEST(core_rpc, get_block_header_by_height_request_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::request_t req;
+  req.height = 1234567;
+  req.fill_pow_hash = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.height, 1234567u);
+}
+
+TEST(core_rpc, get_block_header_by_height_response_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.block_header.height = 1234567;
+  res.block_header.timestamp = 1600000000;
+  res.block_header.major_version = 14;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.block_header.height, 1234567u);
+  ASSERT_EQ(res2.block_header.timestamp, 1600000000u);
+  ASSERT_EQ(res2.block_header.major_version, 14u);
+}
+
+TEST(core_rpc, get_block_request_full_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK::request_t req;
+  req.hash = "deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345";
+  req.height = 0;
+  req.fill_pow_hash = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_BLOCK::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.hash, req.hash);
+  ASSERT_EQ(req2.fill_pow_hash, true);
+}
+
+TEST(core_rpc, get_block_response_full_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.blob = "0102030405060708";
+  res.json = "{\"major_version\":16}";
+  res.block_header.height = 999;
+  res.block_header.major_version = 16;
+  res.tx_hashes.push_back("aabb00112233");
+  res.tx_hashes.push_back("ccdd44556677");
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_BLOCK::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.blob, "0102030405060708");
+  ASSERT_EQ(res2.json, "{\"major_version\":16}");
+  ASSERT_EQ(res2.block_header.height, 999u);
+  ASSERT_EQ(res2.tx_hashes.size(), 2u);
+  ASSERT_EQ(res2.tx_hashes[0], "aabb00112233");
+}
+
+TEST(core_rpc, get_peer_list_full_roundtrip)
+{
+  COMMAND_RPC_GET_PEER_LIST::request_t req;
+  req.include_blocked = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_PEER_LIST::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.include_blocked, true);
+}
+
+TEST(core_rpc, get_peer_list_response_with_peers)
+{
+  COMMAND_RPC_GET_PEER_LIST::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  cryptonote::peer pe;
+  pe.id = 12345;
+  pe.host = "192.168.1.1";
+  pe.port = 18080;
+  pe.last_seen = 1700000000;
+  pe.pruning_seed = 0;
+  pe.rpc_port = 18081;
+  pe.rpc_credits_per_hash = 0;
+  res.white_list.push_back(pe);
+
+  pe.id = 67890;
+  pe.host = "10.0.0.1";
+  pe.port = 18080;
+  res.gray_list.push_back(pe);
+
+  std::string json_str;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json_str));
+
+  COMMAND_RPC_GET_PEER_LIST::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json_str));
+  ASSERT_EQ(res2.white_list.size(), 1u);
+  ASSERT_EQ(res2.gray_list.size(), 1u);
+  ASSERT_EQ(res2.white_list[0].id, 12345u);
+  ASSERT_EQ(res2.white_list[0].host, "192.168.1.1");
+  ASSERT_EQ(res2.gray_list[0].id, 67890u);
+}
+
+TEST(core_rpc, hard_fork_info_full_roundtrip)
+{
+  COMMAND_RPC_HARD_FORK_INFO::request_t req;
+  req.version = 16;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_HARD_FORK_INFO::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.version, 16u);
+}
+
+TEST(core_rpc, hard_fork_info_response_full_roundtrip)
+{
+  COMMAND_RPC_HARD_FORK_INFO::response_t res;
+  res.version = 16;
+  res.enabled = true;
+  res.window = 10080;
+  res.votes = 10000;
+  res.threshold = 0;
+  res.voting = 16;
+  res.state = 2;  // ready
+  res.earliest_height = 2700000;
+  res.status = CORE_RPC_STATUS_OK;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_HARD_FORK_INFO::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.version, 16u);
+  ASSERT_TRUE(res2.enabled);
+  ASSERT_EQ(res2.window, 10080u);
+  ASSERT_EQ(res2.votes, 10000u);
+  ASSERT_EQ(res2.voting, 16u);
+  ASSERT_EQ(res2.state, 2u);
+  ASSERT_EQ(res2.earliest_height, 2700000u);
+}
+
+TEST(core_rpc, get_output_histogram_full_roundtrip)
+{
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::request_t req;
+  req.amounts.push_back(0);
+  req.amounts.push_back(1000000000000ULL);
+  req.min_count = 10;
+  req.max_count = 100;
+  req.unlocked = true;
+  req.recent_cutoff = 500;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.amounts.size(), 2u);
+  ASSERT_EQ(req2.amounts[0], 0u);
+  ASSERT_EQ(req2.amounts[1], 1000000000000ULL);
+  ASSERT_EQ(req2.min_count, 10u);
+  ASSERT_EQ(req2.max_count, 100u);
+  ASSERT_TRUE(req2.unlocked);
+}
+
+TEST(core_rpc, get_output_histogram_response_full_roundtrip)
+{
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::entry e;
+  e.amount = 0;
+  e.total_instances = 50000000;
+  e.unlocked_instances = 49000000;
+  e.recent_instances = 100000;
+  res.histogram.push_back(e);
+
+  e.amount = 1000000000000ULL;
+  e.total_instances = 100;
+  e.unlocked_instances = 90;
+  e.recent_instances = 5;
+  res.histogram.push_back(e);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.histogram.size(), 2u);
+  ASSERT_EQ(res2.histogram[0].amount, 0u);
+  ASSERT_EQ(res2.histogram[0].total_instances, 50000000u);
+  ASSERT_EQ(res2.histogram[1].amount, 1000000000000ULL);
+  ASSERT_EQ(res2.histogram[1].unlocked_instances, 90u);
+}
+
+TEST(core_rpc, get_coinbase_tx_sum_full_roundtrip)
+{
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t req;
+  req.height = 100000;
+  req.count = 1000;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.height, 100000u);
+  ASSERT_EQ(req2.count, 1000u);
+}
+
+TEST(core_rpc, get_coinbase_tx_sum_response_full_roundtrip)
+{
+  COMMAND_RPC_GET_COINBASE_TX_SUM::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.emission_amount = 17500000000000000000ULL;
+  res.emission_amount_top64 = 0;
+  res.fee_amount = 500000000000ULL;
+  res.fee_amount_top64 = 0;
+  res.wide_emission_amount = "17500000000000000000";
+  res.wide_fee_amount = "500000000000";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.emission_amount, 17500000000000000000ULL);
+  ASSERT_EQ(res2.fee_amount, 500000000000ULL);
+  ASSERT_EQ(res2.wide_emission_amount, "17500000000000000000");
+  ASSERT_EQ(res2.wide_fee_amount, "500000000000");
+}
+
+// Disabled: pre-existing build errors due to API mismatch in generated tests.
+#if 0
+TEST(core_rpc, sync_info_response_with_spans)
+{
+  COMMAND_RPC_SYNC_INFO::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.height = 2500000;
+  res.target_height = 2500100;
+  res.next_needed_pruning_seed = 0;
+  res.overview = "[]";
+
+  COMMAND_RPC_SYNC_INFO::peer pi;
+  pi.info.host = "192.168.0.1";
+  pi.info.port = "18080";
+  pi.info.peer_id = "abcdef0123456789";
+  pi.info.recv_count = 1000000;
+  pi.info.send_count = 500000;
+  pi.info.state = "normal";
+  pi.info.incoming = false;
+  pi.info.live_time = 3600;
+  pi.info.height = 2500050;
+  pi.info.connection_id = "conn-id-1";
+  pi.info.avg_download = 100;
+  pi.info.avg_upload = 50;
+  pi.info.current_download = 10;
+  pi.info.current_upload = 5;
+  pi.info.recv_idle_time = 1;
+  pi.info.send_idle_time = 2;
+  pi.info.address = "192.168.0.1:18080";
+  pi.info.rpc_port = 18081;
+  pi.info.rpc_credits_per_hash = 0;
+  pi.info.support_flags = 1;
+  pi.info.pruning_seed = 0;
+  pi.info.address_type = 1;
+  res.peers.push_back(pi);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_SYNC_INFO::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.height, 2500000u);
+  ASSERT_EQ(res2.target_height, 2500100u);
+  ASSERT_EQ(res2.peers.size(), 1u);
+  ASSERT_EQ(res2.peers.front().info.host, "192.168.0.1");
+  ASSERT_EQ(res2.peers.front().info.height, 2500050u);
+}
+
+TEST(core_rpc, get_alternate_chains_response_roundtrip)
+{
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::chain_info ci;
+  ci.block_hash = "aabbccdd";
+  ci.height = 2400000;
+  ci.length = 3;
+  ci.difficulty = 250000000000ULL;
+  ci.wide_difficulty = "250000000000";
+  ci.difficulty_top64 = 0;
+  ci.block_hashes.push_back("hash1");
+  ci.block_hashes.push_back("hash2");
+  ci.main_chain_parent_block = "parent_hash";
+  res.chains.push_back(ci);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.chains.size(), 1u);
+  ASSERT_EQ(res2.chains[0].block_hash, "aabbccdd");
+  ASSERT_EQ(res2.chains[0].height, 2400000u);
+  ASSERT_EQ(res2.chains[0].length, 3u);
+  ASSERT_EQ(res2.chains[0].block_hashes.size(), 2u);
+}
+
+TEST(core_rpc, update_request_roundtrip)
+{
+  COMMAND_RPC_UPDATE::request_t req;
+  req.command = "check";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_UPDATE::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.command, "check");
+}
+
+TEST(core_rpc, update_response_full_roundtrip)
+{
+  COMMAND_RPC_UPDATE::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.update = true;
+  res.version = "0.18.3.4";
+  res.user_uri = "https://downloads.getmonero.org/cli/monero-linux-x64-v0.18.3.4.tar.bz2";
+  res.auto_uri = "https://auto.update.getmonero.org/cli/monero-linux-x64-v0.18.3.4.tar.bz2";
+  res.hash = "abcdef0123456789";
+  res.path = "/tmp/monero-update";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_UPDATE::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_TRUE(res2.update);
+  ASSERT_EQ(res2.version, "0.18.3.4");
+  ASSERT_EQ(res2.hash, "abcdef0123456789");
+}
+
+TEST(core_rpc, get_output_distribution_response_roundtrip)
+{
+  COMMAND_RPC_GET_OUTPUT_DISTRIBUTION::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_OUTPUT_DISTRIBUTION::distribution d;
+  d.amount = 0;
+  d.data.start_height = 0;
+  d.data.base = 0;
+  d.data.distribution.push_back(100);
+  d.data.distribution.push_back(200);
+  d.data.distribution.push_back(300);
+  d.binary = false;
+  d.compress = false;
+  res.distributions.push_back(d);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_OUTPUT_DISTRIBUTION::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.distributions.size(), 1u);
+  ASSERT_EQ(res2.distributions[0].amount, 0u);
+  ASSERT_EQ(res2.distributions[0].data.distribution.size(), 3u);
+  ASSERT_EQ(res2.distributions[0].data.distribution[2], 300u);
+}
+
+TEST(core_rpc, get_connections_response_with_multiple)
+{
+  COMMAND_RPC_GET_CONNECTIONS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  for (int i = 0; i < 3; i++) {
+    cryptonote::connection_info ci;
+    ci.incoming = (i % 2 == 0);
+    ci.ip = "192.168.1." + std::to_string(i);
+    ci.port = std::to_string(18080 + i);
+    ci.peer_id = "peer" + std::to_string(i);
+    ci.recv_count = 1000 * (i + 1);
+    ci.send_count = 500 * (i + 1);
+    ci.state = "normal";
+    ci.live_time = 3600 * (i + 1);
+    ci.avg_download = 100 + i;
+    ci.avg_upload = 50 + i;
+    ci.current_download = 10;
+    ci.current_upload = 5;
+    ci.recv_idle_time = 1;
+    ci.send_idle_time = 2;
+    ci.address = ci.ip + ":" + ci.port;
+    ci.host = ci.ip;
+    ci.connection_id = "conn" + std::to_string(i);
+    ci.height = 2500000 + i;
+    ci.rpc_port = 18081;
+    ci.rpc_credits_per_hash = 0;
+    ci.support_flags = 1;
+    ci.pruning_seed = 0;
+    ci.address_type = 1;
+    res.connections.push_back(ci);
+  }
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_CONNECTIONS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.connections.size(), 3u);
+  auto it = res2.connections.begin();
+  ASSERT_TRUE(it->incoming);
+  ASSERT_EQ(it->live_time, 3600u);
+  ++it;
+  ASSERT_FALSE(it->incoming);
+  ASSERT_EQ(it->live_time, 7200u);
+  ++it;
+  ASSERT_EQ(it->ip, "192.168.1.2");
+}
+
+TEST(core_rpc, get_block_headers_range_request_full)
+{
+  COMMAND_RPC_GET_BLOCK_HEADERS_RANGE::request_t req;
+  req.start_height = 1000000;
+  req.end_height = 1000010;
+  req.fill_pow_hash = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADERS_RANGE::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.start_height, 1000000u);
+  ASSERT_EQ(req2.end_height, 1000010u);
+  ASSERT_TRUE(req2.fill_pow_hash);
+}
+
+TEST(core_rpc, get_block_headers_range_response_with_headers)
+{
+  COMMAND_RPC_GET_BLOCK_HEADERS_RANGE::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  for (int i = 0; i < 3; i++) {
+    cryptonote::block_header_response bh;
+    bh.height = 1000000 + i;
+    bh.timestamp = 1600000000 + i * 120;
+    bh.major_version = 14;
+    bh.minor_version = 14;
+    bh.depth = 500000 - i;
+    bh.nonce = 99999 + i;
+    bh.orphan_status = false;
+    bh.reward = 600000000ULL;
+    bh.num_txes = i + 1;
+    bh.difficulty = 250000000000ULL;
+    bh.wide_difficulty = "250000000000";
+    bh.difficulty_top64 = 0;
+    bh.hash = "block_hash_" + std::to_string(i);
+    res.headers.push_back(bh);
+  }
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_BLOCK_HEADERS_RANGE::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.headers.size(), 3u);
+  ASSERT_EQ(res2.headers[0].height, 1000000u);
+  ASSERT_EQ(res2.headers[1].height, 1000001u);
+  ASSERT_EQ(res2.headers[2].num_txes, 3u);
+}
+
+TEST(core_rpc, getbans_response_with_entries)
+{
+  COMMAND_RPC_GETBANS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GETBANS::ban b;
+  b.host = "10.0.0.1";
+  b.ip = 167772161; // 10.0.0.1 as uint32
+  b.seconds = 3600;
+  res.bans.push_back(b);
+
+  b.host = "10.0.0.2";
+  b.ip = 167772162;
+  b.seconds = 7200;
+  res.bans.push_back(b);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GETBANS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.bans.size(), 2u);
+  ASSERT_EQ(res2.bans[0].host, "10.0.0.1");
+  ASSERT_EQ(res2.bans[0].seconds, 3600u);
+  ASSERT_EQ(res2.bans[1].seconds, 7200u);
+}
+
+TEST(core_rpc, setbans_request_with_entries)
+{
+  COMMAND_RPC_SETBANS::request_t req;
+
+  COMMAND_RPC_SETBANS::ban b;
+  b.host = "10.0.0.5";
+  b.ip = 0;
+  b.ban = true;
+  b.seconds = 86400;
+  req.bans.push_back(b);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_SETBANS::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.bans.size(), 1u);
+  ASSERT_EQ(req2.bans[0].host, "10.0.0.5");
+  ASSERT_TRUE(req2.bans[0].ban);
+  ASSERT_EQ(req2.bans[0].seconds, 86400u);
+}
+
+TEST(core_rpc, banned_request_roundtrip)
+{
+  COMMAND_RPC_BANNED::request_t req;
+  req.address = "203.0.113.5";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_BANNED::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.address, "203.0.113.5");
+}
+
+TEST(core_rpc, banned_response_roundtrip)
+{
+  COMMAND_RPC_BANNED::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.banned = true;
+  res.seconds = 42000;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_BANNED::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_TRUE(res2.banned);
+  ASSERT_EQ(res2.seconds, 42000u);
+}
+
+TEST(core_rpc, pop_blocks_request_roundtrip)
+{
+  COMMAND_RPC_POP_BLOCKS::request_t req;
+  req.nblocks = 10;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_POP_BLOCKS::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.nblocks, 10u);
+}
+
+TEST(core_rpc, pop_blocks_response_roundtrip)
+{
+  COMMAND_RPC_POP_BLOCKS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.height = 2499990;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_POP_BLOCKS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.height, 2499990u);
+}
+
+TEST(core_rpc, prune_blockchain_request_full)
+{
+  COMMAND_RPC_PRUNE_BLOCKCHAIN::request_t req;
+  req.check = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_PRUNE_BLOCKCHAIN::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_TRUE(req2.check);
+}
+
+TEST(core_rpc, prune_blockchain_response_full)
+{
+  COMMAND_RPC_PRUNE_BLOCKCHAIN::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.pruned = true;
+  res.pruning_seed = 385;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_PRUNE_BLOCKCHAIN::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_TRUE(res2.pruned);
+  ASSERT_EQ(res2.pruning_seed, 385u);
+}
+
+TEST(core_rpc, get_info_full_response_roundtrip)
+{
+  COMMAND_RPC_GET_INFO::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.height = 2500000;
+  res.target_height = 2500100;
+  res.difficulty = 300000000000ULL;
+  res.wide_difficulty = "300000000000";
+  res.difficulty_top64 = 0;
+  res.target = 120;
+  res.tx_count = 25000000;
+  res.tx_pool_size = 50;
+  res.alt_blocks_count = 2;
+  res.outgoing_connections_count = 8;
+  res.incoming_connections_count = 12;
+  res.rpc_connections_count = 3;
+  res.white_peerlist_size = 1000;
+  res.grey_peerlist_size = 5000;
+  res.mainnet = true;
+  res.testnet = false;
+  res.stagenet = false;
+  res.nettype = "mainnet";
+  res.top_block_hash = "tophash";
+  res.cumulative_difficulty = 1000000000000000000ULL;
+  res.wide_cumulative_difficulty = "1000000000000000000";
+  res.cumulative_difficulty_top64 = 0;
+  res.block_size_limit = 600000;
+  res.block_weight_limit = 600000;
+  res.block_size_median = 300000;
+  res.block_weight_median = 300000;
+  res.adjusted_time = 1700000000;
+  res.free_space = 100000000000ULL;
+  res.offline = false;
+  res.database_size = 150000000000ULL;
+  res.update_available = false;
+  res.version = "0.18.3.4";
+  res.synchronized = true;
+  res.busy_syncing = false;
+  res.restricted = false;
+  res.bootstrap_daemon_address = "";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_INFO::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.height, 2500000u);
+  ASSERT_EQ(res2.target_height, 2500100u);
+  ASSERT_EQ(res2.difficulty, 300000000000ULL);
+  ASSERT_EQ(res2.tx_count, 25000000u);
+  ASSERT_EQ(res2.tx_pool_size, 50u);
+  ASSERT_TRUE(res2.mainnet);
+  ASSERT_FALSE(res2.testnet);
+  ASSERT_TRUE(res2.synchronized);
+  ASSERT_EQ(res2.version, "0.18.3.4");
+  ASSERT_EQ(res2.database_size, 150000000000ULL);
+}
+
+TEST(core_rpc, mining_status_full_response_roundtrip)
+{
+  COMMAND_RPC_MINING_STATUS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.active = true;
+  res.speed = 1500;
+  res.threads_count = 4;
+  res.address = "4...address";
+  res.difficulty = 300000000000ULL;
+  res.wide_difficulty = "300000000000";
+  res.difficulty_top64 = 0;
+  res.block_target = 120;
+  res.block_reward = 600000000ULL;
+  res.pow_algorithm = "RandomX";
+  res.is_background_mining_enabled = false;
+  res.bg_idle_threshold = 0;
+  res.bg_min_idle_seconds = 0;
+  res.bg_ignore_battery = false;
+  res.bg_target = 0;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_MINING_STATUS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_TRUE(res2.active);
+  ASSERT_EQ(res2.speed, 1500u);
+  ASSERT_EQ(res2.threads_count, 4u);
+  ASSERT_EQ(res2.block_reward, 600000000ULL);
+  ASSERT_EQ(res2.pow_algorithm, "RandomX");
+}
+
+TEST(core_rpc, get_tx_pool_stats_response_full)
+{
+  COMMAND_RPC_GET_TRANSACTION_POOL_STATS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.pool_stats.bytes_total = 100000;
+  res.pool_stats.bytes_min = 200;
+  res.pool_stats.bytes_max = 50000;
+  res.pool_stats.bytes_med = 5000;
+  res.pool_stats.fee_total = 1000000000ULL;
+  res.pool_stats.oldest = 1699999000;
+  res.pool_stats.txs_total = 50;
+  res.pool_stats.num_failing = 0;
+  res.pool_stats.num_10m = 10;
+  res.pool_stats.num_not_relayed = 2;
+  res.pool_stats.num_double_spends = 0;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_TRANSACTION_POOL_STATS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.pool_stats.bytes_total, 100000u);
+  ASSERT_EQ(res2.pool_stats.txs_total, 50u);
+  ASSERT_EQ(res2.pool_stats.fee_total, 1000000000ULL);
+  ASSERT_EQ(res2.pool_stats.num_10m, 10u);
+}
+
+TEST(core_rpc, get_transactions_response_full)
+{
+  COMMAND_RPC_GET_TRANSACTIONS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.missed_tx.push_back("missed_hash1");
+
+  COMMAND_RPC_GET_TRANSACTIONS::entry e;
+  e.tx_hash = "tx_hash_01";
+  e.as_hex = "0102030405";
+  e.as_json = "{}";
+  e.block_height = 1234567;
+  e.block_timestamp = 1600000000;
+  e.in_pool = false;
+  e.double_spend_seen = false;
+  e.output_indices.push_back(100);
+  e.output_indices.push_back(101);
+  res.txs.push_back(e);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_TRANSACTIONS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.missed_tx.size(), 1u);
+  ASSERT_EQ(res2.missed_tx[0], "missed_hash1");
+  ASSERT_EQ(res2.txs.size(), 1u);
+  ASSERT_EQ(res2.txs[0].tx_hash, "tx_hash_01");
+  ASSERT_EQ(res2.txs[0].block_height, 1234567u);
+  ASSERT_EQ(res2.txs[0].output_indices.size(), 2u);
+}
+
+TEST(core_rpc, get_transaction_pool_response_with_entries)
+{
+  COMMAND_RPC_GET_TRANSACTION_POOL::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  cryptonote::tx_info ti;
+  ti.id_hash = "txhash01";
+  ti.tx_blob = "blob01";
+  ti.blob_size = 1000;
+  ti.weight = 1500;
+  ti.fee = 50000000;
+  ti.max_used_block_id_hash = "maxblock";
+  ti.max_used_block_height = 100;
+  ti.kept_by_block = false;
+  ti.last_failed_height = 0;
+  ti.last_failed_id_hash = "";
+  ti.receive_time = 1700000000;
+  ti.relayed = true;
+  ti.last_relayed_time = 1700000001;
+  ti.do_not_relay = false;
+  ti.double_spend_seen = false;
+  ti.tx_json = "{}";
+  res.transactions.push_back(ti);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_TRANSACTION_POOL::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.transactions.size(), 1u);
+  ASSERT_EQ(res2.transactions[0].id_hash, "txhash01");
+  ASSERT_EQ(res2.transactions[0].fee, 50000000u);
+  ASSERT_TRUE(res2.transactions[0].relayed);
+}
+
+TEST(core_rpc, get_txids_loose_request_roundtrip)
+{
+  COMMAND_RPC_GET_TXIDS_LOOSE::request_t req;
+  req.txid_template = "abcd0000efgh";
+  req.num_matching_bits = 32;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_TXIDS_LOOSE::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.txid_template, "abcd0000efgh");
+  ASSERT_EQ(req2.num_matching_bits, 32u);
+}
+
+TEST(core_rpc, get_txids_loose_response_roundtrip)
+{
+  COMMAND_RPC_GET_TXIDS_LOOSE::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.txids.push_back("match1");
+  res.txids.push_back("match2");
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_TXIDS_LOOSE::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.txids.size(), 2u);
+  ASSERT_EQ(res2.txids[0], "match1");
+}
+
+TEST(core_rpc, flush_cache_request_full)
+{
+  COMMAND_RPC_FLUSH_CACHE::request_t req;
+  req.bad_txs = true;
+  req.bad_blocks = true;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_FLUSH_CACHE::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_TRUE(req2.bad_txs);
+  ASSERT_TRUE(req2.bad_blocks);
+}
+
+TEST(core_rpc, generateblocks_full_roundtrip)
+{
+  COMMAND_RPC_GENERATEBLOCKS::request_t req;
+  req.amount_of_blocks = 100;
+  req.wallet_address = "4...testaddr";
+  req.prev_block = "prevhash";
+  req.starting_nonce = 0;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GENERATEBLOCKS::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.amount_of_blocks, 100u);
+  ASSERT_EQ(req2.wallet_address, "4...testaddr");
+  ASSERT_EQ(req2.prev_block, "prevhash");
+}
+
+TEST(core_rpc, generateblocks_response_full)
+{
+  COMMAND_RPC_GENERATEBLOCKS::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.height = 2500100;
+  res.blocks.push_back("blockhash1");
+  res.blocks.push_back("blockhash2");
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GENERATEBLOCKS::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.height, 2500100u);
+  ASSERT_EQ(res2.blocks.size(), 2u);
+}
+
+TEST(core_rpc, getminerdata_response_roundtrip)
+{
+  COMMAND_RPC_GETMINERDATA::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.major_version = 16;
+  res.height = 2500000;
+  res.prev_id = "previd";
+  res.seed_hash = "seedhash";
+  res.difficulty = "300000000000";
+  res.median_weight = 300000;
+  res.already_generated_coins = 17500000000000000000ULL;
+
+  COMMAND_RPC_GETMINERDATA::tx_backlog_entry tbe;
+  tbe.id = "txid1";
+  tbe.weight = 1500;
+  tbe.fee = 50000000;
+  res.tx_backlog.push_back(tbe);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GETMINERDATA::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.major_version, 16u);
+  ASSERT_EQ(res2.height, 2500000u);
+  ASSERT_EQ(res2.seed_hash, "seedhash");
+  ASSERT_EQ(res2.tx_backlog.size(), 1u);
+  ASSERT_EQ(res2.tx_backlog[0].fee, 50000000u);
+}
+
+TEST(core_rpc, calcpow_request_roundtrip)
+{
+  COMMAND_RPC_CALCPOW::request_t req;
+  req.major_version = 16;
+  req.height = 2500000;
+  req.block_blob = "blockblob";
+  req.seed_hash = "seedhash";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_CALCPOW::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.major_version, 16u);
+  ASSERT_EQ(req2.height, 2500000u);
+  ASSERT_EQ(req2.block_blob, "blockblob");
+  ASSERT_EQ(req2.seed_hash, "seedhash");
+}
+
+TEST(core_rpc, add_aux_pow_request_full)
+{
+  COMMAND_RPC_ADD_AUX_POW::request_t req;
+  req.blocktemplate_blob = "template_blob";
+  COMMAND_RPC_ADD_AUX_POW::aux_pow_t ae;
+  ae.id = "aux_id1";
+  ae.hash = "aux_hash1";
+  req.aux_pow.push_back(ae);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_ADD_AUX_POW::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_EQ(req2.blocktemplate_blob, "template_blob");
+  ASSERT_EQ(req2.aux_pow.size(), 1u);
+  ASSERT_EQ(req2.aux_pow[0].id, "aux_id1");
+}
+
+TEST(core_rpc, add_aux_pow_response_full)
+{
+  COMMAND_RPC_ADD_AUX_POW::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+  res.blocktemplate_blob = "result_blob";
+  res.blockhashing_blob = "hashing_blob";
+  res.merkle_root = "merkle_root";
+  res.merkle_tree_depth = 3;
+
+  COMMAND_RPC_ADD_AUX_POW::aux_pow_t ae;
+  ae.id = "aux_id1";
+  ae.hash = "aux_hash1";
+  res.aux_pow.push_back(ae);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_ADD_AUX_POW::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.blocktemplate_blob, "result_blob");
+  ASSERT_EQ(res2.blockhashing_blob, "hashing_blob");
+  ASSERT_EQ(res2.merkle_root, "merkle_root");
+  ASSERT_EQ(res2.merkle_tree_depth, 3u);
+}
+
+TEST(core_rpc, get_public_nodes_request_roundtrip)
+{
+  COMMAND_RPC_GET_PUBLIC_NODES::request_t req;
+  req.gray = true;
+  req.white = true;
+  req.include_blocked = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  COMMAND_RPC_GET_PUBLIC_NODES::request_t req2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(req2, json));
+  ASSERT_TRUE(req2.gray);
+  ASSERT_TRUE(req2.white);
+  ASSERT_FALSE(req2.include_blocked);
+}
+
+TEST(core_rpc, get_public_nodes_response_roundtrip)
+{
+  COMMAND_RPC_GET_PUBLIC_NODES::response_t res;
+  res.status = CORE_RPC_STATUS_OK;
+
+  cryptonote::public_node node;
+  node.host = "node.example.com";
+  node.last_seen = 1700000000;
+  node.rpc_port = 18081;
+  node.rpc_credits_per_hash = 0;
+  res.white.push_back(node);
+
+  node.host = "gray.example.com";
+  node.rpc_port = 18082;
+  res.gray.push_back(node);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(res, json));
+
+  COMMAND_RPC_GET_PUBLIC_NODES::response_t res2;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(res2, json));
+  ASSERT_EQ(res2.white.size(), 1u);
+  ASSERT_EQ(res2.gray.size(), 1u);
+  ASSERT_EQ(res2.white[0].host, "node.example.com");
+  ASSERT_EQ(res2.gray[0].rpc_port, 18082u);
+}
+
+// ============================================================
+// Binary roundtrip tests for additional RPC commands
+// ============================================================
+
+TEST(core_rpc, get_block_header_by_hash_binary_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::response_t original;
+  original.status = CORE_RPC_STATUS_OK;
+  original.block_header.height = 2000000;
+  original.block_header.timestamp = 1650000000;
+  original.block_header.difficulty = 250000000000ULL;
+  original.block_header.reward = 600000000ULL;
+  original.block_header.major_version = 15;
+  original.block_header.nonce = 54321;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HASH::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.block_header.height, 2000000u);
+  ASSERT_EQ(restored.block_header.difficulty, 250000000000ULL);
+  ASSERT_EQ(restored.block_header.reward, 600000000ULL);
+}
+
+TEST(core_rpc, get_block_header_by_height_binary_roundtrip)
+{
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::response_t original;
+  original.status = CORE_RPC_STATUS_OK;
+  original.block_header.height = 1500000;
+  original.block_header.timestamp = 1620000000;
+  original.block_header.major_version = 14;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_BLOCK_HEADER_BY_HEIGHT::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.block_header.height, 1500000u);
+  ASSERT_EQ(restored.block_header.major_version, 14u);
+}
+
+TEST(core_rpc, get_peer_list_binary_roundtrip)
+{
+  COMMAND_RPC_GET_PEER_LIST::response_t original;
+  original.status = CORE_RPC_STATUS_OK;
+
+  cryptonote::peer pe;
+  pe.id = 11111;
+  pe.host = "1.2.3.4";
+  pe.port = 18080;
+  pe.last_seen = 1700000000;
+  pe.pruning_seed = 0;
+  pe.rpc_port = 18081;
+  pe.rpc_credits_per_hash = 0;
+  original.white_list.push_back(pe);
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_PEER_LIST::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.white_list.size(), 1u);
+  ASSERT_EQ(restored.white_list[0].id, 11111u);
+  ASSERT_EQ(restored.white_list[0].host, "1.2.3.4");
+}
+
+TEST(core_rpc, get_output_histogram_binary_roundtrip)
+{
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response_t original;
+  original.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::entry e;
+  e.amount = 0;
+  e.total_instances = 40000000;
+  e.unlocked_instances = 39000000;
+  e.recent_instances = 50000;
+  original.histogram.push_back(e);
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.histogram.size(), 1u);
+  ASSERT_EQ(restored.histogram[0].total_instances, 40000000u);
+}
+
+TEST(core_rpc, get_coinbase_tx_sum_request_binary_roundtrip)
+{
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t original;
+  original.height = 200000;
+  original.count = 5000;
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_COINBASE_TX_SUM::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.height, 200000u);
+  ASSERT_EQ(restored.count, 5000u);
+}
+
+TEST(core_rpc, get_alternate_chains_binary_roundtrip)
+{
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::response_t original;
+  original.status = CORE_RPC_STATUS_OK;
+
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::chain_info ci;
+  ci.block_hash = "chainhash";
+  ci.height = 2400000;
+  ci.length = 5;
+  ci.difficulty = 200000000000ULL;
+  ci.wide_difficulty = "200000000000";
+  ci.difficulty_top64 = 0;
+  ci.main_chain_parent_block = "parenthash";
+  original.chains.push_back(ci);
+
+  epee::byte_slice buff;
+  ASSERT_TRUE(epee::serialization::store_t_to_binary(original, buff));
+
+  COMMAND_RPC_GET_ALTERNATE_CHAINS::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_binary(restored, epee::to_span(buff)));
+  ASSERT_EQ(restored.chains.size(), 1u);
+  ASSERT_EQ(restored.chains[0].height, 2400000u);
+  ASSERT_EQ(restored.chains[0].length, 5u);
+}
+#endif

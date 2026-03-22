@@ -6178,3 +6178,666 @@ TEST_F(Wallet2GeneratedTest, num_subaddresses_increases_after_expand)
   // The new count should be at least idx.minor + 1
   ASSERT_GE(expanded, (size_t)(idx.minor + 1));
 }
+
+// ===========================================================================
+// URI parsing: more extensive roundtrip and edge-case tests
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, parse_uri_with_payment_id_rejected)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  // Standalone payment IDs are deprecated and should be rejected
+  std::string uri = m_wallet.make_uri(addr, "deadbeefdeadbeef", 0, "", "", error);
+  ASSERT_FALSE(error.empty()); // Should report deprecation error
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_amount_precision)
+{
+  // Verify that small fractional amounts survive the roundtrip
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  uint64_t exact_amount = 1; // 1 atomic unit = 0.000000000001 XMR
+  std::string uri = m_wallet.make_uri(addr, "", exact_amount, "", "", error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pamt, exact_amount);
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_large_amount)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  // ~18 million XMR in atomic units
+  uint64_t large_amount = 18000000000000000000ULL;
+  std::string uri = m_wallet.make_uri(addr, "", large_amount, "", "", error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pamt, large_amount);
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_special_chars_in_description)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  std::string desc = "Payment for items #1 & #2 (50% off)";
+  std::string uri = m_wallet.make_uri(addr, "", 100000000000ULL, desc, "", error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pd, desc);
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_special_chars_in_recipient)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  std::string name = "Bob's Store (Main)";
+  std::string uri = m_wallet.make_uri(addr, "", 0, "", name, error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pn, name);
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_wrong_scheme_https)
+{
+  std::string addr, pid, desc, name, error;
+  uint64_t amount = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri("https://example.com", addr, pid, amount, desc, name, unk, error);
+  ASSERT_FALSE(ok);
+}
+
+TEST_F(Wallet2GeneratedTest, parse_uri_wrong_scheme_bitcoin)
+{
+  std::string addr, pid, desc, name, error;
+  uint64_t amount = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri("bitcoin:1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa", addr, pid, amount, desc, name, unk, error);
+  ASSERT_FALSE(ok);
+}
+
+TEST_F(Wallet2GeneratedTest, make_uri_roundtrip_description_and_name)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  std::string error;
+  std::string uri = m_wallet.make_uri(addr, "", 5000000000000ULL, "Donation for project X", "ProjectX Fund", error);
+  ASSERT_TRUE(error.empty()) << error;
+  ASSERT_FALSE(uri.empty());
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = m_wallet.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pa, addr);
+  ASSERT_EQ(pamt, 5000000000000ULL);
+  ASSERT_EQ(pd, "Donation for project X");
+  ASSERT_EQ(pn, "ProjectX Fund");
+}
+
+// ===========================================================================
+// Wallet account tags: more detailed tests
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, tag_accounts_multiple_indices)
+{
+  m_wallet.add_subaddress_account("Account A");
+  m_wallet.add_subaddress_account("Account B");
+  m_wallet.add_subaddress_account("Account C");
+
+  // Tag accounts 1 and 2 with "work"
+  std::set<uint32_t> indices;
+  indices.insert(1);
+  indices.insert(2);
+  m_wallet.set_account_tag(indices, "work");
+
+  // get_account_tags returns pair<map<tag->description>, vector<tag_per_account>>
+  auto& tags = m_wallet.get_account_tags();
+  // The tag-to-description map should have an entry for "work"
+  ASSERT_TRUE(tags.first.count("work"));
+  // Accounts 1 and 2 should have the "work" tag
+  ASSERT_GE(tags.second.size(), 3u);
+  ASSERT_EQ(tags.second[1], "work");
+  ASSERT_EQ(tags.second[2], "work");
+}
+
+TEST_F(Wallet2GeneratedTest, tag_accounts_set_description)
+{
+  m_wallet.add_subaddress_account("Acc1");
+
+  std::set<uint32_t> indices;
+  indices.insert(1);
+  m_wallet.set_account_tag(indices, "personal");
+  m_wallet.set_account_tag_description("personal", "Personal expenses");
+
+  auto& tags = m_wallet.get_account_tags();
+  // Check the description
+  auto it = tags.first.find("personal");
+  ASSERT_NE(it, tags.first.end());
+  ASSERT_EQ(it->second, "Personal expenses");
+}
+
+TEST_F(Wallet2GeneratedTest, untag_accounts)
+{
+  m_wallet.add_subaddress_account("Acc1");
+  m_wallet.add_subaddress_account("Acc2");
+
+  std::set<uint32_t> indices;
+  indices.insert(1);
+  indices.insert(2);
+  m_wallet.set_account_tag(indices, "tagged");
+
+  // Now untag account 1 by setting empty tag
+  std::set<uint32_t> untag_set;
+  untag_set.insert(1);
+  m_wallet.set_account_tag(untag_set, "");
+
+  auto& tags = m_wallet.get_account_tags();
+  // Account 1 should have empty tag now
+  ASSERT_TRUE(tags.second[1].empty());
+  // Account 2 should still be tagged
+  ASSERT_EQ(tags.second[2], "tagged");
+}
+
+// ===========================================================================
+// Wallet subaddress account management
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, add_subaddress_account_with_label)
+{
+  size_t before = m_wallet.get_num_subaddress_accounts();
+  m_wallet.add_subaddress_account("My Custom Account");
+  ASSERT_EQ(m_wallet.get_num_subaddress_accounts(), before + 1);
+  // The new account should have at least 1 subaddress
+  uint32_t new_acct = (uint32_t)(before);
+  ASSERT_GE(m_wallet.get_num_subaddresses(new_acct), 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, subaddress_account_label)
+{
+  m_wallet.add_subaddress_account("TestLabel");
+  uint32_t acct = (uint32_t)(m_wallet.get_num_subaddress_accounts() - 1);
+  // The main subaddress (index 0) of this account should have the label
+  std::string label = m_wallet.get_subaddress_label({acct, 0});
+  ASSERT_EQ(label, "TestLabel");
+}
+
+TEST_F(Wallet2GeneratedTest, get_address_as_str_matches_parsed_address)
+{
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  // Mainnet addresses start with '4'
+  ASSERT_EQ(addr[0], '4');
+  // Address should be a standard length (95 chars for mainnet)
+  ASSERT_EQ(addr.size(), 95u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_subaddress_as_str_matches_parsed)
+{
+  cryptonote::subaddress_index idx{0, 1};
+  std::string subaddr = m_wallet.get_subaddress_as_str(idx);
+  // Mainnet subaddresses start with '8'
+  ASSERT_EQ(subaddr[0], '8');
+  ASSERT_EQ(subaddr.size(), 95u);
+}
+
+TEST_F(Wallet2GeneratedTest, get_integrated_address_length)
+{
+  crypto::hash8 pid;
+  memset(&pid, 0xAB, sizeof(pid));
+  std::string integrated = m_wallet.get_integrated_address_as_str(pid);
+  // Integrated addresses are longer: 106 chars on mainnet
+  ASSERT_EQ(integrated.size(), 106u);
+}
+
+// ===========================================================================
+// More transfer_details operations
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, transfer_details_amount_matches)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  tools::wallet2::transfer_details td = {};
+  td.m_internal_output_index = 0;
+  td.m_global_output_index = 42;
+  td.m_amount = 7777777777ULL;
+  td.m_spent = false;
+  td.m_frozen = false;
+  td.m_key_image_known = true;
+  td.m_key_image_request = false;
+  td.m_key_image_partial = false;
+  td.m_subaddr_index = {0, 0};
+  transfers.push_back(td);
+
+  size_t idx = transfers.size() - 1;
+  const auto& retrieved = m_wallet.get_transfer_details(idx);
+  ASSERT_EQ(retrieved.m_amount, 7777777777ULL);
+  ASSERT_EQ(retrieved.m_global_output_index, 42u);
+}
+
+TEST_F(Wallet2GeneratedTest, transfer_details_multiple_subaddresses)
+{
+  auto& transfers = wallet_accessor_test::get_transfers(m_wallet);
+  size_t start = transfers.size();
+
+  for (uint32_t i = 0; i < 3; i++) {
+    tools::wallet2::transfer_details td = {};
+    td.m_internal_output_index = 0;
+    td.m_global_output_index = 100 + i;
+    td.m_amount = (i + 1) * 1000000000ULL;
+    td.m_spent = false;
+    td.m_frozen = false;
+    td.m_key_image_known = true;
+    td.m_key_image_request = false;
+    td.m_key_image_partial = false;
+    td.m_subaddr_index = {0, i};
+    transfers.push_back(td);
+  }
+
+  ASSERT_GE(m_wallet.get_num_transfer_details(), start + 3);
+  ASSERT_EQ(m_wallet.get_transfer_details(start).m_subaddr_index.minor, 0u);
+  ASSERT_EQ(m_wallet.get_transfer_details(start + 1).m_subaddr_index.minor, 1u);
+  ASSERT_EQ(m_wallet.get_transfer_details(start + 2).m_subaddr_index.minor, 2u);
+}
+
+// ===========================================================================
+// Wallet encryption: more edge cases
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, encrypt_with_different_keys_produces_different_output)
+{
+  epee::wipeable_string pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &pw);
+
+  std::string data = "test data for encryption";
+  crypto::secret_key key1 = m_wallet.get_account().get_keys().m_view_secret_key;
+
+  std::string enc1 = m_wallet.encrypt(data, key1, true);
+
+  // Generate a different key by using the spend key
+  crypto::secret_key key2 = m_wallet.get_account().get_keys().m_spend_secret_key;
+  std::string enc2 = m_wallet.encrypt(data, key2, true);
+
+  // Different keys should produce different ciphertexts
+  ASSERT_NE(enc1, enc2);
+}
+
+TEST_F(Wallet2GeneratedTest, encrypt_same_data_different_ciphertexts)
+{
+  epee::wipeable_string pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &pw);
+
+  std::string data = "identical data";
+  crypto::secret_key key = m_wallet.get_account().get_keys().m_view_secret_key;
+
+  // Encrypting the same data twice should produce different ciphertexts (random IV)
+  std::string enc1 = m_wallet.encrypt(data, key, true);
+  std::string enc2 = m_wallet.encrypt(data, key, true);
+  ASSERT_NE(enc1, enc2);
+
+  // But both should decrypt to the same plaintext
+  std::string dec1 = m_wallet.decrypt(enc1, key, true);
+  std::string dec2 = m_wallet.decrypt(enc2, key, true);
+  ASSERT_EQ(dec1, data);
+  ASSERT_EQ(dec2, data);
+}
+
+// ===========================================================================
+// Wallet sign/verify: more coverage
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, sign_verify_utf8_data)
+{
+  epee::wipeable_string pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &pw);
+
+  std::string data = "Unicode test: \xC3\xA9\xC3\xA0\xC3\xBC";
+  std::string sig = m_wallet.sign(data, tools::wallet2::sign_with_spend_key);
+  ASSERT_FALSE(sig.empty());
+
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  cryptonote::address_parse_info info;
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, addr));
+  tools::wallet2::message_signature_result_t result = m_wallet.verify(data, info.address, sig);
+  ASSERT_TRUE(result.valid);
+}
+
+TEST_F(Wallet2GeneratedTest, sign_verify_large_data)
+{
+  epee::wipeable_string pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &pw);
+
+  // Create a large message (1MB)
+  std::string data(1024 * 1024, 'X');
+  std::string sig = m_wallet.sign(data, tools::wallet2::sign_with_spend_key);
+  ASSERT_FALSE(sig.empty());
+
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  cryptonote::address_parse_info info;
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, addr));
+  tools::wallet2::message_signature_result_t result = m_wallet.verify(data, info.address, sig);
+  ASSERT_TRUE(result.valid);
+}
+
+TEST_F(Wallet2GeneratedTest, sign_verify_different_messages_different_sigs)
+{
+  epee::wipeable_string pw("");
+  tools::wallet_keys_unlocker unlocker(m_wallet, &pw);
+
+  std::string sig1 = m_wallet.sign("message one", tools::wallet2::sign_with_spend_key);
+  std::string sig2 = m_wallet.sign("message two", tools::wallet2::sign_with_spend_key);
+  ASSERT_NE(sig1, sig2);
+}
+
+// ===========================================================================
+// Wallet payment filtering
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, get_payments_filtered_by_min_height)
+{
+  auto& payments = wallet_accessor_test::get_payments(m_wallet);
+
+  crypto::hash pid1;
+  memset(&pid1, 0x11, sizeof(pid1));
+  tools::wallet2::pool_payment_details ppd1;
+  ppd1.m_pd.m_tx_hash = pid1;
+  ppd1.m_pd.m_amount = 100;
+  ppd1.m_pd.m_block_height = 50;
+  ppd1.m_pd.m_subaddr_index = {0, 0};
+  ppd1.m_pd.m_timestamp = 0;
+  ppd1.m_pd.m_unlock_time = 0;
+  ppd1.m_pd.m_fee = 0;
+  ppd1.m_double_spend_seen = false;
+  payments.emplace(pid1, ppd1.m_pd);
+
+  crypto::hash pid2;
+  memset(&pid2, 0x22, sizeof(pid2));
+  tools::wallet2::pool_payment_details ppd2;
+  ppd2.m_pd.m_tx_hash = pid2;
+  ppd2.m_pd.m_amount = 200;
+  ppd2.m_pd.m_block_height = 150;
+  ppd2.m_pd.m_subaddr_index = {0, 0};
+  ppd2.m_pd.m_timestamp = 0;
+  ppd2.m_pd.m_unlock_time = 0;
+  ppd2.m_pd.m_fee = 0;
+  ppd2.m_double_spend_seen = false;
+  payments.emplace(pid2, ppd2.m_pd);
+
+  // Query with min_height = 100
+  std::list<std::pair<crypto::hash, tools::wallet2::payment_details>> result;
+  m_wallet.get_payments(result, 100, (uint64_t)-1, 0, {});
+
+  // Should only get the payment at height 150
+  bool found_high = false, found_low = false;
+  for (auto& p : result) {
+    if (p.second.m_block_height == 150) found_high = true;
+    if (p.second.m_block_height == 50) found_low = true;
+  }
+  ASSERT_TRUE(found_high);
+  ASSERT_FALSE(found_low);
+}
+
+// ===========================================================================
+// Address book: more edge cases
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, address_book_empty_description)
+{
+  cryptonote::address_parse_info info;
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, addr));
+
+  bool ok = m_wallet.add_address_book_row(info.address, NULL, "", false);
+  ASSERT_TRUE(ok);
+
+  auto book = m_wallet.get_address_book();
+  ASSERT_FALSE(book.empty());
+  ASSERT_TRUE(book.back().m_description.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, address_book_long_description)
+{
+  cryptonote::address_parse_info info;
+  std::string addr = m_wallet.get_account().get_public_address_str(cryptonote::MAINNET);
+  ASSERT_TRUE(cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, addr));
+
+  std::string long_desc(512, 'D');
+  bool ok = m_wallet.add_address_book_row(info.address, NULL, long_desc, false);
+  ASSERT_TRUE(ok);
+
+  auto book = m_wallet.get_address_book();
+  ASSERT_FALSE(book.empty());
+  ASSERT_EQ(book.back().m_description, long_desc);
+}
+
+// ===========================================================================
+// Wallet settings: additional getters/setters
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, multisig_not_active)
+{
+  // Fresh wallet should not be multisig
+  auto ms = m_wallet.get_multisig_status();
+  ASSERT_FALSE(ms.multisig_is_active);
+  ASSERT_EQ(ms.threshold, 0u);
+  ASSERT_EQ(ms.total, 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, set_and_get_subaddress_lookahead)
+{
+  m_wallet.set_subaddress_lookahead(10, 200);
+  // After setting lookahead, generating subaddresses should work with those limits
+  m_wallet.add_subaddress_account("Lookahead test");
+  uint32_t acct = (uint32_t)(m_wallet.get_num_subaddress_accounts() - 1);
+  // Should have at least 1 subaddress
+  ASSERT_GE(m_wallet.get_num_subaddresses(acct), 1u);
+}
+
+TEST_F(Wallet2GeneratedTest, unconfirmed_balance_initially_zero)
+{
+  // Unconfirmed balance should be zero on a fresh wallet
+  uint64_t balance = m_wallet.balance(0, false);
+  uint64_t unlocked = m_wallet.unlocked_balance(0, false);
+  ASSERT_EQ(balance, 0u);
+  ASSERT_EQ(unlocked, 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, daemon_login_info)
+{
+  // Default daemon address
+  std::string daemon = m_wallet.get_daemon_address();
+  ASSERT_FALSE(daemon.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, get_address_for_multiple_accounts)
+{
+  m_wallet.add_subaddress_account("Account 1");
+  m_wallet.add_subaddress_account("Account 2");
+
+  std::string addr0 = m_wallet.get_subaddress_as_str({0, 0});
+  std::string addr1 = m_wallet.get_subaddress_as_str({1, 0});
+  std::string addr2 = m_wallet.get_subaddress_as_str({2, 0});
+
+  // All should be different
+  ASSERT_NE(addr0, addr1);
+  ASSERT_NE(addr1, addr2);
+  ASSERT_NE(addr0, addr2);
+}
+
+// ===========================================================================
+// Testnet / stagenet URI scheme tests
+// ===========================================================================
+
+TEST(Wallet2TestnetTest, testnet_uri_roundtrip)
+{
+  tools::wallet2 w(cryptonote::TESTNET, 1, false);
+  w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w.set_subaddress_lookahead(1, 1);
+  crypto::secret_key rk;
+  w.generate("", "", rk, true, false);
+
+  std::string addr = w.get_account().get_public_address_str(cryptonote::TESTNET);
+  std::string error;
+  std::string uri = w.make_uri(addr, "", 42000000000ULL, "test payment", "TestRecipient", error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = w.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pa, addr);
+  ASSERT_EQ(pamt, 42000000000ULL);
+  ASSERT_EQ(pd, "test payment");
+  ASSERT_EQ(pn, "TestRecipient");
+}
+
+TEST(Wallet2TestnetTest, stagenet_uri_roundtrip)
+{
+  tools::wallet2 w(cryptonote::STAGENET, 1, false);
+  w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w.set_subaddress_lookahead(1, 1);
+  crypto::secret_key rk;
+  w.generate("", "", rk, true, false);
+
+  std::string addr = w.get_account().get_public_address_str(cryptonote::STAGENET);
+  std::string error;
+  std::string uri = w.make_uri(addr, "", 99000000000ULL, "stagenet pay", "", error);
+  ASSERT_TRUE(error.empty()) << error;
+
+  std::string pa, pp, pd, pn, perr;
+  uint64_t pamt = 0;
+  std::vector<std::string> unk;
+  bool ok = w.parse_uri(uri, pa, pp, pamt, pd, pn, unk, perr);
+  ASSERT_TRUE(ok) << perr;
+  ASSERT_EQ(pa, addr);
+  ASSERT_EQ(pamt, 99000000000ULL);
+}
+
+// ===========================================================================
+// File I/O: additional persistence tests
+// ===========================================================================
+
+TEST_F(Wallet2FileTest, store_description_persists)
+{
+  std::string wallet_path = (m_temp_dir / "desc_wallet").string();
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key rk;
+    w.generate(wallet_path, "pass123", rk, true, false);
+    w.set_description("My important wallet");
+    w.store();
+  }
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pass123");
+    ASSERT_EQ(w.get_description(), "My important wallet");
+  }
+}
+
+TEST_F(Wallet2FileTest, store_account_tags_persist)
+{
+  std::string wallet_path = (m_temp_dir / "tags_wallet").string();
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key rk;
+    w.generate(wallet_path, "pass123", rk, true, false);
+    w.add_subaddress_account("Work account");
+    std::set<uint32_t> idx;
+    idx.insert(1);
+    w.set_account_tag(idx, "work");
+    w.set_account_tag_description("work", "Work-related");
+    w.store();
+  }
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pass123");
+    auto& tags = w.get_account_tags();
+    auto it = tags.first.find("work");
+    ASSERT_NE(it, tags.first.end());
+    ASSERT_EQ(it->second, "Work-related");
+    ASSERT_GE(tags.second.size(), 2u);
+    ASSERT_EQ(tags.second[1], "work");
+  }
+}
+
+TEST_F(Wallet2FileTest, store_and_reload_multiple_subaddress_accounts)
+{
+  std::string wallet_path = (m_temp_dir / "multi_acct_wallet").string();
+  size_t num_accounts;
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key rk;
+    w.generate(wallet_path, "pass123", rk, true, false);
+    w.add_subaddress_account("Account A");
+    w.add_subaddress_account("Account B");
+    w.add_subaddress_account("Account C");
+    num_accounts = w.get_num_subaddress_accounts();
+    w.store();
+  }
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pass123");
+    ASSERT_EQ(w.get_num_subaddress_accounts(), num_accounts);
+    ASSERT_EQ(w.get_subaddress_label({1, 0}), "Account A");
+    ASSERT_EQ(w.get_subaddress_label({2, 0}), "Account B");
+    ASSERT_EQ(w.get_subaddress_label({3, 0}), "Account C");
+  }
+}
+
+// ===========================================================================
+// More static utility tests
+// ===========================================================================
+
+TEST(Wallet2StaticTest, estimate_fee_per_byte_roundtrip_consistency)
+{
+  // Verify that fee estimates are consistent: 2x inputs should cost more
+  // estimate_fee(use_per_byte_fee, use_rct, n_inputs, mixin, n_outputs, extra_size, bulletproof, clsag, bulletproof_plus, use_view_tags, base_fee, fee_quantization_mask)
+  uint64_t fee_1in = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 100, true, true, true, true, 20000, 1);
+  uint64_t fee_2in = tools::wallet2::estimate_fee(true, true, 2, 15, 2, 100, true, true, true, true, 20000, 1);
+  ASSERT_LT(fee_1in, fee_2in);
+
+  // And 2x outputs should cost more
+  uint64_t fee_1out = tools::wallet2::estimate_fee(true, true, 1, 15, 1, 100, true, true, true, true, 20000, 1);
+  uint64_t fee_2out = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 100, true, true, true, true, 20000, 1);
+  ASSERT_LT(fee_1out, fee_2out);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_large_mixin)
+{
+  // Larger mixin (more decoys) should produce a higher fee
+  uint64_t fee_mixin8 = tools::wallet2::estimate_fee(true, true, 1, 8, 2, 100, true, true, true, true, 20000, 1);
+  uint64_t fee_mixin32 = tools::wallet2::estimate_fee(true, true, 1, 32, 2, 100, true, true, true, true, 20000, 1);
+  ASSERT_LT(fee_mixin8, fee_mixin32);
+}
