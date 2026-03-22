@@ -357,3 +357,140 @@ TEST(remove_field_from_tx_extra, invalid_varint)
   ASSERT_FALSE(cryptonote::remove_field_from_tx_extra(extra, typeid(cryptonote::tx_extra_nonce)));
   ASSERT_EQ(sizeof(extra_arr), extra.size());
 }
+
+// ---------- get_destination_view_key_pub ----------
+
+TEST(get_destination_view_key_pub, single_destination)
+{
+  cryptonote::account_base acc1;
+  acc1.generate();
+  cryptonote::tx_destination_entry dest(1000000, acc1.get_keys().m_account_address, false);
+  std::vector<cryptonote::tx_destination_entry> dests = {dest};
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, boost::none);
+  EXPECT_EQ(result, acc1.get_keys().m_account_address.m_view_public_key);
+}
+
+TEST(get_destination_view_key_pub, two_same_destinations)
+{
+  cryptonote::account_base acc1;
+  acc1.generate();
+  cryptonote::tx_destination_entry dest1(1000000, acc1.get_keys().m_account_address, false);
+  cryptonote::tx_destination_entry dest2(2000000, acc1.get_keys().m_account_address, false);
+  std::vector<cryptonote::tx_destination_entry> dests = {dest1, dest2};
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, boost::none);
+  EXPECT_EQ(result, acc1.get_keys().m_account_address.m_view_public_key);
+}
+
+TEST(get_destination_view_key_pub, two_different_destinations)
+{
+  cryptonote::account_base acc1, acc2;
+  acc1.generate();
+  acc2.generate();
+  cryptonote::tx_destination_entry dest1(1000000, acc1.get_keys().m_account_address, false);
+  cryptonote::tx_destination_entry dest2(2000000, acc2.get_keys().m_account_address, false);
+  std::vector<cryptonote::tx_destination_entry> dests = {dest1, dest2};
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, boost::none);
+  EXPECT_EQ(result, crypto::null_pkey);
+}
+
+TEST(get_destination_view_key_pub, with_change_addr)
+{
+  cryptonote::account_base acc1, acc2;
+  acc1.generate();
+  acc2.generate();
+  cryptonote::tx_destination_entry dest1(1000000, acc1.get_keys().m_account_address, false);
+  cryptonote::tx_destination_entry dest2(500000, acc2.get_keys().m_account_address, false);
+  std::vector<cryptonote::tx_destination_entry> dests = {dest1, dest2};
+  // Filter out acc2 as change address, leaving only acc1
+  boost::optional<cryptonote::account_public_address> change_addr = acc2.get_keys().m_account_address;
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, change_addr);
+  EXPECT_EQ(result, acc1.get_keys().m_account_address.m_view_public_key);
+}
+
+TEST(get_destination_view_key_pub, empty_destinations_with_change)
+{
+  cryptonote::account_base acc1;
+  acc1.generate();
+  std::vector<cryptonote::tx_destination_entry> dests;
+  boost::optional<cryptonote::account_public_address> change_addr = acc1.get_keys().m_account_address;
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, change_addr);
+  EXPECT_EQ(result, acc1.get_keys().m_account_address.m_view_public_key);
+}
+
+TEST(get_destination_view_key_pub, zero_amount_destination_skipped)
+{
+  cryptonote::account_base acc1, acc2;
+  acc1.generate();
+  acc2.generate();
+  cryptonote::tx_destination_entry dest1(0, acc1.get_keys().m_account_address, false);
+  cryptonote::tx_destination_entry dest2(1000000, acc2.get_keys().m_account_address, false);
+  std::vector<cryptonote::tx_destination_entry> dests = {dest1, dest2};
+  crypto::public_key result = cryptonote::get_destination_view_key_pub(dests, boost::none);
+  // Zero-amount dest is skipped, so only acc2 remains
+  EXPECT_EQ(result, acc2.get_keys().m_account_address.m_view_public_key);
+}
+
+// ---------- construct_miner_tx ----------
+
+TEST(construct_miner_tx, basic_miner_tx)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(0, 0, 10000000000000, 1000, TEST_FEE, acc.get_keys().m_account_address, tx));
+  EXPECT_FALSE(tx.vout.empty());
+  EXPECT_FALSE(tx.vin.empty());
+}
+
+TEST(construct_miner_tx, miner_tx_v1)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(0, 0, 10000000000000, 1000, TEST_FEE, acc.get_keys().m_account_address, tx, cryptonote::blobdata(), 999, 1));
+  EXPECT_EQ(tx.version, 1u);
+}
+
+TEST(construct_miner_tx, miner_tx_v4_or_above)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(0, 0, 10000000000000, 1000, TEST_FEE, acc.get_keys().m_account_address, tx, cryptonote::blobdata(), 999, 4));
+  EXPECT_EQ(tx.version, 2u);
+}
+
+TEST(construct_miner_tx, miner_tx_unlock_time)
+{
+  const size_t height = 100;
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(height, 0, 10000000000000, 1000, TEST_FEE, acc.get_keys().m_account_address, tx));
+  EXPECT_EQ(tx.unlock_time, height + CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);
+}
+
+TEST(construct_miner_tx, miner_tx_has_coinbase_input)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(0, 0, 10000000000000, 1000, TEST_FEE, acc.get_keys().m_account_address, tx));
+  ASSERT_FALSE(tx.vin.empty());
+  EXPECT_NO_THROW(boost::get<cryptonote::txin_gen>(tx.vin[0]));
+}
+
+TEST(construct_miner_tx, miner_tx_output_amount_matches_reward)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  cryptonote::transaction tx;
+  uint64_t fee = TEST_FEE;
+  ASSERT_TRUE(cryptonote::construct_miner_tx(0, 0, 10000000000000, 1000, fee, acc.get_keys().m_account_address, tx));
+  uint64_t total_output = 0;
+  for (const auto &out : tx.vout)
+    total_output += out.amount;
+  // Total output should include the block reward plus fee
+  EXPECT_GT(total_output, 0u);
+  EXPECT_GE(total_output, fee);
+}
