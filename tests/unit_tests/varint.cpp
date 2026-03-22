@@ -160,3 +160,177 @@ TEST(varint, get_varint_byte_size)
   subtest_varint_byte_size_for_type<std::uint32_t>();
   subtest_varint_byte_size_for_type<std::uint64_t>();
 }
+
+TEST(varint, roundtrip_zero)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(0));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 1u);
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 1);
+  ASSERT_EQ(val, 0u);
+}
+
+TEST(varint, roundtrip_one)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(1));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 1u);
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 1);
+  ASSERT_EQ(val, 1u);
+}
+
+TEST(varint, roundtrip_127)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(127));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 1u); // 127 fits in 1 byte (7 bits)
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 1);
+  ASSERT_EQ(val, 127u);
+}
+
+TEST(varint, roundtrip_128)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(128));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 2u); // 128 needs 2 bytes
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 2);
+  ASSERT_EQ(val, 128u);
+}
+
+TEST(varint, roundtrip_16383)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(16383));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 2u); // 16383 = 0x3FFF, fits in 14 bits (2 varint bytes)
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 2);
+  ASSERT_EQ(val, 16383u);
+}
+
+TEST(varint, roundtrip_16384)
+{
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(16384));
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 3u); // 16384 = 0x4000, needs 3 varint bytes
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 3);
+  ASSERT_EQ(val, 16384u);
+}
+
+TEST(varint, roundtrip_uint64_max)
+{
+  uint64_t max_val = std::numeric_limits<uint64_t>::max();
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, max_val);
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 10u); // max uint64 needs 10 varint bytes
+
+  uint64_t val;
+  std::string s(buf, bytes);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  ASSERT_EQ(read, 10);
+  ASSERT_EQ(val, max_val);
+}
+
+TEST(varint, truncated_input_returns_partial_read)
+{
+  // Write a value that needs 2 bytes, then only provide 1 byte
+  char buf[12];
+  char *bufptr = buf;
+  tools::write_varint(bufptr, uint64_t(128)); // needs 2 bytes
+  uint64_t bytes = bufptr - buf;
+  ASSERT_EQ(bytes, 2u);
+
+  // Only provide 1 byte (truncated)
+  uint64_t val = 0;
+  std::string s(buf, 1);
+  int read = tools::read_varint(s.begin(), s.end(), val);
+  // When input is exhausted in the middle, read returns how many bytes were read
+  // The first byte has MSB set (continuation), so we read 1 byte but never complete
+  ASSERT_EQ(read, 1);
+}
+
+TEST(varint, get_varint_data)
+{
+  // Test the get_varint_data helper
+  std::string data = tools::get_varint_data(uint64_t(0));
+  ASSERT_EQ(data.size(), 1u);
+
+  data = tools::get_varint_data(uint64_t(127));
+  ASSERT_EQ(data.size(), 1u);
+
+  data = tools::get_varint_data(uint64_t(128));
+  ASSERT_EQ(data.size(), 2u);
+
+  data = tools::get_varint_data(std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(data.size(), 10u);
+}
+
+TEST(varint, roundtrip_powers_of_two)
+{
+  for (int i = 0; i < 63; ++i)
+  {
+    uint64_t val = uint64_t(1) << i;
+    char buf[12];
+    char *bufptr = buf;
+    tools::write_varint(bufptr, val);
+    uint64_t bytes = bufptr - buf;
+    ASSERT_GT(bytes, 0u);
+
+    uint64_t result;
+    std::string s(buf, bytes);
+    int read = tools::read_varint(s.begin(), s.end(), result);
+    ASSERT_EQ(static_cast<uint64_t>(read), bytes);
+    ASSERT_EQ(result, val);
+  }
+}
+
+TEST(varint, get_varint_byte_size_matches_write)
+{
+  // Verify get_varint_byte_size matches actual written size for various values
+  std::vector<uint64_t> test_vals = {0, 1, 127, 128, 255, 256, 16383, 16384,
+    65535, 65536, 1000000, 0xFFFFFFFF, 0x100000000ULL, 0xFFFFFFFFFFFFFFFFULL};
+  for (uint64_t val : test_vals)
+  {
+    char buf[12];
+    char *bufptr = buf;
+    tools::write_varint(bufptr, val);
+    uint64_t written = bufptr - buf;
+    ASSERT_EQ(written, tools::get_varint_byte_size(val));
+  }
+}

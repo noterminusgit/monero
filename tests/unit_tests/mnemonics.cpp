@@ -255,3 +255,198 @@ TEST(mnemonics, partial_word_tolerance)
     ASSERT_EQ(true, res);
     ASSERT_STREQ(language_name_1.c_str(), "English");
 }
+
+TEST(mnemonics, get_language_list_non_empty)
+{
+    std::vector<std::string> languages;
+    crypto::ElectrumWords::get_language_list(languages);
+    ASSERT_FALSE(languages.empty());
+    // Should have at least 12 languages (all the ones registered)
+    ASSERT_GE(languages.size(), 12u);
+}
+
+TEST(mnemonics, get_language_list_english_names)
+{
+    std::vector<std::string> native_names;
+    crypto::ElectrumWords::get_language_list(native_names, false);
+    std::vector<std::string> english_names;
+    crypto::ElectrumWords::get_language_list(english_names, true);
+    ASSERT_EQ(native_names.size(), english_names.size());
+    // The English entry should have the same native and English name
+    bool found_english = false;
+    for (size_t i = 0; i < english_names.size(); ++i)
+    {
+        if (english_names[i] == "English")
+        {
+            ASSERT_EQ(native_names[i], "English");
+            found_english = true;
+        }
+    }
+    ASSERT_TRUE(found_english);
+}
+
+TEST(mnemonics, is_valid_language_native_names)
+{
+    // Valid native language names
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("English"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Deutsch"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Español"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Français"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Italiano"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Nederlands"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Português"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Esperanto"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Lojban"));
+}
+
+TEST(mnemonics, is_valid_language_english_names)
+{
+    // Valid English language names
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("German"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Spanish"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("French"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Italian"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Dutch"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Portuguese"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Russian"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Japanese"));
+    ASSERT_TRUE(crypto::ElectrumWords::is_valid_language("Chinese (simplified)"));
+}
+
+TEST(mnemonics, is_valid_language_invalid)
+{
+    ASSERT_FALSE(crypto::ElectrumWords::is_valid_language(""));
+    ASSERT_FALSE(crypto::ElectrumWords::is_valid_language("Klingon"));
+    ASSERT_FALSE(crypto::ElectrumWords::is_valid_language("english")); // case sensitive
+    ASSERT_FALSE(crypto::ElectrumWords::is_valid_language("ENGLISH"));
+    ASSERT_FALSE(crypto::ElectrumWords::is_valid_language("Latin"));
+}
+
+TEST(mnemonics, get_english_name_for_known_languages)
+{
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Deutsch"), "German");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("English"), "English");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Español"), "Spanish");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Français"), "French");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Italiano"), "Italian");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Nederlands"), "Dutch");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Português"), "Portuguese");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Esperanto"), "Esperanto");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Lojban"), "Lojban");
+}
+
+TEST(mnemonics, get_english_name_for_unknown_language)
+{
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for("Klingon"), "<language not found>");
+    ASSERT_EQ(crypto::ElectrumWords::get_english_name_for(""), "<language not found>");
+}
+
+TEST(mnemonics, get_is_old_style_seed_new_style)
+{
+    // A new style seed has exactly 25 words (24 + 1 checksum).
+    // Generate a proper 25-word seed
+    crypto::secret_key randkey;
+    for (size_t i = 0; i < sizeof(randkey); ++i)
+        randkey.data[i] = crypto::rand<uint8_t>();
+
+    epee::wipeable_string words;
+    crypto::ElectrumWords::bytes_to_words(randkey, words, "English");
+    // A new seed should have 25 words
+    ASSERT_FALSE(crypto::ElectrumWords::get_is_old_style_seed(words));
+}
+
+TEST(mnemonics, get_is_old_style_seed_old_style)
+{
+    // Old style seeds have != 25 words (e.g., 24 words without checksum, or 13 words)
+    // A 24-word seed (no checksum) is considered old style
+    epee::wipeable_string old_seed("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20 word21 word22 word23 word24");
+    ASSERT_TRUE(crypto::ElectrumWords::get_is_old_style_seed(old_seed));
+
+    // A 13-word seed is also old style
+    epee::wipeable_string short_seed("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13");
+    ASSERT_TRUE(crypto::ElectrumWords::get_is_old_style_seed(short_seed));
+}
+
+TEST(mnemonics, roundtrip_known_key_english)
+{
+    // Create a deterministic key and verify roundtrip
+    crypto::secret_key key1;
+    memset(key1.data, 0, sizeof(key1));
+    key1.data[0] = 0x01; // minimal non-zero key
+
+    epee::wipeable_string words;
+    bool res = crypto::ElectrumWords::bytes_to_words(key1, words, "English");
+    ASSERT_TRUE(res);
+
+    // Words should not be empty
+    std::string words_str(words.data(), words.size());
+    ASSERT_FALSE(words_str.empty());
+
+    // Convert back
+    crypto::secret_key key2;
+    std::string language_name;
+    res = crypto::ElectrumWords::words_to_bytes(words_str, key2, language_name);
+    ASSERT_TRUE(res);
+    ASSERT_STREQ(language_name.c_str(), "English");
+    ASSERT_TRUE(key1 == key2);
+}
+
+TEST(mnemonics, roundtrip_known_key_german)
+{
+    crypto::secret_key key1;
+    for (size_t i = 0; i < sizeof(key1); ++i)
+        key1.data[i] = static_cast<char>(i);
+
+    epee::wipeable_string words;
+    bool res = crypto::ElectrumWords::bytes_to_words(key1, words, "Deutsch");
+    ASSERT_TRUE(res);
+
+    crypto::secret_key key2;
+    std::string language_name;
+    res = crypto::ElectrumWords::words_to_bytes(
+        std::string(words.data(), words.size()), key2, language_name);
+    ASSERT_TRUE(res);
+    ASSERT_STREQ(language_name.c_str(), "Deutsch");
+    ASSERT_TRUE(key1 == key2);
+}
+
+TEST(mnemonics, words_to_bytes_empty_string_fails)
+{
+    crypto::secret_key key;
+    std::string language_name;
+    ASSERT_FALSE(crypto::ElectrumWords::words_to_bytes("", key, language_name));
+}
+
+TEST(mnemonics, words_to_bytes_garbage_fails)
+{
+    crypto::secret_key key;
+    std::string language_name;
+    ASSERT_FALSE(crypto::ElectrumWords::words_to_bytes("not real words at all here foo bar baz", key, language_name));
+}
+
+TEST(mnemonics, words_to_bytes_wrong_word_count_fails)
+{
+    crypto::secret_key key;
+    std::string language_name;
+    // Only 2 words, not a valid seed
+    ASSERT_FALSE(crypto::ElectrumWords::words_to_bytes("abbey abducts", key, language_name));
+}
+
+TEST(mnemonics, bytes_to_words_invalid_language_fails)
+{
+    crypto::secret_key key;
+    memset(key.data, 0x42, sizeof(key));
+    epee::wipeable_string words;
+    bool res = crypto::ElectrumWords::bytes_to_words(key, words, "Klingon");
+    ASSERT_FALSE(res);
+}
+
+TEST(mnemonics, seed_length_constant)
+{
+    ASSERT_EQ(crypto::ElectrumWords::seed_length, 24);
+}
+
+TEST(mnemonics, old_language_name_constant)
+{
+    ASSERT_EQ(crypto::ElectrumWords::old_language_name, "EnglishOld");
+}

@@ -3793,3 +3793,829 @@ TEST(cn_format_utils, construct_miner_tx_with_zero_fee)
     // Output with fee should be greater than output without fee
     ASSERT_GT(total_with_fee, total_output);
 }
+
+// =====================================================================
+// NEW TESTS: CryptonoteFormatUtils suite
+// =====================================================================
+
+// --- tx_extra manipulation ---
+
+TEST(CryptonoteFormatUtils, AddAndGetTxPubKeyRoundtrip)
+{
+    // Roundtrip: add a random-looking pub key, then retrieve it from the extra vector
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk));
+
+    crypto::public_key recovered = cryptonote::get_tx_pub_key_from_extra(extra);
+    ASSERT_EQ(pk, recovered);
+
+    // Second pub key at index 0 and 1
+    crypto::public_key pk2 = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk2));
+    ASSERT_EQ(cryptonote::get_tx_pub_key_from_extra(extra, 0), pk);
+    ASSERT_EQ(cryptonote::get_tx_pub_key_from_extra(extra, 1), pk2);
+
+    // Non-existent index returns null
+    ASSERT_EQ(cryptonote::get_tx_pub_key_from_extra(extra, 99), crypto::null_pkey);
+}
+
+TEST(CryptonoteFormatUtils, AddAndGetAdditionalTxPubKeysRoundtrip)
+{
+    std::vector<uint8_t> extra;
+    // Also add a primary pub key so the extra has mixed fields
+    crypto::public_key primary_pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, primary_pk));
+
+    std::vector<crypto::public_key> additional_keys;
+    additional_keys.push_back(crypto::get_H());
+    additional_keys.push_back(crypto::get_H());
+    additional_keys.push_back(crypto::get_H());
+    ASSERT_TRUE(cryptonote::add_additional_tx_pub_keys_to_extra(extra, additional_keys));
+
+    std::vector<crypto::public_key> recovered = cryptonote::get_additional_tx_pub_keys_from_extra(extra);
+    ASSERT_EQ(recovered.size(), 3u);
+    for (size_t i = 0; i < 3; ++i)
+        ASSERT_EQ(recovered[i], additional_keys[i]);
+
+    // Primary key should still be retrievable
+    ASSERT_EQ(cryptonote::get_tx_pub_key_from_extra(extra, 0), primary_pk);
+}
+
+TEST(CryptonoteFormatUtils, AddExtraNonceWithPaymentIds)
+{
+    // Add unencrypted payment id via extra nonce, parse back
+    std::vector<uint8_t> extra;
+    crypto::hash payment_id = crypto::rand<crypto::hash>();
+    std::string nonce;
+    cryptonote::set_payment_id_to_tx_extra_nonce(nonce, payment_id);
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 1u);
+
+    cryptonote::tx_extra_nonce nonce_field;
+    ASSERT_TRUE(cryptonote::find_tx_extra_field_by_type(fields, nonce_field));
+
+    // Verify we can extract the payment id back from the nonce
+    crypto::hash recovered_pid;
+    ASSERT_TRUE(cryptonote::get_payment_id_from_tx_extra_nonce(nonce_field.nonce, recovered_pid));
+    ASSERT_EQ(payment_id, recovered_pid);
+}
+
+TEST(CryptonoteFormatUtils, PaymentIdRoundtripThroughExtra)
+{
+    // Full roundtrip: set payment id -> add to extra nonce -> add to tx extra -> parse -> extract
+    crypto::hash pid = crypto::rand<crypto::hash>();
+    std::string nonce;
+    cryptonote::set_payment_id_to_tx_extra_nonce(nonce, pid);
+
+    std::vector<uint8_t> extra;
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+
+    cryptonote::tx_extra_nonce nf;
+    ASSERT_TRUE(cryptonote::find_tx_extra_field_by_type(fields, nf));
+
+    crypto::hash recovered;
+    ASSERT_TRUE(cryptonote::get_payment_id_from_tx_extra_nonce(nf.nonce, recovered));
+    ASSERT_EQ(pid, recovered);
+
+    // Encrypted payment id should NOT be extractable from unencrypted nonce
+    crypto::hash8 wrong_recovered;
+    ASSERT_FALSE(cryptonote::get_encrypted_payment_id_from_tx_extra_nonce(nf.nonce, wrong_recovered));
+}
+
+TEST(CryptonoteFormatUtils, EncryptedPaymentIdRoundtripThroughExtra)
+{
+    crypto::hash8 pid;
+    memset(&pid, 0xab, sizeof(pid));
+    std::string nonce;
+    cryptonote::set_encrypted_payment_id_to_tx_extra_nonce(nonce, pid);
+
+    std::vector<uint8_t> extra;
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+
+    cryptonote::tx_extra_nonce nf;
+    ASSERT_TRUE(cryptonote::find_tx_extra_field_by_type(fields, nf));
+
+    crypto::hash8 recovered;
+    ASSERT_TRUE(cryptonote::get_encrypted_payment_id_from_tx_extra_nonce(nf.nonce, recovered));
+    ASSERT_EQ(pid, recovered);
+
+    // Unencrypted payment id should NOT be extractable from encrypted nonce
+    crypto::hash wrong_recovered;
+    ASSERT_FALSE(cryptonote::get_payment_id_from_tx_extra_nonce(nf.nonce, wrong_recovered));
+}
+
+TEST(CryptonoteFormatUtils, RemoveFieldFromTxExtraKeepsOthers)
+{
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk));
+
+    std::string nonce_data(16, 'A');
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce_data));
+
+    // Remove nonce, keep pub key
+    ASSERT_TRUE(cryptonote::remove_field_from_tx_extra(extra, typeid(cryptonote::tx_extra_nonce)));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 1u);
+
+    cryptonote::tx_extra_pub_key pk_field;
+    ASSERT_TRUE(cryptonote::find_tx_extra_field_by_type(fields, pk_field));
+    ASSERT_EQ(pk_field.pub_key, pk);
+}
+
+TEST(CryptonoteFormatUtils, RemoveFieldFromTxExtraTwice)
+{
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk));
+
+    // Remove once
+    ASSERT_TRUE(cryptonote::remove_field_from_tx_extra(extra, typeid(cryptonote::tx_extra_pub_key)));
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_TRUE(fields.empty());
+
+    // Remove again (no-op, should still succeed)
+    ASSERT_TRUE(cryptonote::remove_field_from_tx_extra(extra, typeid(cryptonote::tx_extra_pub_key)));
+}
+
+TEST(CryptonoteFormatUtils, SortTxExtraOrdersPubKeyFirst)
+{
+    // Deliberately add nonce first, then pub key - sorting should reorder
+    std::vector<uint8_t> extra;
+    std::string nonce(10, 'N');
+    cryptonote::add_extra_nonce_to_tx_extra(extra, nonce);
+    crypto::public_key pk = crypto::get_H();
+    cryptonote::add_tx_pub_key_to_extra(extra, pk);
+
+    std::vector<uint8_t> sorted;
+    ASSERT_TRUE(cryptonote::sort_tx_extra(extra, sorted));
+
+    // Parse sorted and verify pub key comes first
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(sorted, fields));
+    ASSERT_EQ(fields.size(), 2u);
+
+    // First field should be pub key (tag 0x01 < nonce tag 0x02)
+    ASSERT_NO_THROW(boost::get<cryptonote::tx_extra_pub_key>(fields[0]));
+    ASSERT_NO_THROW(boost::get<cryptonote::tx_extra_nonce>(fields[1]));
+}
+
+TEST(CryptonoteFormatUtils, SortTxExtraInvalidDataFails)
+{
+    std::vector<uint8_t> extra = {0xFF, 0xFE, 0xFD};
+    std::vector<uint8_t> sorted;
+    ASSERT_FALSE(cryptonote::sort_tx_extra(extra, sorted, false));
+}
+
+TEST(CryptonoteFormatUtils, ParseTxExtraEmptyReturnsTrue)
+{
+    std::vector<uint8_t> extra;
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 0u);
+}
+
+TEST(CryptonoteFormatUtils, ParseTxExtraValidComplex)
+{
+    // Build a complex extra with pub key + nonce + additional keys
+    std::vector<uint8_t> extra;
+    crypto::public_key pk = crypto::get_H();
+    ASSERT_TRUE(cryptonote::add_tx_pub_key_to_extra(extra, pk));
+    std::string nonce(20, 'Z');
+    ASSERT_TRUE(cryptonote::add_extra_nonce_to_tx_extra(extra, nonce));
+    std::vector<crypto::public_key> add_keys = {crypto::get_H()};
+    ASSERT_TRUE(cryptonote::add_additional_tx_pub_keys_to_extra(extra, add_keys));
+
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(extra, fields));
+    ASSERT_EQ(fields.size(), 3u);
+}
+
+TEST(CryptonoteFormatUtils, ParseTxExtraInvalidGarbageOnly)
+{
+    // Pure garbage should fail to parse
+    std::vector<uint8_t> extra = {0xFF, 0x01, 0x02, 0x03};
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_FALSE(cryptonote::parse_tx_extra(extra, fields));
+}
+
+// --- Amount/offset utilities ---
+
+TEST(CryptonoteFormatUtils, RelativeAbsoluteOffsetsRoundtripLargeValues)
+{
+    std::vector<uint64_t> absolute = {
+        1000000ULL, 2000000ULL, 5000000ULL, 10000000ULL, 100000000ULL
+    };
+    std::vector<uint64_t> relative = cryptonote::absolute_output_offsets_to_relative(absolute);
+
+    // First relative should equal first absolute
+    ASSERT_EQ(relative[0], 1000000ULL);
+    // Subsequent relatives should be differences
+    ASSERT_EQ(relative[1], 1000000ULL); // 2M - 1M
+    ASSERT_EQ(relative[2], 3000000ULL); // 5M - 2M
+
+    std::vector<uint64_t> recovered = cryptonote::relative_output_offsets_to_absolute(relative);
+    ASSERT_EQ(absolute, recovered);
+}
+
+TEST(CryptonoteFormatUtils, RelativeAbsoluteOffsetsConsecutive)
+{
+    // Consecutive offsets: 0, 1, 2, 3, 4
+    std::vector<uint64_t> absolute = {0, 1, 2, 3, 4};
+    std::vector<uint64_t> relative = cryptonote::absolute_output_offsets_to_relative(absolute);
+    ASSERT_EQ(relative.size(), 5u);
+    ASSERT_EQ(relative[0], 0u);
+    for (size_t i = 1; i < relative.size(); ++i)
+        ASSERT_EQ(relative[i], 1u);
+
+    std::vector<uint64_t> recovered = cryptonote::relative_output_offsets_to_absolute(relative);
+    ASSERT_EQ(absolute, recovered);
+}
+
+TEST(CryptonoteFormatUtils, IsValidDecomposedAmountEdgeCases)
+{
+    // Valid: 9 * 10^12 (largest single-digit * 1 XMR base)
+    ASSERT_TRUE(cryptonote::is_valid_decomposed_amount(9000000000000ULL));
+    // Valid: 1 (smallest valid decomposed amount)
+    ASSERT_TRUE(cryptonote::is_valid_decomposed_amount(1));
+    // Invalid: 0
+    ASSERT_FALSE(cryptonote::is_valid_decomposed_amount(0));
+    // Invalid: 10 + 1 = 11
+    ASSERT_FALSE(cryptonote::is_valid_decomposed_amount(11));
+    // Invalid: multi-digit
+    ASSERT_FALSE(cryptonote::is_valid_decomposed_amount(12345678ULL));
+    // Valid: 8 * 10^6 = 8000000
+    ASSERT_TRUE(cryptonote::is_valid_decomposed_amount(8000000ULL));
+}
+
+TEST(CryptonoteFormatUtils, PrintMoneyMaxUint64)
+{
+    uint64_t max_val = std::numeric_limits<uint64_t>::max();
+    std::string result = cryptonote::print_money(max_val);
+    ASSERT_FALSE(result.empty());
+    // Should contain a decimal point
+    ASSERT_NE(result.find('.'), std::string::npos);
+    // Should have exactly 12 digits after the decimal
+    size_t dot_pos = result.find('.');
+    ASSERT_EQ(result.size() - dot_pos - 1, 12u);
+}
+
+TEST(CryptonoteFormatUtils, PrintMoneySmallFractions)
+{
+    ASSERT_EQ(cryptonote::print_money(1), "0.000000000001");
+    ASSERT_EQ(cryptonote::print_money(10), "0.000000000010");
+    ASSERT_EQ(cryptonote::print_money(100), "0.000000000100");
+    ASSERT_EQ(cryptonote::print_money(999999999999ULL), "0.999999999999");
+}
+
+TEST(CryptonoteFormatUtils, RoundMoneyUpVariousSignificantDigits)
+{
+    // 1234 rounded to 1 sig digit -> 2000
+    ASSERT_EQ(cryptonote::round_money_up(1234ULL, 1), 2000ULL);
+    // 1234 rounded to 2 sig digits -> 1300
+    ASSERT_EQ(cryptonote::round_money_up(1234ULL, 2), 1300ULL);
+    // 1234 rounded to 3 sig digits -> 1240
+    ASSERT_EQ(cryptonote::round_money_up(1234ULL, 3), 1240ULL);
+    // 1234 rounded to 4 sig digits -> 1234 (exact)
+    ASSERT_EQ(cryptonote::round_money_up(1234ULL, 4), 1234ULL);
+    // 1234 rounded to 5 sig digits -> 1234 (more digits than available)
+    ASSERT_EQ(cryptonote::round_money_up(1234ULL, 5), 1234ULL);
+}
+
+TEST(CryptonoteFormatUtils, RoundMoneyUpStringOverload)
+{
+    ASSERT_EQ(cryptonote::round_money_up("0.123456789012", 1), "0.200000000000");
+    ASSERT_EQ(cryptonote::round_money_up("9.999999999999", 1), "10.000000000000");
+    ASSERT_EQ(cryptonote::round_money_up("0.000000000000", 1), "0.000000000000");
+}
+
+TEST(CryptonoteFormatUtils, GetUnitAllDecimalPoints)
+{
+    ASSERT_EQ(cryptonote::get_unit(12), "monero");
+    ASSERT_EQ(cryptonote::get_unit(9), "millinero");
+    ASSERT_EQ(cryptonote::get_unit(6), "micronero");
+    ASSERT_EQ(cryptonote::get_unit(3), "nanonero");
+    ASSERT_EQ(cryptonote::get_unit(0), "piconero");
+}
+
+TEST(CryptonoteFormatUtils, SetAndGetDefaultDecimalPointRoundtrip)
+{
+    unsigned int original = cryptonote::get_default_decimal_point();
+
+    cryptonote::set_default_decimal_point(9);
+    ASSERT_EQ(cryptonote::get_default_decimal_point(), 9u);
+
+    // print_money should use the new decimal point by default
+    std::string s = cryptonote::print_money(1000000000ULL);
+    ASSERT_EQ(s, "1.000000000");
+
+    // Restore
+    cryptonote::set_default_decimal_point(original);
+}
+
+// --- Key encrypt/decrypt ---
+
+TEST(CryptonoteFormatUtils, EncryptDecryptKeyRoundtrip)
+{
+    // Use a small deterministic reduced scalar
+    crypto::secret_key original;
+    memset(&original, 0, sizeof(original));
+    reinterpret_cast<uint8_t*>(&original)[0] = 0xAA;
+    reinterpret_cast<uint8_t*>(&original)[1] = 0xBB;
+
+    epee::wipeable_string pass("my_test_passphrase");
+    crypto::secret_key encrypted = cryptonote::encrypt_key(original, pass);
+    crypto::secret_key decrypted = cryptonote::decrypt_key(encrypted, pass);
+    ASSERT_EQ(original, decrypted);
+}
+
+TEST(CryptonoteFormatUtils, DifferentPassphrasesProduceDifferentEncryptedKeys)
+{
+    crypto::secret_key key;
+    memset(&key, 0, sizeof(key));
+    reinterpret_cast<uint8_t*>(&key)[0] = 0x42;
+
+    epee::wipeable_string pass1("passphrase_one");
+    epee::wipeable_string pass2("passphrase_two");
+
+    crypto::secret_key enc1 = cryptonote::encrypt_key(key, pass1);
+    crypto::secret_key enc2 = cryptonote::encrypt_key(key, pass2);
+
+    // Different passphrases should produce different encrypted keys
+    ASSERT_NE(memcmp(&enc1, &enc2, sizeof(enc1)), 0);
+}
+
+TEST(CryptonoteFormatUtils, DecryptWithWrongPassphraseFails)
+{
+    crypto::secret_key original;
+    memset(&original, 0, sizeof(original));
+    reinterpret_cast<uint8_t*>(&original)[0] = 0x42;
+
+    epee::wipeable_string correct_pass("correct");
+    epee::wipeable_string wrong_pass("wrong");
+
+    crypto::secret_key encrypted = cryptonote::encrypt_key(original, correct_pass);
+    crypto::secret_key decrypted = cryptonote::decrypt_key(encrypted, wrong_pass);
+
+    // Decryption with wrong passphrase should NOT produce the original key
+    ASSERT_NE(memcmp(&original, &decrypted, sizeof(original)), 0);
+}
+
+// --- Transaction utilities ---
+
+TEST(CryptonoteFormatUtils, SetTxOutWithoutViewTag)
+{
+    cryptonote::tx_out out;
+    crypto::public_key pk = crypto::get_H();
+    crypto::view_tag vt = {0};
+    cryptonote::set_tx_out(12345, pk, false, vt, out);
+
+    ASSERT_EQ(out.amount, 12345u);
+    ASSERT_TRUE(out.target.type() == typeid(cryptonote::txout_to_key));
+
+    crypto::public_key extracted;
+    ASSERT_TRUE(cryptonote::get_output_public_key(out, extracted));
+    ASSERT_EQ(extracted, pk);
+
+    auto vt_opt = cryptonote::get_output_view_tag(out);
+    ASSERT_FALSE(!!vt_opt);
+}
+
+TEST(CryptonoteFormatUtils, SetTxOutWithViewTag)
+{
+    cryptonote::tx_out out;
+    crypto::public_key pk = crypto::get_H();
+    crypto::view_tag vt;
+    vt.data = 0x42;
+    cryptonote::set_tx_out(67890, pk, true, vt, out);
+
+    ASSERT_EQ(out.amount, 67890u);
+    ASSERT_TRUE(out.target.type() == typeid(cryptonote::txout_to_tagged_key));
+
+    crypto::public_key extracted;
+    ASSERT_TRUE(cryptonote::get_output_public_key(out, extracted));
+    ASSERT_EQ(extracted, pk);
+
+    auto vt_opt = cryptonote::get_output_view_tag(out);
+    ASSERT_TRUE(!!vt_opt);
+    ASSERT_EQ(static_cast<unsigned char>(vt_opt->data), 0x42);
+}
+
+TEST(CryptonoteFormatUtils, GetOutputPublicKeyFromTxoutToKey)
+{
+    cryptonote::tx_out out;
+    out.amount = 100;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::get_H();
+    out.target = tk;
+
+    crypto::public_key extracted;
+    ASSERT_TRUE(cryptonote::get_output_public_key(out, extracted));
+    ASSERT_EQ(extracted, crypto::get_H());
+}
+
+TEST(CryptonoteFormatUtils, GetOutputPublicKeyFromTxoutToTaggedKey)
+{
+    cryptonote::tx_out out;
+    out.amount = 200;
+    cryptonote::txout_to_tagged_key ttk;
+    ttk.key = crypto::get_H();
+    ttk.view_tag.data = 0xCD;
+    out.target = ttk;
+
+    crypto::public_key extracted;
+    ASSERT_TRUE(cryptonote::get_output_public_key(out, extracted));
+    ASSERT_EQ(extracted, crypto::get_H());
+}
+
+TEST(CryptonoteFormatUtils, GetOutputViewTagAbsent)
+{
+    cryptonote::tx_out out;
+    out.amount = 100;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::get_H();
+    out.target = tk;
+
+    auto vt_opt = cryptonote::get_output_view_tag(out);
+    ASSERT_FALSE(!!vt_opt);
+}
+
+TEST(CryptonoteFormatUtils, GetOutputViewTagPresent)
+{
+    cryptonote::tx_out out;
+    out.amount = 100;
+    cryptonote::txout_to_tagged_key ttk;
+    ttk.key = crypto::get_H();
+    ttk.view_tag.data = 0xEF;
+    out.target = ttk;
+
+    auto vt_opt = cryptonote::get_output_view_tag(out);
+    ASSERT_TRUE(!!vt_opt);
+    ASSERT_EQ(static_cast<unsigned char>(vt_opt->data), 0xEF);
+}
+
+TEST(CryptonoteFormatUtils, CheckMoneyOverflowValid)
+{
+    auto tx = make_v1_tx_with_key_inputs({100, 200}, {100, 200});
+    ASSERT_TRUE(cryptonote::check_money_overflow(tx));
+}
+
+TEST(CryptonoteFormatUtils, CheckOutsOverflowWithOverflow)
+{
+    // Create a tx with outputs that would overflow uint64_t
+    cryptonote::transaction tx;
+    tx.version = 1;
+    tx.unlock_time = 0;
+
+    // Two outputs whose amounts sum exceeds MONEY_SUPPLY
+    cryptonote::tx_out out1, out2;
+    cryptonote::set_tx_out(std::numeric_limits<uint64_t>::max(), crypto::get_H(), false, crypto::view_tag{}, out1);
+    cryptonote::set_tx_out(1, crypto::get_H(), false, crypto::view_tag{}, out2);
+    tx.vout.push_back(out1);
+    tx.vout.push_back(out2);
+
+    ASSERT_FALSE(cryptonote::check_outs_overflow(tx));
+}
+
+TEST(CryptonoteFormatUtils, CheckInputsOverflowWithOverflow)
+{
+    cryptonote::transaction tx;
+    tx.version = 1;
+    tx.unlock_time = 0;
+
+    // Two inputs whose amounts sum exceeds uint64_t max
+    cryptonote::txin_to_key key_in1, key_in2;
+    key_in1.amount = std::numeric_limits<uint64_t>::max();
+    key_in1.key_offsets = {0};
+    key_in1.k_image = crypto::rand<crypto::key_image>();
+    key_in2.amount = 1;
+    key_in2.key_offsets = {0};
+    key_in2.k_image = crypto::rand<crypto::key_image>();
+    tx.vin.push_back(key_in1);
+    tx.vin.push_back(key_in2);
+
+    ASSERT_FALSE(cryptonote::check_inputs_overflow(tx));
+}
+
+TEST(CryptonoteFormatUtils, CheckInputsTypesSupportedValid)
+{
+    auto tx = make_v1_tx_with_key_inputs({100, 200, 300}, {500});
+    ASSERT_TRUE(cryptonote::check_inputs_types_supported(tx));
+}
+
+TEST(CryptonoteFormatUtils, CheckInputsTypesSupportedInvalid)
+{
+    // txin_gen is not supported by check_inputs_types_supported
+    cryptonote::transaction tx;
+    tx.version = 1;
+    cryptonote::txin_gen gen;
+    gen.height = 0;
+    tx.vin.push_back(gen);
+    ASSERT_FALSE(cryptonote::check_inputs_types_supported(tx));
+}
+
+TEST(CryptonoteFormatUtils, ShortHashStrFormatting)
+{
+    crypto::hash h;
+    memset(&h, 0xAB, sizeof(h));
+    std::string s = cryptonote::short_hash_str(h);
+
+    // Should be exactly 20 characters: 8 hex + "...." + 8 hex
+    ASSERT_EQ(s.size(), 20u);
+    ASSERT_EQ(s.substr(8, 4), "....");
+
+    // First and last 8 characters should be hex chars
+    auto is_hex = [](char c) {
+        return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+    };
+    for (int i = 0; i < 8; ++i)
+    {
+        ASSERT_TRUE(is_hex(s[i])) << "char at position " << i << " is not hex: " << s[i];
+        ASSERT_TRUE(is_hex(s[12 + i])) << "char at position " << (12 + i) << " is not hex: " << s[12 + i];
+    }
+}
+
+TEST(CryptonoteFormatUtils, ShortHashStrZeroHash)
+{
+    crypto::hash h;
+    memset(&h, 0, sizeof(h));
+    std::string s = cryptonote::short_hash_str(h);
+    ASSERT_EQ(s, "00000000....00000000");
+}
+
+TEST(CryptonoteFormatUtils, GetBlobHashConsistency)
+{
+    std::string blob1 = "test blob data for hashing";
+    std::string blob2 = "test blob data for hashing";
+    std::string blob3 = "different blob data";
+
+    crypto::hash h1 = cryptonote::get_blob_hash(blob1);
+    crypto::hash h2 = cryptonote::get_blob_hash(blob2);
+    crypto::hash h3 = cryptonote::get_blob_hash(blob3);
+
+    ASSERT_EQ(h1, h2);
+    ASSERT_NE(h1, h3);
+
+    // Void overload should match
+    crypto::hash h4;
+    cryptonote::get_blob_hash(blob1, h4);
+    ASSERT_EQ(h1, h4);
+}
+
+// --- Block utilities ---
+
+TEST(CryptonoteFormatUtils, BlockToBlobAndParseBlobRoundtrip)
+{
+    cryptonote::block b;
+    b.major_version = 15;
+    b.minor_version = 15;
+    b.timestamp = 1700000000;
+    b.nonce = 0xBEEFCAFE;
+    b.miner_tx.version = 2;
+    b.miner_tx.unlock_time = 60;
+    cryptonote::txin_gen gen;
+    gen.height = 1000;
+    b.miner_tx.vin.push_back(gen);
+
+    // Add tx hashes
+    crypto::hash txh1, txh2, txh3;
+    memset(&txh1, 0x11, sizeof(txh1));
+    memset(&txh2, 0x22, sizeof(txh2));
+    memset(&txh3, 0x33, sizeof(txh3));
+    b.tx_hashes.push_back(txh1);
+    b.tx_hashes.push_back(txh2);
+    b.tx_hashes.push_back(txh3);
+
+    cryptonote::blobdata blob;
+    ASSERT_TRUE(cryptonote::block_to_blob(b, blob));
+    ASSERT_FALSE(blob.empty());
+
+    cryptonote::block b2;
+    crypto::hash block_hash;
+    ASSERT_TRUE(cryptonote::parse_and_validate_block_from_blob(blob, b2, block_hash));
+
+    ASSERT_EQ(b.major_version, b2.major_version);
+    ASSERT_EQ(b.minor_version, b2.minor_version);
+    ASSERT_EQ(b.timestamp, b2.timestamp);
+    ASSERT_EQ(b.nonce, b2.nonce);
+    ASSERT_EQ(b.tx_hashes.size(), b2.tx_hashes.size());
+    for (size_t i = 0; i < b.tx_hashes.size(); ++i)
+        ASSERT_EQ(b.tx_hashes[i], b2.tx_hashes[i]);
+
+    // Hash from parsing should match get_block_hash
+    crypto::hash expected_hash = cryptonote::get_block_hash(b2);
+    ASSERT_EQ(block_hash, expected_hash);
+}
+
+TEST(CryptonoteFormatUtils, TxToBlobAndParseBlobRoundtrip)
+{
+    auto tx = make_v1_coinbase_tx(42, {
+        {1000000000000ULL, crypto::get_H()},
+        {2000000000000ULL, crypto::get_H()}
+    });
+
+    cryptonote::blobdata blob = cryptonote::tx_to_blob(tx);
+    ASSERT_FALSE(blob.empty());
+
+    cryptonote::transaction parsed;
+    crypto::hash tx_hash;
+    ASSERT_TRUE(cryptonote::parse_and_validate_tx_from_blob(blob, parsed, tx_hash));
+    ASSERT_EQ(parsed.version, tx.version);
+    ASSERT_EQ(parsed.unlock_time, tx.unlock_time);
+    ASSERT_EQ(parsed.vout.size(), 2u);
+    ASSERT_EQ(parsed.vout[0].amount, 1000000000000ULL);
+    ASSERT_EQ(parsed.vout[1].amount, 2000000000000ULL);
+
+    // Hash should match get_transaction_hash
+    crypto::hash expected_hash = cryptonote::get_transaction_hash(parsed);
+    ASSERT_EQ(tx_hash, expected_hash);
+}
+
+TEST(CryptonoteFormatUtils, GetBlockHashingBlobConsistency)
+{
+    cryptonote::block b;
+    b.major_version = 14;
+    b.minor_version = 14;
+    b.timestamp = 1234567890;
+    b.nonce = 99;
+    b.miner_tx.version = 2;
+    b.miner_tx.unlock_time = 0;
+    cryptonote::txin_gen gen;
+    gen.height = 200;
+    b.miner_tx.vin.push_back(gen);
+
+    cryptonote::blobdata hb1 = cryptonote::get_block_hashing_blob(b);
+    cryptonote::blobdata hb2 = cryptonote::get_block_hashing_blob(b);
+    ASSERT_EQ(hb1, hb2);
+    ASSERT_FALSE(hb1.empty());
+
+    // Changing nonce should change hashing blob
+    cryptonote::block b2 = b;
+    b2.nonce = 100;
+    b2.invalidate_hashes();
+    b2.miner_tx.invalidate_hashes();
+    cryptonote::blobdata hb3 = cryptonote::get_block_hashing_blob(b2);
+    ASSERT_NE(hb1, hb3);
+}
+
+TEST(CryptonoteFormatUtils, GetTxTreeHashThreeHashes)
+{
+    std::vector<crypto::hash> hashes;
+    crypto::hash h1, h2, h3;
+    memset(&h1, 0x11, sizeof(h1));
+    memset(&h2, 0x22, sizeof(h2));
+    memset(&h3, 0x33, sizeof(h3));
+    hashes.push_back(h1);
+    hashes.push_back(h2);
+    hashes.push_back(h3);
+
+    crypto::hash tree = cryptonote::get_tx_tree_hash(hashes);
+
+    // Deterministic
+    crypto::hash tree2 = cryptonote::get_tx_tree_hash(hashes);
+    ASSERT_EQ(tree, tree2);
+
+    // Should differ from any individual hash
+    ASSERT_NE(tree, h1);
+    ASSERT_NE(tree, h2);
+    ASSERT_NE(tree, h3);
+
+    // Reordering hashes should produce different tree hash
+    std::vector<crypto::hash> reordered = {h3, h1, h2};
+    crypto::hash tree_reordered = cryptonote::get_tx_tree_hash(reordered);
+    ASSERT_NE(tree, tree_reordered);
+}
+
+TEST(CryptonoteFormatUtils, GetTxTreeHashFourHashes)
+{
+    std::vector<crypto::hash> hashes;
+    for (int i = 0; i < 4; ++i)
+    {
+        crypto::hash h;
+        memset(&h, 0x10 + i, sizeof(h));
+        hashes.push_back(h);
+    }
+
+    crypto::hash tree = cryptonote::get_tx_tree_hash(hashes);
+    crypto::hash tree2 = cryptonote::get_tx_tree_hash(hashes);
+    ASSERT_EQ(tree, tree2);
+
+    // Removing one hash should change the result
+    std::vector<crypto::hash> fewer = {hashes[0], hashes[1], hashes[2]};
+    crypto::hash tree3 = cryptonote::get_tx_tree_hash(fewer);
+    ASSERT_NE(tree, tree3);
+}
+
+TEST(CryptonoteFormatUtils, GetTxTreeHashVoidOverloadMatchesReturn)
+{
+    std::vector<crypto::hash> hashes;
+    crypto::hash h1, h2;
+    memset(&h1, 0xAA, sizeof(h1));
+    memset(&h2, 0xBB, sizeof(h2));
+    hashes.push_back(h1);
+    hashes.push_back(h2);
+
+    crypto::hash result_return = cryptonote::get_tx_tree_hash(hashes);
+    crypto::hash result_void;
+    cryptonote::get_tx_tree_hash(hashes, result_void);
+    ASSERT_EQ(result_return, result_void);
+}
+
+// --- Additional edge case tests ---
+
+TEST(CryptonoteFormatUtils, PrintMoneyWithExplicitDecimalPoint)
+{
+    // Test print_money with explicit decimal point = 0 (piconero)
+    ASSERT_EQ(cryptonote::print_money(42ULL, 0), "42");
+    ASSERT_EQ(cryptonote::print_money(0ULL, 0), "0");
+
+    // Decimal point = 3 (nanonero)
+    ASSERT_EQ(cryptonote::print_money(1234ULL, 3), "1.234");
+    ASSERT_EQ(cryptonote::print_money(1ULL, 3), "0.001");
+
+    // Decimal point = 6 (micronero)
+    ASSERT_EQ(cryptonote::print_money(1000000ULL, 6), "1.000000");
+}
+
+TEST(CryptonoteFormatUtils, CheckMoneyOverflowWithOverflowingOutputs)
+{
+    // Create a tx where outputs would overflow
+    cryptonote::transaction tx;
+    tx.version = 1;
+    tx.unlock_time = 0;
+
+    // Add a normal input
+    cryptonote::txin_to_key key_in;
+    key_in.amount = 100;
+    key_in.key_offsets = {0};
+    key_in.k_image = crypto::rand<crypto::key_image>();
+    tx.vin.push_back(key_in);
+
+    // Add outputs that overflow
+    cryptonote::tx_out out1, out2;
+    cryptonote::set_tx_out(std::numeric_limits<uint64_t>::max(), crypto::get_H(), false, crypto::view_tag{}, out1);
+    cryptonote::set_tx_out(1, crypto::get_H(), false, crypto::view_tag{}, out2);
+    tx.vout.push_back(out1);
+    tx.vout.push_back(out2);
+
+    ASSERT_FALSE(cryptonote::check_money_overflow(tx));
+}
+
+TEST(CryptonoteFormatUtils, EncryptKeyEmptyPassphrase)
+{
+    crypto::secret_key original;
+    memset(&original, 0, sizeof(original));
+    reinterpret_cast<uint8_t*>(&original)[0] = 0x01;
+
+    epee::wipeable_string empty_pass("");
+    crypto::secret_key encrypted = cryptonote::encrypt_key(original, empty_pass);
+    crypto::secret_key decrypted = cryptonote::decrypt_key(encrypted, empty_pass);
+    ASSERT_EQ(original, decrypted);
+}
+
+TEST(CryptonoteFormatUtils, GetBlobHashEmptyVsNonEmpty)
+{
+    crypto::hash h_empty = cryptonote::get_blob_hash(std::string(""));
+    crypto::hash h_nonempty = cryptonote::get_blob_hash(std::string("x"));
+    ASSERT_NE(h_empty, h_nonempty);
+
+    // Empty hash should be a specific value (not all zeros)
+    crypto::hash null_hash;
+    memset(&null_hash, 0, sizeof(null_hash));
+    ASSERT_NE(h_empty, null_hash);
+}
+
+TEST(CryptonoteFormatUtils, ParseAndValidateBlockInvalidBlobFails)
+{
+    cryptonote::block b;
+    ASSERT_FALSE(cryptonote::parse_and_validate_block_from_blob(std::string("garbage"), b));
+}
+
+TEST(CryptonoteFormatUtils, ParseAndValidateTxInvalidBlobFails)
+{
+    cryptonote::transaction tx;
+    ASSERT_FALSE(cryptonote::parse_and_validate_tx_from_blob(std::string("garbage"), tx));
+}
+
+TEST(CryptonoteFormatUtils, IsValidDecomposedAmountLargest)
+{
+    // 9 * 10^18 is valid
+    ASSERT_TRUE(cryptonote::is_valid_decomposed_amount(9000000000000000000ULL));
+    // 10^18 is valid (1 * 10^18)
+    ASSERT_TRUE(cryptonote::is_valid_decomposed_amount(1000000000000000000ULL));
+    // 10^18 + 1 is not valid
+    ASSERT_FALSE(cryptonote::is_valid_decomposed_amount(1000000000000000001ULL));
+}

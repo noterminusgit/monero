@@ -120,6 +120,7 @@ set(unit_tests_sources
   varint.cpp
   verRctNonSemanticsSimple.cpp
   ringct.cpp
+  ringct_ops.cpp
   output_selection.cpp
   vercmp.cpp
   ringdb.cpp
