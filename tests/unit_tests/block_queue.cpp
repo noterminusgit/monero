@@ -28,6 +28,7 @@
 
 #include <boost/uuid/uuid.hpp>
 #include <boost/date_time/posix_time/posix_time.hpp>
+#include <limits>
 #include "gtest/gtest.h"
 #include "crypto/crypto.h"
 #include "cryptonote_protocol/cryptonote_protocol_defs.h"
@@ -2366,4 +2367,936 @@ TEST(block_queue, reserve_span_partial_already_requested)
   auto r3 = bq.reserve_span(10, 19, 10, uuid3(), na, false, 0, 0, 100, block_hashes);
   ASSERT_EQ(r3.first, 16u);
   ASSERT_EQ(r3.second, 4u); // 4 remaining (16,17,18,19)
+}
+
+// ============================================================================
+// Additional tests for improved coverage
+// ============================================================================
+
+// --- get_data_size comprehensive tests ---
+
+TEST(block_queue, get_data_size_multiple_filled_spans)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 512.0f, 500);
+  ASSERT_EQ(bq.get_data_size(), 500u);
+
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 512.0f, 700);
+  ASSERT_EQ(bq.get_data_size(), 1200u);
+
+  bq.add_blocks(10, make_bcel(3), uuid1(), na, 256.0f, 300);
+  ASSERT_EQ(bq.get_data_size(), 1500u);
+}
+
+TEST(block_queue, get_data_size_mixed_scheduled_and_filled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Scheduled spans have size 0
+  bq.add_blocks(0, 10, uuid1(), na);
+  ASSERT_EQ(bq.get_data_size(), 0u);
+
+  // Add a filled span
+  bq.add_blocks(10, make_bcel(5), uuid2(), na, 512.0f, 800);
+  ASSERT_EQ(bq.get_data_size(), 800u);
+
+  // Another scheduled
+  bq.add_blocks(15, 10, uuid1(), na);
+  ASSERT_EQ(bq.get_data_size(), 800u);
+}
+
+TEST(block_queue, get_data_size_after_flush)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 512.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 512.0f, 700);
+  ASSERT_EQ(bq.get_data_size(), 1200u);
+
+  // Flush uuid1's filled span
+  bq.flush_spans(uuid1(), true);
+  ASSERT_EQ(bq.get_data_size(), 700u);
+
+  // Flush uuid2's filled span
+  bq.flush_spans(uuid2(), true);
+  ASSERT_EQ(bq.get_data_size(), 0u);
+}
+
+// --- foreach with various patterns ---
+
+TEST(block_queue, foreach_modifies_external_state)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  bq.add_blocks(5, make_bcel(3), uuid2(), na, 256.0f, 300);
+  bq.add_blocks(8, 4, uuid1(), na);
+
+  // Accumulate start heights
+  std::vector<uint64_t> start_heights;
+  bq.foreach([&start_heights](const cryptonote::block_queue::span &s) -> bool {
+    start_heights.push_back(s.start_block_height);
+    return true;
+  });
+
+  ASSERT_EQ(start_heights.size(), 3u);
+  // Spans are sorted by start_block_height
+  ASSERT_EQ(start_heights[0], 0u);
+  ASSERT_EQ(start_heights[1], 5u);
+  ASSERT_EQ(start_heights[2], 8u);
+}
+
+TEST(block_queue, foreach_accumulate_total_nblocks)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 20, uuid2(), na);
+  bq.add_blocks(30, 5, uuid3(), na);
+
+  uint64_t total_nblocks = 0;
+  bq.foreach([&total_nblocks](const cryptonote::block_queue::span &s) -> bool {
+    total_nblocks += s.nblocks;
+    return true;
+  });
+  ASSERT_EQ(total_nblocks, 35u);
+}
+
+TEST(block_queue, foreach_check_span_connection_ids)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+
+  std::set<boost::uuids::uuid> seen_uuids;
+  bq.foreach([&seen_uuids](const cryptonote::block_queue::span &s) -> bool {
+    seen_uuids.insert(s.connection_id);
+    return true;
+  });
+  ASSERT_EQ(seen_uuids.size(), 2u);
+  ASSERT_TRUE(seen_uuids.count(uuid1()) > 0);
+  ASSERT_TRUE(seen_uuids.count(uuid2()) > 0);
+}
+
+// --- requested() and have() deeper tests ---
+
+TEST(block_queue, requested_after_reserve_span)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // block_hashes must have size <= last_block_height, so use heights 10-14
+  std::vector<std::pair<crypto::hash, uint64_t>> block_hashes;
+  for (uint64_t i = 0; i < 5; ++i)
+    block_hashes.push_back(std::make_pair(make_hash(static_cast<uint8_t>(i + 10)), 10 + i));
+
+  auto r = bq.reserve_span(10, 14, 5, uuid1(), na, false, 0, 0, 100, block_hashes);
+  ASSERT_EQ(r.first, 10u);
+  ASSERT_EQ(r.second, 5u);
+
+  // All reserved hashes should be in the requested set
+  for (uint64_t i = 0; i < 5; ++i)
+    ASSERT_TRUE(bq.requested(make_hash(static_cast<uint8_t>(i + 10))));
+
+  // A hash not reserved should not be requested
+  ASSERT_FALSE(bq.requested(make_hash(0xFF)));
+}
+
+TEST(block_queue, have_after_adding_filled_blocks)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Add a scheduled span with hashes, then fill it
+  bq.add_blocks(0, 3, uuid1(), na);
+  std::vector<crypto::hash> hashes = {make_hash(10), make_hash(11), make_hash(12)};
+  bq.set_span_hashes(0, uuid1(), hashes);
+
+  // Now add filled blocks
+  bq.add_blocks(0, make_bcel(3), uuid1(), na, 100.0f, 300);
+
+  // The filled blocks should be in the have set
+  ASSERT_TRUE(bq.have(make_hash(10)));
+  ASSERT_TRUE(bq.have(make_hash(11)));
+  ASSERT_TRUE(bq.have(make_hash(12)));
+  ASSERT_FALSE(bq.have(make_hash(99)));
+}
+
+TEST(block_queue, have_height_after_filling)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(100, 3, uuid1(), na);
+  std::vector<crypto::hash> hashes = {make_hash(20), make_hash(21), make_hash(22)};
+  bq.set_span_hashes(100, uuid1(), hashes);
+
+  bq.add_blocks(100, make_bcel(3), uuid1(), na, 100.0f, 300);
+
+  // Check have_height returns the correct block height
+  ASSERT_EQ(bq.have_height(make_hash(20)), 100u);
+  ASSERT_EQ(bq.have_height(make_hash(21)), 101u);
+  ASSERT_EQ(bq.have_height(make_hash(22)), 102u);
+  // have_height returns UINT64_MAX for not-found hashes
+  ASSERT_EQ(bq.have_height(make_hash(99)), std::numeric_limits<uint64_t>::max());
+}
+
+// --- get_num_filled_spans and prefix tests ---
+
+TEST(block_queue, get_num_filled_spans_multiple_filled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 100.0f, 500);
+  bq.add_blocks(10, make_bcel(5), uuid3(), na, 100.0f, 500);
+
+  ASSERT_EQ(bq.get_num_filled_spans(), 3u);
+  ASSERT_EQ(bq.get_num_filled_spans_prefix(), 3u);
+}
+
+TEST(block_queue, get_num_filled_spans_prefix_gap_in_middle)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, 5, uuid2(), na);  // scheduled (gap)
+  bq.add_blocks(10, make_bcel(5), uuid3(), na, 100.0f, 500);
+
+  ASSERT_EQ(bq.get_num_filled_spans(), 2u);
+  // prefix stops at first non-filled
+  ASSERT_EQ(bq.get_num_filled_spans_prefix(), 1u);
+}
+
+TEST(block_queue, get_num_filled_spans_after_remove)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 100.0f, 500);
+  ASSERT_EQ(bq.get_num_filled_spans(), 2u);
+
+  bq.remove_span(0);
+  ASSERT_EQ(bq.get_num_filled_spans(), 1u);
+}
+
+// --- get_speed and get_download_rate ---
+
+TEST(block_queue, get_speed_after_remove)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(10), uuid1(), na, 500.0f, 5000);
+  float speed = bq.get_speed(uuid1());
+  ASSERT_GT(speed, 0.0f);
+
+  bq.flush_spans(uuid1(), true);
+  float speed_after = bq.get_speed(uuid1());
+  // get_speed returns 1.0f (assumed good speed) when connection is not found
+  ASSERT_EQ(speed_after, 1.0f);
+}
+
+TEST(block_queue, get_download_rate_after_multiple_adds)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid1(), na, 200.0f, 1000);
+  bq.add_blocks(10, make_bcel(5), uuid1(), na, 300.0f, 1500);
+
+  float rate = bq.get_download_rate(uuid1());
+  ASSERT_GT(rate, 0.0f);
+}
+
+TEST(block_queue, get_speed_and_rate_consistent)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(10), uuid1(), na, 1024.0f, 10240);
+  bq.add_blocks(10, make_bcel(10), uuid2(), na, 512.0f, 5120);
+
+  // Both should report non-zero for their connections
+  ASSERT_GT(bq.get_speed(uuid1()), 0.0f);
+  ASSERT_GT(bq.get_speed(uuid2()), 0.0f);
+  ASSERT_GT(bq.get_download_rate(uuid1()), 0.0f);
+  ASSERT_GT(bq.get_download_rate(uuid2()), 0.0f);
+}
+
+// --- flush_stale_spans edge cases ---
+
+TEST(block_queue, flush_stale_with_mixed_filled_and_scheduled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // uuid1: filled span
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  // uuid1: scheduled span
+  bq.add_blocks(5, 5, uuid1(), na);
+  // uuid2: scheduled span
+  bq.add_blocks(10, 5, uuid2(), na);
+
+  // Only uuid1 is live
+  std::set<boost::uuids::uuid> live;
+  live.insert(uuid1());
+
+  bq.flush_stale_spans(live);
+
+  // uuid1's filled span remains; uuid1's scheduled span remains (it's live);
+  // uuid2's scheduled span is removed
+  ASSERT_TRUE(bq.has_spans(uuid1()));
+  ASSERT_FALSE(bq.has_spans(uuid2()));
+  ASSERT_EQ(bq.get_max_block_height(), 9u); // uuid1's spans go up to 9
+}
+
+TEST(block_queue, flush_stale_all_filled_none_live)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 100.0f, 500);
+
+  // No live connections
+  std::set<boost::uuids::uuid> live;
+  bq.flush_stale_spans(live);
+
+  // Filled spans should remain (stale flush only removes scheduled/empty)
+  ASSERT_TRUE(bq.has_spans(uuid1()));
+  ASSERT_TRUE(bq.has_spans(uuid2()));
+}
+
+// --- set_span_hashes edge cases ---
+
+TEST(block_queue, set_span_hashes_empty_hashes_vector)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  // Set an empty hashes vector - should not crash
+  std::vector<crypto::hash> empty_hashes;
+  bq.set_span_hashes(0, uuid1(), empty_hashes);
+}
+
+TEST(block_queue, set_span_hashes_updates_requested)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 3, uuid1(), na);
+
+  std::vector<crypto::hash> hashes = {make_hash(50), make_hash(51), make_hash(52)};
+  bq.set_span_hashes(0, uuid1(), hashes);
+
+  // All hashes should now be in the requested set
+  ASSERT_TRUE(bq.requested(make_hash(50)));
+  ASSERT_TRUE(bq.requested(make_hash(51)));
+  ASSERT_TRUE(bq.requested(make_hash(52)));
+}
+
+// --- get_overview tests with various patterns ---
+
+TEST(block_queue, get_overview_empty_returns_brackets)
+{
+  cryptonote::block_queue bq;
+  std::string overview = bq.get_overview(0);
+  // Empty queue returns "[]"
+  ASSERT_EQ(overview, "[]");
+}
+
+TEST(block_queue, get_overview_multiple_scheduled_spans)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+  bq.add_blocks(20, 10, uuid3(), na);
+
+  std::string overview = bq.get_overview(0);
+  ASSERT_FALSE(overview.empty());
+}
+
+TEST(block_queue, get_overview_mixed_types)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Filled at blockchain height
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  // Scheduled after
+  bq.add_blocks(5, 5, uuid2(), na);
+  // Filled not at blockchain height
+  bq.add_blocks(10, make_bcel(3), uuid3(), na, 100.0f, 300);
+
+  std::string overview = bq.get_overview(0);
+  ASSERT_FALSE(overview.empty());
+}
+
+// --- get_next_span_if_scheduled ---
+
+TEST(block_queue, get_next_span_if_scheduled_multiple_scheduled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  bq.add_blocks(5, 5, uuid2(), na);
+
+  std::vector<crypto::hash> hashes;
+  boost::uuids::uuid conn_id;
+  boost::posix_time::ptime time;
+
+  auto result = bq.get_next_span_if_scheduled(hashes, conn_id, time);
+  ASSERT_EQ(result.first, 0u);
+  ASSERT_EQ(result.second, 5u);
+  ASSERT_EQ(conn_id, uuid1());
+}
+
+TEST(block_queue, get_next_span_if_scheduled_first_filled_second_scheduled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // First span is filled
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  // Second span is scheduled
+  bq.add_blocks(5, 5, uuid2(), na);
+
+  std::vector<crypto::hash> hashes;
+  boost::uuids::uuid conn_id;
+  boost::posix_time::ptime time;
+
+  // Should return the scheduled span (second one)
+  auto result = bq.get_next_span_if_scheduled(hashes, conn_id, time);
+  // First span is filled so it's skipped, get_next_span_if_scheduled only returns
+  // if the FIRST span is scheduled. If first is filled, it returns 0,0.
+  ASSERT_EQ(result.second, 0u);
+}
+
+// --- reset_next_span_time ---
+
+TEST(block_queue, reset_next_span_time_scheduled_span)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+
+  // reset_next_span_time sets the time on the first span
+  boost::posix_time::ptime new_time = boost::posix_time::microsec_clock::universal_time();
+  ASSERT_NO_THROW(bq.reset_next_span_time(new_time));
+}
+
+TEST(block_queue, reset_next_span_time_multiple_spans)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  bq.add_blocks(5, 5, uuid2(), na);
+
+  // Reset should affect the first span only
+  boost::posix_time::ptime new_time = boost::posix_time::microsec_clock::universal_time();
+  ASSERT_NO_THROW(bq.reset_next_span_time(new_time));
+}
+
+// --- get_last_known_hash ---
+
+TEST(block_queue, get_last_known_hash_multiple_spans_same_uuid)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 3, uuid1(), na);
+  bq.add_blocks(3, 3, uuid1(), na);
+
+  std::vector<crypto::hash> hashes1 = {make_hash(1), make_hash(2), make_hash(3)};
+  bq.set_span_hashes(0, uuid1(), hashes1);
+
+  std::vector<crypto::hash> hashes2 = {make_hash(4), make_hash(5), make_hash(6)};
+  bq.set_span_hashes(3, uuid1(), hashes2);
+
+  crypto::hash last = bq.get_last_known_hash(uuid1());
+  // Should return the last hash from the highest span
+  ASSERT_EQ(last, make_hash(6));
+}
+
+TEST(block_queue, get_last_known_hash_no_hashes_returns_null)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  // No hashes set
+  crypto::hash last = bq.get_last_known_hash(uuid1());
+  ASSERT_EQ(last, crypto::null_hash);
+}
+
+// --- has_spans ---
+
+TEST(block_queue, has_spans_multiple_uuids)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+
+  ASSERT_TRUE(bq.has_spans(uuid1()));
+  ASSERT_TRUE(bq.has_spans(uuid2()));
+  ASSERT_FALSE(bq.has_spans(uuid3()));
+
+  bq.flush_spans(uuid1());
+  ASSERT_FALSE(bq.has_spans(uuid1()));
+  ASSERT_TRUE(bq.has_spans(uuid2()));
+}
+
+// --- remove_span with filled span ---
+
+TEST(block_queue, remove_filled_span_reduces_data_size)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid2(), na, 100.0f, 700);
+  ASSERT_EQ(bq.get_data_size(), 1200u);
+
+  bq.remove_span(0);
+  ASSERT_EQ(bq.get_data_size(), 700u);
+
+  bq.remove_span(5);
+  ASSERT_EQ(bq.get_data_size(), 0u);
+}
+
+// --- remove_spans with filled spans ---
+
+TEST(block_queue, remove_spans_filled_by_connection)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(10, make_bcel(5), uuid2(), na, 100.0f, 500);
+
+  // Remove uuid1's spans at height <= 5
+  bq.remove_spans(uuid1(), 5);
+
+  // uuid1's span at 0 should be removed (start_block_height 0 < 5)
+  // uuid1's span at 5 should be removed (start_block_height 5 <= 5)
+  // uuid2's span at 10 remains
+  ASSERT_TRUE(bq.has_spans(uuid2()));
+}
+
+// --- get_next_needed_height with filled spans ---
+
+TEST(block_queue, get_next_needed_height_filled_spans)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Filled span at 0-4
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+
+  // Blockchain is at height 0 (the spans start there)
+  uint64_t next = bq.get_next_needed_height(0);
+  // Should need height 5 (after the filled span)
+  ASSERT_EQ(next, 5u);
+}
+
+TEST(block_queue, get_next_needed_height_gap_in_filled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  // Gap: nothing at 5-9
+  bq.add_blocks(10, make_bcel(5), uuid2(), na, 100.0f, 500);
+
+  uint64_t next = bq.get_next_needed_height(0);
+  // Should need 5 (the gap)
+  ASSERT_EQ(next, 5u);
+}
+
+// --- get_next_span edge cases ---
+
+TEST(block_queue, get_next_span_unfilled_false)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  // Only scheduled spans
+  bq.add_blocks(0, 10, uuid1(), na);
+
+  uint64_t height;
+  std::vector<cryptonote::block_complete_entry> bcel;
+  boost::uuids::uuid conn_id;
+  epee::net_utils::network_address addr;
+
+  // filled=true: should not find any
+  ASSERT_FALSE(bq.get_next_span(height, bcel, conn_id, addr, true));
+
+  // filled=false: should find the scheduled span
+  ASSERT_TRUE(bq.get_next_span(height, bcel, conn_id, addr, false));
+  ASSERT_EQ(height, 0u);
+}
+
+TEST(block_queue, get_next_span_multiple_filled_returns_lowest)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Add filled spans out of order
+  bq.add_blocks(20, make_bcel(5), uuid3(), na, 100.0f, 500);
+  bq.add_blocks(10, make_bcel(5), uuid2(), na, 100.0f, 500);
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+
+  uint64_t height;
+  std::vector<cryptonote::block_complete_entry> bcel;
+  boost::uuids::uuid conn_id;
+  epee::net_utils::network_address addr;
+
+  ASSERT_TRUE(bq.get_next_span(height, bcel, conn_id, addr, true));
+  ASSERT_EQ(height, 0u);
+  ASSERT_EQ(conn_id, uuid1());
+}
+
+// --- has_next_span (uuid overload) ---
+
+TEST(block_queue, has_next_span_uuid_multiple_connections)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 5, uuid1(), na);
+  bq.add_blocks(5, 5, uuid2(), na);
+
+  bool filled;
+  boost::posix_time::ptime time;
+
+  // uuid1 has the next span
+  ASSERT_TRUE(bq.has_next_span(uuid1(), filled, time));
+  ASSERT_FALSE(filled); // scheduled
+
+  // uuid2 does not have the NEXT span (uuid1 has it)
+  ASSERT_FALSE(bq.has_next_span(uuid2(), filled, time));
+}
+
+// --- has_next_span (height overload) ---
+
+TEST(block_queue, has_next_span_height_exact_match)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(100, 10, uuid1(), na);
+
+  bool filled;
+  boost::posix_time::ptime time;
+  boost::uuids::uuid conn_id;
+
+  ASSERT_TRUE(bq.has_next_span(100, filled, time, conn_id));
+  ASSERT_FALSE(filled);
+  ASSERT_EQ(conn_id, uuid1());
+}
+
+TEST(block_queue, has_next_span_height_no_match)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(100, 10, uuid1(), na);
+
+  bool filled;
+  boost::posix_time::ptime time;
+  boost::uuids::uuid conn_id;
+
+  // Height 50 has no span
+  ASSERT_FALSE(bq.has_next_span(50, filled, time, conn_id));
+}
+
+// --- reserve_span edge cases ---
+
+TEST(block_queue, reserve_span_all_hashes_requested)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Use heights 10-14 with last_block_height=14 (block_hashes.size() <= last_block_height)
+  std::vector<std::pair<crypto::hash, uint64_t>> block_hashes;
+  for (uint64_t i = 0; i < 5; ++i)
+    block_hashes.push_back(std::make_pair(make_hash(static_cast<uint8_t>(i)), 10 + i));
+
+  // Reserve all hashes
+  auto r1 = bq.reserve_span(10, 14, 10, uuid1(), na, false, 0, 0, 100, block_hashes);
+  ASSERT_EQ(r1.first, 10u);
+  ASSERT_EQ(r1.second, 5u);
+
+  // Try to reserve again - all already requested
+  auto r2 = bq.reserve_span(10, 14, 10, uuid2(), na, false, 0, 0, 100, block_hashes);
+  ASSERT_EQ(r2.second, 0u); // Nothing to reserve
+}
+
+TEST(block_queue, reserve_span_single_hash)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  std::vector<std::pair<crypto::hash, uint64_t>> block_hashes;
+  block_hashes.push_back(std::make_pair(make_hash(42), 100));
+
+  auto r = bq.reserve_span(100, 100, 10, uuid1(), na, false, 0, 0, 200, block_hashes);
+  ASSERT_EQ(r.first, 100u);
+  ASSERT_EQ(r.second, 1u);
+}
+
+// --- Comprehensive workflow tests ---
+
+TEST(block_queue, add_schedule_fill_take_workflow)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Step 1: Schedule spans
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+  ASSERT_EQ(bq.get_max_block_height(), 19u);
+  ASSERT_EQ(bq.get_num_filled_spans(), 0u);
+
+  // Step 2: Set hashes on first span
+  std::vector<crypto::hash> hashes;
+  for (int i = 0; i < 10; ++i)
+    hashes.push_back(make_hash(static_cast<uint8_t>(i)));
+  bq.set_span_hashes(0, uuid1(), hashes);
+
+  // Step 3: Fill the first span
+  bq.add_blocks(0, make_bcel(10), uuid1(), na, 500.0f, 5000);
+  ASSERT_EQ(bq.get_num_filled_spans(), 1u);
+  ASSERT_EQ(bq.get_num_filled_spans_prefix(), 1u);
+  ASSERT_EQ(bq.get_data_size(), 5000u);
+
+  // Step 4: Get next span (should be the filled one)
+  uint64_t height;
+  std::vector<cryptonote::block_complete_entry> bcel;
+  boost::uuids::uuid conn_id;
+  epee::net_utils::network_address addr;
+  ASSERT_TRUE(bq.get_next_span(height, bcel, conn_id, addr, true));
+  ASSERT_EQ(height, 0u);
+  ASSERT_EQ(bcel.size(), 10u);
+
+  // Step 5: Remove the processed span
+  bq.remove_span(0);
+  ASSERT_EQ(bq.get_num_filled_spans(), 0u);
+  ASSERT_EQ(bq.get_data_size(), 0u);
+
+  // Step 6: Verify only uuid2's scheduled span remains
+  ASSERT_TRUE(bq.has_spans(uuid2()));
+  ASSERT_FALSE(bq.has_spans(uuid1()));
+}
+
+TEST(block_queue, full_lifecycle_three_connections)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Three connections schedule spans
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+  bq.add_blocks(20, 10, uuid3(), na);
+
+  ASSERT_EQ(bq.get_max_block_height(), 29u);
+  ASSERT_EQ(bq.get_num_filled_spans(), 0u);
+
+  // Fill spans from connections 1 and 3
+  bq.add_blocks(0, make_bcel(10), uuid1(), na, 100.0f, 1000);
+  bq.add_blocks(20, make_bcel(10), uuid3(), na, 300.0f, 3000);
+
+  ASSERT_EQ(bq.get_num_filled_spans(), 2u);
+  ASSERT_EQ(bq.get_num_filled_spans_prefix(), 1u); // only span at 0 is contiguous prefix
+  ASSERT_EQ(bq.get_data_size(), 4000u);
+
+  // Speed checks
+  ASSERT_GT(bq.get_speed(uuid1()), 0.0f);
+  // get_speed returns 1.0f for connections with no filled spans (assumed good speed)
+  ASSERT_EQ(bq.get_speed(uuid2()), 1.0f); // scheduled only, default
+  ASSERT_GT(bq.get_speed(uuid3()), 0.0f);
+
+  // Process first span
+  bq.remove_span(0);
+  ASSERT_EQ(bq.get_num_filled_spans(), 1u);
+
+  // Flush connection 2 (disconnected)
+  std::set<boost::uuids::uuid> live;
+  live.insert(uuid1());
+  live.insert(uuid3());
+  bq.flush_stale_spans(live);
+
+  // uuid2's scheduled span at 10 should be gone
+  ASSERT_FALSE(bq.has_spans(uuid2()));
+
+  // uuid3's filled span at 20 should remain
+  ASSERT_TRUE(bq.has_spans(uuid3()));
+  ASSERT_EQ(bq.get_data_size(), 3000u);
+}
+
+// --- print with various states ---
+
+TEST(block_queue, print_with_mixed_scheduled_filled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  bq.add_blocks(5, 10, uuid2(), na);
+  bq.add_blocks(15, make_bcel(3), uuid3(), na, 200.0f, 300);
+
+  // Just verify print does not crash
+  ASSERT_NO_THROW(bq.print());
+}
+
+// --- get_max_block_height edge cases ---
+
+TEST(block_queue, get_max_block_height_single_block_filled)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(1), uuid1(), na, 100.0f, 100);
+  ASSERT_EQ(bq.get_max_block_height(), 0u);
+}
+
+TEST(block_queue, get_max_block_height_after_all_removed)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+  bq.remove_span(0);
+  bq.remove_span(10);
+  ASSERT_EQ(bq.get_max_block_height(), 0u);
+}
+
+// --- add_blocks with time parameter ---
+
+TEST(block_queue, add_blocks_scheduled_with_explicit_time)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  boost::posix_time::ptime t1 = boost::posix_time::microsec_clock::universal_time();
+  bq.add_blocks(0, 10, uuid1(), na, t1);
+  ASSERT_EQ(bq.get_max_block_height(), 9u);
+
+  bool filled;
+  boost::posix_time::ptime time;
+  boost::uuids::uuid conn_id;
+  ASSERT_TRUE(bq.has_next_span(0, filled, time, conn_id));
+  ASSERT_FALSE(filled);
+  ASSERT_EQ(time, t1);
+}
+
+// --- get_next_needed_height with complex layouts ---
+
+TEST(block_queue, get_next_needed_height_blockchain_past_all_spans)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 10, uuid1(), na);
+  bq.add_blocks(10, 10, uuid2(), na);
+
+  // Blockchain is at height 100, past all spans
+  uint64_t next = bq.get_next_needed_height(100);
+  ASSERT_GE(next, 100u);
+}
+
+TEST(block_queue, get_next_needed_height_single_block_span)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(0, 1, uuid1(), na);
+  uint64_t next = bq.get_next_needed_height(0);
+  ASSERT_EQ(next, 1u);
+}
+
+// --- Multiple operations on same height ---
+
+TEST(block_queue, replace_scheduled_with_filled_at_same_height)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  // Schedule a span
+  bq.add_blocks(0, 5, uuid1(), na);
+  ASSERT_EQ(bq.get_num_filled_spans(), 0u);
+
+  // Fill it
+  bq.add_blocks(0, make_bcel(5), uuid1(), na, 100.0f, 500);
+  ASSERT_EQ(bq.get_num_filled_spans(), 1u);
+  ASSERT_EQ(bq.get_data_size(), 500u);
+}
+
+// --- foreach with filled span data ---
+
+TEST(block_queue, foreach_inspect_filled_span_details)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na = make_addr(0x01020304, 18080);
+
+  bq.add_blocks(0, make_bcel(7), uuid1(), na, 256.0f, 1792);
+
+  bool found = false;
+  bq.foreach([&found](const cryptonote::block_queue::span &s) -> bool {
+    if (s.start_block_height == 0 && s.nblocks == 7)
+    {
+      found = true;
+      // Verify the span has filled data
+      EXPECT_EQ(s.blocks.size(), 7u);
+      EXPECT_FLOAT_EQ(s.rate, 256.0f);
+      EXPECT_EQ(s.size, 1792u);
+    }
+    return true;
+  });
+  ASSERT_TRUE(found);
+}
+
+TEST(block_queue, foreach_inspect_scheduled_span_details)
+{
+  cryptonote::block_queue bq;
+  epee::net_utils::network_address na;
+
+  bq.add_blocks(50, 15, uuid2(), na);
+
+  bool found = false;
+  bq.foreach([&found](const cryptonote::block_queue::span &s) -> bool {
+    if (s.start_block_height == 50 && s.nblocks == 15)
+    {
+      found = true;
+      // Scheduled spans have empty blocks
+      EXPECT_TRUE(s.blocks.empty());
+      EXPECT_EQ(s.rate, 0.0f);
+      EXPECT_EQ(s.size, 0u);
+    }
+    return true;
+  });
+  ASSERT_TRUE(found);
 }

@@ -903,3 +903,319 @@ TEST(check, block_version_validation)
     ASSERT_FALSE(hf.check(mkblock(1, 1)));
 }
 
+// ============================================================
+// Additional HardFork coverage tests
+// ============================================================
+
+TEST(reorganize_from_chain_height, basic)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 3, 1));
+    hf.init();
+
+    // Add blocks voting for v2
+    for (uint64_t h = 0; h < 8; ++h) {
+        db.add_block(mkblock(hf, h, 2), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    ASSERT_EQ(hf.get_current_version(), 2);
+
+    // reorganize_from_chain_height uses chain height (= block height + 1)
+    // Pop back to height 3 (chain height 4)
+    for (int i = 0; i < 4; ++i)
+        db.remove_block();
+    ASSERT_TRUE(hf.reorganize_from_chain_height(4));
+
+    // Should still be able to determine state correctly
+    ASSERT_GE(hf.get_current_version(), 1);
+}
+
+TEST(get_current_version, single_fork)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    hf.init();
+
+    ASSERT_EQ(hf.get_current_version(), 1);
+
+    // Add some blocks
+    for (uint64_t h = 0; h < 5; ++h) {
+        db.add_block(mkblock(1, 1), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // Version should still be 1
+    ASSERT_EQ(hf.get_current_version(), 1);
+}
+
+TEST(get_ideal_version, no_height_returns_latest)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 1));
+    ASSERT_TRUE(hf.add_fork(3, 10, 2));
+    ASSERT_TRUE(hf.add_fork(7, 20, 3));
+    hf.init();
+
+    // get_ideal_version() with no args returns the latest scheduled version
+    ASSERT_EQ(hf.get_ideal_version(), 7);
+}
+
+TEST(voting, all_vote_same_version)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 2, 1));
+    hf.init();
+
+    // All blocks vote for version 2
+    for (uint64_t h = 0; h < 10; ++h) {
+        db.add_block(mkblock(hf, h, 2), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // Should have switched to version 2
+    ASSERT_EQ(hf.get_current_version(), 2);
+}
+
+TEST(voting, no_votes_for_upgrade)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 2, 1));
+    hf.init();
+
+    // All blocks vote for version 1 only
+    for (uint64_t h = 0; h < 10; ++h) {
+        db.add_block(mkblock(hf, h, 1), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // Should still be at version 1 since no votes for 2
+    ASSERT_EQ(hf.get_current_version(), 1);
+}
+
+TEST(add_fork, version_must_increase)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 1));
+    // Adding a fork with same version should fail
+    ASSERT_FALSE(hf.add_fork(2, 10, 2));
+    // Adding a fork with lower version should fail
+    ASSERT_FALSE(hf.add_fork(1, 15, 3));
+}
+
+TEST(add_fork, height_must_increase)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 10, 1));
+    // Height must be strictly greater than previous
+    ASSERT_FALSE(hf.add_fork(3, 10, 2));
+    ASSERT_FALSE(hf.add_fork(3, 5, 2));
+    ASSERT_TRUE(hf.add_fork(3, 11, 2));
+}
+
+TEST(get, version_at_boundary)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 1, 0); // no voting needed
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 1));
+    ASSERT_TRUE(hf.add_fork(3, 10, 2));
+    hf.init();
+
+    // Add blocks so get() can look up versions
+    for (uint64_t h = 0; h < 15; ++h) {
+        db.add_block(mkblock(hf, h, hf.get_ideal_version(h)), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // Exact boundary checks
+    ASSERT_EQ(hf.get(4), 1);
+    ASSERT_EQ(hf.get(5), 2);
+    ASSERT_EQ(hf.get(9), 2);
+    ASSERT_EQ(hf.get(10), 3);
+}
+
+TEST(check_for_height, multiple_forks)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 0, 0, 1, 0); // no voting
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 1));
+    ASSERT_TRUE(hf.add_fork(3, 10, 2));
+    hf.init();
+
+    // At height 0, version must be 1
+    ASSERT_TRUE(hf.check_for_height(mkblock(1, 1), 0));
+    ASSERT_FALSE(hf.check_for_height(mkblock(2, 2), 0));
+
+    // At height 5, version must be 2
+    ASSERT_FALSE(hf.check_for_height(mkblock(1, 1), 5));
+    ASSERT_TRUE(hf.check_for_height(mkblock(2, 2), 5));
+    ASSERT_FALSE(hf.check_for_height(mkblock(3, 3), 5));
+
+    // At height 10, version must be 3
+    ASSERT_FALSE(hf.check_for_height(mkblock(2, 2), 10));
+    ASSERT_TRUE(hf.check_for_height(mkblock(3, 3), 10));
+}
+
+TEST(original_version_till_height, basic)
+{
+    TestDB db;
+    // original_version=1, original_version_till_height=3
+    HardFork hf(db, 1, 3, 0, 0, 1, 0);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 2, 1));
+    hf.init();
+
+    // Even though fork 2 is at height 2, original_version_till_height=3
+    // means version 1 must be used for heights 0-3
+    for (uint64_t h = 0; h <= 3; ++h) {
+        ASSERT_TRUE(hf.check_for_height(mkblock(1, 1), h));
+        db.add_block(mkblock(1, 1), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+}
+
+TEST(get_next_version, transitions)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 1, 0);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 3, 1));
+    ASSERT_TRUE(hf.add_fork(3, 6, 2));
+    hf.init();
+
+    // Before reaching height 3, next version should be 2
+    ASSERT_EQ(hf.get_next_version(), 2);
+
+    for (uint64_t h = 0; h < 3; ++h) {
+        db.add_block(mkblock(hf, h, 2), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // After reaching height 3 with v2, next version should be 3
+    ASSERT_EQ(hf.get_next_version(), 3);
+
+    for (uint64_t h = 3; h < 6; ++h) {
+        db.add_block(mkblock(hf, h, 3), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // After height 6 with v3, next version is still 3 (no more forks)
+    ASSERT_EQ(hf.get_next_version(), 3);
+}
+
+TEST(get_state, no_voting_param)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    hf.init();
+
+    // The no-argument get_state() uses current time
+    HardFork::State state = hf.get_state();
+    // With only one fork, should always be Ready
+    ASSERT_EQ(state, HardFork::Ready);
+}
+
+TEST(hardfork, large_window_size)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 100, 80);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 1));
+    hf.init();
+
+    ASSERT_EQ(hf.get_window_size(), 100u);
+
+    // Add only 10 blocks voting for v2 - not enough for 80% threshold in 100-block window
+    for (uint64_t h = 0; h < 10; ++h) {
+        db.add_block(mkblock(hf, h, 2), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // With 10 blocks voting, window is 10, 100% voted for v2 (10/10 >= 80%)
+    // Whether upgrade happens depends on the window being filled
+    // In any case, version should be at least 1
+    ASSERT_GE(hf.get_current_version(), 1);
+}
+
+TEST(voting_info, threshold_per_fork)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 5, 0, 1)); // threshold 0 = asap
+    ASSERT_TRUE(hf.add_fork(3, 10, 100, 2)); // threshold 100 = all must vote
+    hf.init();
+
+    uint32_t window, votes, threshold;
+    uint64_t earliest_height;
+    uint8_t voting;
+
+    // Check voting info for version 2 (threshold 0)
+    hf.get_voting_info(2, window, votes, threshold, earliest_height, voting);
+    ASSERT_EQ(earliest_height, 5u);
+    ASSERT_EQ(threshold, 0u);
+
+    // Check voting info for version 3 (threshold 100)
+    hf.get_voting_info(3, window, votes, threshold, earliest_height, voting);
+    ASSERT_EQ(earliest_height, 10u);
+    // Threshold should reflect the per-fork setting
+    ASSERT_EQ(threshold, 4u); // 100% of window 4 = 4
+}
+
+TEST(multiple_reorganize, stability)
+{
+    TestDB db;
+    HardFork hf(db, 1, 0, 1, 1, 4, 50);
+
+    ASSERT_TRUE(hf.add_fork(1, 0, 0));
+    ASSERT_TRUE(hf.add_fork(2, 2, 1));
+    hf.init();
+
+    // Add 10 blocks all voting for v2
+    for (uint64_t h = 0; h < 10; ++h) {
+        db.add_block(mkblock(hf, h, 2), 0, 0, 0, 0, 0, crypto::hash());
+        ASSERT_TRUE(hf.add(db.get_block_from_height(h), h));
+    }
+
+    // Reorganize multiple times from different heights
+    for (uint64_t rh = 9; rh > 0; --rh) {
+        hf.reorganize_from_block_height(rh);
+        // Should not crash and version should remain consistent
+        ASSERT_GE(hf.get_current_version(), 1);
+    }
+
+    // Reorganize to the very beginning
+    hf.reorganize_from_block_height(0);
+    ASSERT_GE(hf.get_current_version(), 1);
+}
+

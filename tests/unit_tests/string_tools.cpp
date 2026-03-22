@@ -186,3 +186,286 @@ TEST(string_tools, trim_all_spaces)
   epee::string_tools::trim(s);
   EXPECT_EQ(s, "");
 }
+
+// ---------- compare_no_case ----------
+
+TEST(string_tools, compare_no_case_equal)
+{
+  // compare_no_case returns false when strings are equal (case-insensitive)
+  // It returns !boost::iequals, so false means "equal"
+  EXPECT_FALSE(epee::string_tools::compare_no_case("hello", "hello"));
+  EXPECT_FALSE(epee::string_tools::compare_no_case("Hello", "hello"));
+  EXPECT_FALSE(epee::string_tools::compare_no_case("HELLO", "hello"));
+  EXPECT_FALSE(epee::string_tools::compare_no_case("HeLLo", "hEllO"));
+}
+
+TEST(string_tools, compare_no_case_not_equal)
+{
+  EXPECT_TRUE(epee::string_tools::compare_no_case("hello", "world"));
+  EXPECT_TRUE(epee::string_tools::compare_no_case("abc", "abcd"));
+  EXPECT_TRUE(epee::string_tools::compare_no_case("", "a"));
+}
+
+TEST(string_tools, compare_no_case_empty)
+{
+  EXPECT_FALSE(epee::string_tools::compare_no_case("", ""));
+}
+
+// ---------- pad_string ----------
+
+TEST(string_tools, pad_string_append)
+{
+  std::string result = epee::string_tools::pad_string("hi", 5, ' ', false);
+  EXPECT_EQ(result, "hi   ");
+  EXPECT_EQ(result.size(), 5u);
+}
+
+TEST(string_tools, pad_string_prepend)
+{
+  std::string result = epee::string_tools::pad_string("hi", 5, '0', true);
+  EXPECT_EQ(result, "000hi");
+  EXPECT_EQ(result.size(), 5u);
+}
+
+TEST(string_tools, pad_string_already_long_enough)
+{
+  std::string result = epee::string_tools::pad_string("hello", 3, ' ', false);
+  EXPECT_EQ(result, "hello");
+}
+
+TEST(string_tools, pad_string_exact_length)
+{
+  std::string result = epee::string_tools::pad_string("abc", 3, ' ', false);
+  EXPECT_EQ(result, "abc");
+}
+
+TEST(string_tools, pad_string_custom_char)
+{
+  std::string result = epee::string_tools::pad_string("1", 8, '0', true);
+  EXPECT_EQ(result, "00000001");
+}
+
+// ---------- num_to_string_fast ----------
+
+TEST(string_tools, num_to_string_fast_positive)
+{
+  std::string result = epee::string_tools::num_to_string_fast(42);
+  EXPECT_EQ(result, "42");
+}
+
+TEST(string_tools, num_to_string_fast_negative)
+{
+  std::string result = epee::string_tools::num_to_string_fast(-100);
+  EXPECT_EQ(result, "-100");
+}
+
+TEST(string_tools, num_to_string_fast_zero)
+{
+  std::string result = epee::string_tools::num_to_string_fast(0);
+  EXPECT_EQ(result, "0");
+}
+
+TEST(string_tools, num_to_string_fast_large)
+{
+  std::string result = epee::string_tools::num_to_string_fast(9223372036854775807LL);
+  EXPECT_EQ(result, "9223372036854775807");
+}
+
+// ---------- buff_to_hex_nodelimer ----------
+
+TEST(string_tools, buff_to_hex_nodelimer_empty)
+{
+  std::string hex = epee::string_tools::buff_to_hex_nodelimer("");
+  EXPECT_EQ(hex, "");
+}
+
+TEST(string_tools, buff_to_hex_nodelimer_abc)
+{
+  std::string hex = epee::string_tools::buff_to_hex_nodelimer("abc");
+  EXPECT_EQ(hex, "616263");
+}
+
+TEST(string_tools, buff_to_hex_nodelimer_binary)
+{
+  std::string src(4, '\0');
+  src[0] = 0x00;
+  src[1] = 0xff;
+  src[2] = 0x0a;
+  src[3] = 0xf0;
+  std::string hex = epee::string_tools::buff_to_hex_nodelimer(src);
+  EXPECT_EQ(hex, "00ff0af0");
+}
+
+// ---------- parse_hexstr_to_binbuff ----------
+
+TEST(string_tools, parse_hexstr_to_binbuff_valid)
+{
+  std::string result;
+  ASSERT_TRUE(epee::string_tools::parse_hexstr_to_binbuff("616263", result));
+  EXPECT_EQ(result, "abc");
+}
+
+TEST(string_tools, parse_hexstr_to_binbuff_empty)
+{
+  std::string result;
+  ASSERT_TRUE(epee::string_tools::parse_hexstr_to_binbuff("", result));
+  EXPECT_EQ(result, "");
+}
+
+TEST(string_tools, parse_hexstr_to_binbuff_invalid)
+{
+  std::string result;
+  EXPECT_FALSE(epee::string_tools::parse_hexstr_to_binbuff("xyz", result));
+}
+
+TEST(string_tools, parse_hexstr_to_binbuff_odd_length)
+{
+  std::string result;
+  EXPECT_FALSE(epee::string_tools::parse_hexstr_to_binbuff("abc", result));
+}
+
+TEST(string_tools, buff_to_hex_roundtrip)
+{
+  std::string original = "Hello, Monero!";
+  std::string hex = epee::string_tools::buff_to_hex_nodelimer(original);
+  std::string decoded;
+  ASSERT_TRUE(epee::string_tools::parse_hexstr_to_binbuff(hex, decoded));
+  EXPECT_EQ(decoded, original);
+}
+
+// ---------- to_string_hex ----------
+
+TEST(string_tools, to_string_hex_int)
+{
+  std::string hex = epee::string_tools::to_string_hex(255);
+  EXPECT_EQ(hex, "ff");
+}
+
+TEST(string_tools, to_string_hex_zero)
+{
+  std::string hex = epee::string_tools::to_string_hex(0);
+  EXPECT_EQ(hex, "0");
+}
+
+TEST(string_tools, to_string_hex_large)
+{
+  std::string hex = epee::string_tools::to_string_hex(0xDEADBEEF);
+  EXPECT_EQ(hex, "deadbeef");
+}
+
+// ---------- trim const overload ----------
+
+TEST(string_tools, trim_const_overload)
+{
+  std::string result = epee::string_tools::trim("  hello  ");
+  EXPECT_EQ(result, "hello");
+}
+
+TEST(string_tools, trim_const_tabs)
+{
+  std::string result = epee::string_tools::trim("\t\thello\t\t");
+  EXPECT_EQ(result, "hello");
+}
+
+// ---------- IP edge cases ----------
+
+TEST(string_tools, ip_broadcast_rejected)
+{
+  // Monero's IP parser rejects 255.255.255.255 (broadcast address)
+  uint32_t ip = 0;
+  EXPECT_FALSE(epee::string_tools::get_ip_int32_from_string(ip, "255.255.255.255"));
+}
+
+TEST(string_tools, ip_class_a)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1"));
+  std::string ip_str = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ(ip_str, "10.0.0.1");
+}
+
+// ---------- get_extension / cut_off_extension ----------
+
+TEST(string_tools, get_extension_basic)
+{
+  std::string ext = epee::string_tools::get_extension("file.txt");
+  EXPECT_EQ(ext, "txt");
+}
+
+TEST(string_tools, get_extension_no_ext)
+{
+  std::string ext = epee::string_tools::get_extension("file");
+  EXPECT_EQ(ext, "");
+}
+
+TEST(string_tools, get_extension_double)
+{
+  std::string ext = epee::string_tools::get_extension("archive.tar.gz");
+  EXPECT_EQ(ext, "gz");
+}
+
+TEST(string_tools, cut_off_extension_basic)
+{
+  std::string base = epee::string_tools::cut_off_extension("file.txt");
+  EXPECT_EQ(base, "file");
+}
+
+TEST(string_tools, cut_off_extension_no_ext)
+{
+  std::string base = epee::string_tools::cut_off_extension("file");
+  EXPECT_EQ(base, "file");
+}
+
+TEST(string_tools, cut_off_extension_double)
+{
+  std::string base = epee::string_tools::cut_off_extension("archive.tar.gz");
+  EXPECT_EQ(base, "archive.tar");
+}
+
+// ---------- parse_peer edge cases ----------
+
+TEST(string_tools, parse_peer_high_port)
+{
+  uint32_t ip = 0;
+  uint16_t port = 0;
+  ASSERT_TRUE(epee::string_tools::parse_peer_from_string(ip, port, "127.0.0.1:65535"));
+  EXPECT_EQ(port, 65535);
+}
+
+TEST(string_tools, parse_peer_port_zero)
+{
+  uint32_t ip = 0;
+  uint16_t port = 99;
+  ASSERT_TRUE(epee::string_tools::parse_peer_from_string(ip, port, "127.0.0.1:0"));
+  EXPECT_EQ(port, 0);
+}
+
+// ---------- num conversions edge cases ----------
+
+TEST(string_tools, string_to_num_zero)
+{
+  uint64_t val = 99;
+  ASSERT_TRUE(epee::string_tools::get_xtype_from_string(val, "0"));
+  EXPECT_EQ(val, 0u);
+}
+
+TEST(string_tools, string_to_num_max_uint64)
+{
+  uint64_t val = 0;
+  ASSERT_TRUE(epee::string_tools::get_xtype_from_string(val, "18446744073709551615"));
+  EXPECT_EQ(val, UINT64_MAX);
+}
+
+TEST(string_tools, string_to_num_overflow_uint64)
+{
+  uint64_t val = 0;
+  // One more than max uint64
+  EXPECT_FALSE(epee::string_tools::get_xtype_from_string(val, "18446744073709551616"));
+}
+
+TEST(string_tools, string_to_num_with_whitespace_rejected)
+{
+  uint64_t val = 0;
+  // Leading whitespace is rejected by the Monero parser
+  EXPECT_FALSE(epee::string_tools::get_xtype_from_string(val, " 42"));
+}

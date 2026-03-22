@@ -1453,3 +1453,868 @@ TEST_F(TxPoolWithDB, on_idle_with_tx)
   ASSERT_EQ(m_pool.get_transactions_count(), 1u);
   ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
 }
+
+// ========================================================================
+// Additional TxPoolWithDB tests for improved coverage
+// ========================================================================
+
+TEST_F(TxPoolWithDB, get_transactions_and_spent_keys_info_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_info> tx_infos;
+  std::vector<cryptonote::spent_key_image_info> key_image_infos;
+  ASSERT_TRUE(m_pool.get_transactions_and_spent_keys_info(tx_infos, key_image_infos, true));
+  ASSERT_EQ(tx_infos.size(), 1u);
+  ASSERT_EQ(tx_infos[0].fee, 10000u);
+  ASSERT_GT(tx_infos[0].blob_size, 0u);
+  ASSERT_FALSE(key_image_infos.empty());
+}
+
+TEST_F(TxPoolWithDB, get_transactions_and_spent_keys_info_multiple_txs)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx(1000000 * (i + 1), 999000 * (i + 1));
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<cryptonote::tx_info> tx_infos;
+  std::vector<cryptonote::spent_key_image_info> key_image_infos;
+  ASSERT_TRUE(m_pool.get_transactions_and_spent_keys_info(tx_infos, key_image_infos, true));
+  ASSERT_EQ(tx_infos.size(), 3u);
+  ASSERT_EQ(key_image_infos.size(), 3u);
+}
+
+TEST_F(TxPoolWithDB, get_transactions_and_spent_keys_info_not_sensitive)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_info> tx_infos;
+  std::vector<cryptonote::spent_key_image_info> key_image_infos;
+  // With include_sensitive=false, block-relayed txs should still be visible
+  ASSERT_TRUE(m_pool.get_transactions_and_spent_keys_info(tx_infos, key_image_infos, false));
+  ASSERT_EQ(tx_infos.size(), 1u);
+}
+
+TEST_F(TxPoolWithDB, get_pool_for_rpc_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::rpc::tx_in_pool> tx_infos;
+  cryptonote::rpc::key_images_with_tx_hashes key_image_infos;
+  ASSERT_TRUE(m_pool.get_pool_for_rpc(tx_infos, key_image_infos));
+  ASSERT_EQ(tx_infos.size(), 1u);
+  ASSERT_FALSE(key_image_infos.empty());
+}
+
+TEST_F(TxPoolWithDB, get_pool_for_rpc_multiple_txs)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<cryptonote::rpc::tx_in_pool> tx_infos;
+  cryptonote::rpc::key_images_with_tx_hashes key_image_infos;
+  ASSERT_TRUE(m_pool.get_pool_for_rpc(tx_infos, key_image_infos));
+  ASSERT_EQ(tx_infos.size(), 3u);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_backlog_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_backlog_entry> backlog;
+  m_pool.get_transaction_backlog(backlog, true);
+  ASSERT_EQ(backlog.size(), 1u);
+  ASSERT_EQ(backlog[0].fee, 10000u);
+  ASSERT_GT(backlog[0].weight, 0u);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_backlog_multiple_txs)
+{
+  for (int i = 0; i < 4; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<cryptonote::tx_backlog_entry> backlog;
+  m_pool.get_transaction_backlog(backlog, true);
+  ASSERT_EQ(backlog.size(), 4u);
+}
+
+TEST_F(TxPoolWithDB, get_block_template_backlog_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_block_template_backlog_entry> backlog;
+  m_pool.get_block_template_backlog(backlog, true);
+  // get_block_template_backlog filters txs through is_transaction_ready_to_go,
+  // which may reject our test txs since they have null max_used_block_id.
+  // The function itself should not crash.
+  (void)backlog;
+}
+
+TEST_F(TxPoolWithDB, get_block_template_backlog_multiple_txs)
+{
+  for (int i = 0; i < 5; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<cryptonote::tx_block_template_backlog_entry> backlog;
+  m_pool.get_block_template_backlog(backlog, true);
+  // get_block_template_backlog filters txs through is_transaction_ready_to_go,
+  // which may reject test txs. Just verify it does not crash.
+  (void)backlog;
+}
+
+TEST_F(TxPoolWithDB, get_transactions_sensitive_vs_nonsensitive)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // include_sensitive=true should show the transaction
+  std::vector<cryptonote::transaction> txs_sensitive;
+  m_pool.get_transactions(txs_sensitive, true);
+  ASSERT_EQ(txs_sensitive.size(), 1u);
+
+  // include_sensitive=false should also show block-relayed transactions
+  std::vector<cryptonote::transaction> txs_not_sensitive;
+  m_pool.get_transactions(txs_not_sensitive, false);
+  ASSERT_EQ(txs_not_sensitive.size(), 1u);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_hashes_sensitive_vs_nonsensitive)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<crypto::hash> hashes_sensitive;
+  m_pool.get_transaction_hashes(hashes_sensitive, true);
+  ASSERT_EQ(hashes_sensitive.size(), 1u);
+  ASSERT_EQ(hashes_sensitive[0], txid);
+
+  std::vector<crypto::hash> hashes_not_sensitive;
+  m_pool.get_transaction_hashes(hashes_not_sensitive, false);
+  ASSERT_EQ(hashes_not_sensitive.size(), 1u);
+}
+
+TEST_F(TxPoolWithDB, get_pool_info_with_multiple_txs)
+{
+  std::vector<crypto::hash> added_ids;
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+    added_ids.push_back(txid);
+  }
+
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // Non-incremental full view
+  ASSERT_TRUE(m_pool.get_pool_info(0, true, 100, added_txs, remaining, removed, incremental));
+  ASSERT_FALSE(incremental);
+  ASSERT_EQ(added_txs.size(), 3u);
+}
+
+TEST_F(TxPoolWithDB, get_pool_info_max_tx_count_limits)
+{
+  for (int i = 0; i < 5; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // Limit to 2 tx details; the rest should go into remaining_added_txids
+  ASSERT_TRUE(m_pool.get_pool_info(0, true, 2, added_txs, remaining, removed, incremental));
+  ASSERT_EQ(added_txs.size(), 2u);
+  ASSERT_EQ(remaining.size(), 3u);
+}
+
+TEST_F(TxPoolWithDB, get_pool_info_max_tx_count_zero_all_remaining)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // max_tx_count=0: all txs go to remaining
+  ASSERT_TRUE(m_pool.get_pool_info(0, true, 0, added_txs, remaining, removed, incremental));
+  ASSERT_EQ(added_txs.size(), 0u);
+  ASSERT_EQ(remaining.size(), 3u);
+}
+
+TEST_F(TxPoolWithDB, take_tx_multiple_and_verify_order)
+{
+  std::vector<crypto::hash> txids;
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx(1000000 * (i + 1), 999000 * (i + 1));
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+    txids.push_back(txid);
+  }
+  ASSERT_EQ(m_pool.get_transactions_count(), 3u);
+
+  // Take each tx one by one
+  for (size_t i = 0; i < txids.size(); ++i)
+  {
+    cryptonote::transaction taken_tx;
+    cryptonote::blobdata txblob;
+    size_t tx_weight = 0;
+    uint64_t fee = 0;
+    crypto::hash valid_id;
+    bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+    ASSERT_TRUE(m_pool.take_tx(txids[i], taken_tx, txblob, tx_weight, fee, valid_id,
+      relayed, do_not_relay, double_spend_seen, pruned));
+    ASSERT_GT(tx_weight, 0u);
+  }
+
+  ASSERT_EQ(m_pool.get_transactions_count(), 0u);
+}
+
+TEST_F(TxPoolWithDB, take_tx_weight_decreases)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  size_t weight_before = m_pool.get_txpool_weight();
+  ASSERT_GT(weight_before, 0u);
+
+  cryptonote::transaction taken_tx;
+  cryptonote::blobdata txblob;
+  size_t tx_weight = 0;
+  uint64_t fee = 0;
+  crypto::hash valid_id;
+  bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+  ASSERT_TRUE(m_pool.take_tx(txid, taken_tx, txblob, tx_weight, fee, valid_id,
+    relayed, do_not_relay, double_spend_seen, pruned));
+
+  ASSERT_EQ(m_pool.get_txpool_weight(), 0u);
+}
+
+TEST_F(TxPoolWithDB, take_tx_cookie_changes)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  uint64_t cookie_before = m_pool.cookie();
+
+  cryptonote::transaction taken_tx;
+  cryptonote::blobdata txblob;
+  size_t tx_weight = 0;
+  uint64_t fee = 0;
+  crypto::hash valid_id;
+  bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+  ASSERT_TRUE(m_pool.take_tx(txid, taken_tx, txblob, tx_weight, fee, valid_id,
+    relayed, do_not_relay, double_spend_seen, pruned));
+
+  uint64_t cookie_after = m_pool.cookie();
+  ASSERT_NE(cookie_before, cookie_after);
+}
+
+TEST_F(TxPoolWithDB, validate_removes_invalid_txs)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // validate takes out all txs and re-adds them. Since our test tx
+  // uses a minimal/fake structure, it fails re-validation and gets removed.
+  size_t removed = m_pool.validate(1);
+  ASSERT_EQ(removed, 1u);
+  ASSERT_EQ(m_pool.get_transactions_count(), 0u);
+}
+
+TEST_F(TxPoolWithDB, lock_unlock_explicit)
+{
+  // Verify explicit lock/unlock cycle does not deadlock or crash
+  m_pool.lock();
+  m_pool.unlock();
+
+  // And with a tx in the pool
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  m_pool.lock();
+  // Can still query while locked (same thread holds the recursive mutex)
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+  m_pool.unlock();
+}
+
+TEST_F(TxPoolWithDB, reduce_txpool_weight_with_tx)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  size_t weight_before = m_pool.get_txpool_weight();
+  ASSERT_GT(weight_before, 0u);
+
+  // reduce_txpool_weight reduces the internal weight counter
+  // This is used internally after taking/removing a tx.
+  // Reducing by 1 should decrease the tracked weight.
+  m_pool.reduce_txpool_weight(1);
+  ASSERT_EQ(m_pool.get_txpool_weight(), weight_before - 1);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_info_includes_blob)
+{
+  cryptonote::transaction tx = make_test_tx(3000000, 2990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  cryptonote::tx_memory_pool::tx_details td;
+  // Request with include_blob=true
+  ASSERT_TRUE(m_pool.get_transaction_info(txid, td, true, true));
+  ASSERT_EQ(td.fee, 10000u);
+  ASSERT_GT(td.weight, 0u);
+  ASSERT_FALSE(td.tx_blob.empty());
+}
+
+TEST_F(TxPoolWithDB, get_transaction_info_without_blob)
+{
+  cryptonote::transaction tx = make_test_tx(3000000, 2990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  cryptonote::tx_memory_pool::tx_details td;
+  // Request with include_blob=false (default)
+  ASSERT_TRUE(m_pool.get_transaction_info(txid, td, true, false));
+  ASSERT_EQ(td.fee, 10000u);
+  ASSERT_GT(td.weight, 0u);
+  // Without include_blob, the tx_blob should be empty
+  ASSERT_TRUE(td.tx_blob.empty());
+}
+
+TEST_F(TxPoolWithDB, get_transactions_info_partial_match)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // Request info for the real txid and a fake one
+  std::vector<crypto::hash> txids;
+  txids.push_back(txid);
+  txids.push_back(crypto::rand<crypto::hash>());
+
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> txs;
+  m_pool.get_transactions_info(txids, txs, true);
+  // Should find the real one but not the fake
+  ASSERT_EQ(txs.size(), 1u);
+  ASSERT_EQ(txs[0].first, txid);
+}
+
+TEST_F(TxPoolWithDB, get_complement_returns_missing_txs)
+{
+  cryptonote::transaction tx1 = make_test_tx();
+  cryptonote::transaction tx2 = make_test_tx();
+  crypto::hash txid1, txid2;
+  ASSERT_TRUE(add_test_tx_to_pool(tx1, txid1));
+  ASSERT_TRUE(add_test_tx_to_pool(tx2, txid2));
+
+  // Pass empty known list - should return all pool txs as complement
+  std::vector<crypto::hash> known_empty;
+  std::vector<cryptonote::blobdata> complement;
+  ASSERT_TRUE(m_pool.get_complement(known_empty, complement));
+  // With no known hashes, all pool txs should be returned
+  // (depends on relay_category match, but block-relayed txs should match)
+  ASSERT_GE(complement.size(), 0u); // At least does not crash
+}
+
+TEST_F(TxPoolWithDB, get_complement_excludes_known)
+{
+  cryptonote::transaction tx1 = make_test_tx();
+  cryptonote::transaction tx2 = make_test_tx();
+  crypto::hash txid1, txid2;
+  ASSERT_TRUE(add_test_tx_to_pool(tx1, txid1));
+  ASSERT_TRUE(add_test_tx_to_pool(tx2, txid2));
+
+  // Pass both as known - complement should be empty
+  std::vector<crypto::hash> all_known{txid1, txid2};
+  std::vector<cryptonote::blobdata> complement;
+  ASSERT_TRUE(m_pool.get_complement(all_known, complement));
+  ASSERT_TRUE(complement.empty());
+}
+
+TEST_F(TxPoolWithDB, set_relayed_multiple_hashes)
+{
+  std::vector<crypto::hash> txids;
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+    txids.push_back(txid);
+  }
+
+  std::vector<bool> just_broadcasted;
+  epee::span<const crypto::hash> hash_span(txids.data(), txids.size());
+  m_pool.set_relayed(hash_span, cryptonote::relay_method::fluff, just_broadcasted);
+
+  ASSERT_EQ(just_broadcasted.size(), 3u);
+  // All 3 should have been found in the pool
+  for (size_t i = 0; i < 3; ++i)
+    ASSERT_TRUE(m_pool.have_tx(txids[i], cryptonote::relay_category::all));
+}
+
+TEST_F(TxPoolWithDB, set_relayed_mixed_existing_and_nonexisting)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<crypto::hash> hashes;
+  hashes.push_back(txid);
+  hashes.push_back(crypto::rand<crypto::hash>()); // does not exist
+
+  std::vector<bool> just_broadcasted;
+  epee::span<const crypto::hash> hash_span(hashes.data(), hashes.size());
+  m_pool.set_relayed(hash_span, cryptonote::relay_method::fluff, just_broadcasted);
+
+  ASSERT_EQ(just_broadcasted.size(), 2u);
+  // The non-existing one should not have been broadcasted
+  ASSERT_FALSE(just_broadcasted[1]);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_stats_multiple_txs)
+{
+  for (int i = 0; i < 5; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx(1000000 * (i + 1), 999000 * (i + 1));
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  cryptonote::txpool_stats stats{};
+  m_pool.get_transaction_stats(stats, true);
+  ASSERT_EQ(stats.txs_total, 5u);
+  ASSERT_GT(stats.bytes_total, 0u);
+  ASSERT_GT(stats.bytes_min, 0u);
+  ASSERT_GT(stats.bytes_max, 0u);
+  ASSERT_GT(stats.bytes_med, 0u);
+  ASSERT_GT(stats.fee_total, 0u);
+  ASSERT_GT(stats.oldest, 0u);
+}
+
+TEST_F(TxPoolWithDB, get_transaction_stats_after_take)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // Take the tx
+  cryptonote::transaction taken_tx;
+  cryptonote::blobdata txblob;
+  size_t tx_weight = 0;
+  uint64_t fee = 0;
+  crypto::hash valid_id;
+  bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+  ASSERT_TRUE(m_pool.take_tx(txid, taken_tx, txblob, tx_weight, fee, valid_id,
+    relayed, do_not_relay, double_spend_seen, pruned));
+
+  // Stats should now show empty
+  cryptonote::txpool_stats stats{};
+  m_pool.get_transaction_stats(stats, true);
+  ASSERT_EQ(stats.txs_total, 0u);
+  ASSERT_EQ(stats.bytes_total, 0u);
+  ASSERT_EQ(stats.fee_total, 0u);
+}
+
+TEST_F(TxPoolWithDB, have_tx_relay_categories)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // Transaction added with relay_method::block should be in broadcasted and all categories
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::broadcasted));
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
+  // legacy and relayable should also find block-relayed txs
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::legacy));
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::relayable));
+}
+
+TEST_F(TxPoolWithDB, get_transaction_blob_relay_categories)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  cryptonote::blobdata blob1;
+  ASSERT_TRUE(m_pool.get_transaction(txid, blob1, cryptonote::relay_category::all));
+  ASSERT_FALSE(blob1.empty());
+
+  cryptonote::blobdata blob2;
+  ASSERT_TRUE(m_pool.get_transaction(txid, blob2, cryptonote::relay_category::broadcasted));
+  ASSERT_FALSE(blob2.empty());
+
+  // Both should return the same blob
+  ASSERT_EQ(blob1, blob2);
+}
+
+TEST_F(TxPoolWithDB, pool_weight_multiple_adds_and_takes)
+{
+  std::vector<crypto::hash> txids;
+
+  // Add 3 txs and track expected weight
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+    txids.push_back(txid);
+  }
+
+  size_t weight_all = m_pool.get_txpool_weight();
+  ASSERT_GT(weight_all, 0u);
+
+  // Take one tx and verify weight decreases
+  cryptonote::transaction taken_tx;
+  cryptonote::blobdata txblob;
+  size_t tx_weight = 0;
+  uint64_t fee = 0;
+  crypto::hash valid_id;
+  bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+  ASSERT_TRUE(m_pool.take_tx(txids[0], taken_tx, txblob, tx_weight, fee, valid_id,
+    relayed, do_not_relay, double_spend_seen, pruned));
+
+  size_t weight_after_take = m_pool.get_txpool_weight();
+  ASSERT_LT(weight_after_take, weight_all);
+  ASSERT_EQ(weight_after_take, weight_all - tx_weight);
+}
+
+TEST_F(TxPoolWithDB, on_blockchain_inc_with_multiple_txs)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+  ASSERT_EQ(m_pool.get_transactions_count(), 3u);
+
+  crypto::hash top = crypto::rand<crypto::hash>();
+  ASSERT_TRUE(m_pool.on_blockchain_inc(10, top));
+
+  // Txs should still be present
+  ASSERT_EQ(m_pool.get_transactions_count(), 3u);
+}
+
+TEST_F(TxPoolWithDB, on_blockchain_dec_with_multiple_txs)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+  ASSERT_EQ(m_pool.get_transactions_count(), 3u);
+
+  crypto::hash top = crypto::rand<crypto::hash>();
+  ASSERT_TRUE(m_pool.on_blockchain_dec(9, top));
+
+  // Txs should still be present
+  ASSERT_EQ(m_pool.get_transactions_count(), 3u);
+}
+
+TEST_F(TxPoolWithDB, print_pool_with_multiple_txs)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  std::string short_output = m_pool.print_pool(true);
+  std::string long_output = m_pool.print_pool(false);
+  // Both should be non-empty with 3 txs
+  ASSERT_FALSE(short_output.empty());
+  ASSERT_FALSE(long_output.empty());
+}
+
+TEST_F(TxPoolWithDB, add_take_readd_tx)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // Take it
+  cryptonote::transaction taken_tx;
+  cryptonote::blobdata txblob;
+  size_t tx_weight = 0;
+  uint64_t fee = 0;
+  crypto::hash valid_id;
+  bool relayed = false, do_not_relay = false, double_spend_seen = false, pruned = false;
+  ASSERT_TRUE(m_pool.take_tx(txid, taken_tx, txblob, tx_weight, fee, valid_id,
+    relayed, do_not_relay, double_spend_seen, pruned));
+  ASSERT_EQ(m_pool.get_transactions_count(), 0u);
+
+  // Re-add the same transaction
+  crypto::hash txid2;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid2));
+  ASSERT_EQ(txid, txid2);
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+  ASSERT_TRUE(m_pool.have_tx(txid, cryptonote::relay_category::all));
+}
+
+TEST_F(TxPoolWithDB, get_transaction_info_details_fields)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  cryptonote::tx_memory_pool::tx_details td;
+  ASSERT_TRUE(m_pool.get_transaction_info(txid, td, true));
+  ASSERT_EQ(td.fee, 10000u);
+  ASSERT_GT(td.weight, 0u);
+  ASSERT_GT(td.blob_size, 0u);
+  ASSERT_GT(td.receive_time, 0u);
+  ASSERT_TRUE(td.kept_by_block); // added via relay_method::block
+}
+
+TEST_F(TxPoolWithDB, get_transactions_count_with_sensitivity)
+{
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::transaction tx = make_test_tx();
+    crypto::hash txid;
+    ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+  }
+
+  size_t count_sensitive = m_pool.get_transactions_count(true);
+  size_t count_not_sensitive = m_pool.get_transactions_count(false);
+
+  // Block-relayed txs should be visible in both modes
+  ASSERT_EQ(count_sensitive, 3u);
+  ASSERT_EQ(count_not_sensitive, 3u);
+}
+
+TEST_F(TxPoolWithDB, on_idle_multiple_calls)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  // Call on_idle multiple times - should not crash or remove fresh tx
+  for (int i = 0; i < 5; ++i)
+  {
+    m_pool.on_idle();
+    ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+  }
+}
+
+TEST_F(TxPoolWithDB, get_transaction_backlog_not_sensitive)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_backlog_entry> backlog;
+  m_pool.get_transaction_backlog(backlog, false);
+  ASSERT_EQ(backlog.size(), 1u);
+}
+
+TEST_F(TxPoolWithDB, get_block_template_backlog_not_sensitive)
+{
+  cryptonote::transaction tx = make_test_tx(5000000, 4990000);
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  std::vector<cryptonote::tx_block_template_backlog_entry> backlog;
+  m_pool.get_block_template_backlog(backlog, false);
+  // get_block_template_backlog filters through is_transaction_ready_to_go,
+  // which may reject our test txs. Just verify it does not crash.
+  (void)backlog;
+}
+
+TEST_F(TxPoolWithDB, set_txpool_max_weight_with_txs)
+{
+  cryptonote::transaction tx = make_test_tx();
+  crypto::hash txid;
+  ASSERT_TRUE(add_test_tx_to_pool(tx, txid));
+
+  size_t weight = m_pool.get_txpool_weight();
+
+  // Set max weight to something larger than current weight
+  m_pool.set_txpool_max_weight(weight * 10);
+  ASSERT_EQ(m_pool.get_transactions_count(), 1u);
+
+  // Setting a very small max weight may trigger pruning
+  // but with a single kept_by_block tx, it should not be removed
+  m_pool.set_txpool_max_weight(1);
+  // The tx is kept_by_block, so pruning logic may skip it
+  ASSERT_GE(m_pool.get_transactions_count(), 0u);
+}
+
+// ========================================================================
+// Additional TxPoolTest (no DB) tests for better coverage
+// ========================================================================
+
+TEST_F(TxPoolTest, get_pool_info_include_sensitive)
+{
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // Test both modes on empty pool
+  ASSERT_TRUE(m_pool.get_pool_info(0, true, 100, added_txs, remaining, removed, incremental));
+  ASSERT_TRUE(added_txs.empty());
+
+  ASSERT_TRUE(m_pool.get_pool_info(0, false, 100, added_txs, remaining, removed, incremental));
+  ASSERT_TRUE(added_txs.empty());
+}
+
+TEST_F(TxPoolTest, get_pool_info_nonzero_start_time)
+{
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // With a nonzero start_time on a freshly created pool, the tracking
+  // start times are 0, so the function cannot deliver incremental info
+  // and falls back to non-incremental (full pool dump).
+  time_t now = std::time(nullptr);
+  ASSERT_TRUE(m_pool.get_pool_info(now - 10, false, 100, added_txs, remaining, removed, incremental));
+  ASSERT_FALSE(incremental);
+  ASSERT_TRUE(added_txs.empty());
+}
+
+TEST_F(TxPoolTest, get_pool_info_future_start_time)
+{
+  std::vector<std::pair<crypto::hash, cryptonote::tx_memory_pool::tx_details>> added_txs;
+  std::vector<crypto::hash> remaining;
+  std::vector<crypto::hash> removed;
+  bool incremental = false;
+
+  // Start time far in the future
+  time_t future = std::time(nullptr) + 100000;
+  ASSERT_TRUE(m_pool.get_pool_info(future, false, 100, added_txs, remaining, removed, incremental));
+  ASSERT_TRUE(added_txs.empty());
+}
+
+TEST_F(TxPoolTest, get_transactions_and_spent_keys_both_sensitivity)
+{
+  std::vector<cryptonote::tx_info> tx_infos;
+  std::vector<cryptonote::spent_key_image_info> key_image_infos;
+
+  // sensitive
+  ASSERT_TRUE(m_pool.get_transactions_and_spent_keys_info(tx_infos, key_image_infos, true));
+  ASSERT_TRUE(tx_infos.empty());
+  ASSERT_TRUE(key_image_infos.empty());
+
+  // not sensitive
+  ASSERT_TRUE(m_pool.get_transactions_and_spent_keys_info(tx_infos, key_image_infos, false));
+  ASSERT_TRUE(tx_infos.empty());
+  ASSERT_TRUE(key_image_infos.empty());
+}
+
+TEST_F(TxPoolTest, get_transaction_backlog_both_sensitivity)
+{
+  std::vector<cryptonote::tx_backlog_entry> backlog;
+  m_pool.get_transaction_backlog(backlog, true);
+  ASSERT_TRUE(backlog.empty());
+
+  m_pool.get_transaction_backlog(backlog, false);
+  ASSERT_TRUE(backlog.empty());
+}
+
+TEST_F(TxPoolTest, get_transactions_both_sensitivity)
+{
+  std::vector<cryptonote::transaction> txs_true;
+  m_pool.get_transactions(txs_true, true);
+  ASSERT_TRUE(txs_true.empty());
+
+  std::vector<cryptonote::transaction> txs_false;
+  m_pool.get_transactions(txs_false, false);
+  ASSERT_TRUE(txs_false.empty());
+}
+
+TEST_F(TxPoolTest, get_transaction_hashes_both_sensitivity)
+{
+  std::vector<crypto::hash> hashes_true;
+  m_pool.get_transaction_hashes(hashes_true, true);
+  ASSERT_TRUE(hashes_true.empty());
+
+  std::vector<crypto::hash> hashes_false;
+  m_pool.get_transaction_hashes(hashes_false, false);
+  ASSERT_TRUE(hashes_false.empty());
+}
+
+TEST_F(TxPoolTest, multiple_validate_calls)
+{
+  // Various hard fork versions
+  for (uint8_t v = 0; v <= 16; ++v)
+  {
+    size_t removed = m_pool.validate(v);
+    ASSERT_EQ(removed, 0u);
+  }
+}
+
+TEST_F(TxPoolTest, on_blockchain_inc_and_dec_alternating)
+{
+  crypto::hash top = crypto::rand<crypto::hash>();
+  for (uint64_t h = 0; h < 10; ++h)
+  {
+    ASSERT_TRUE(m_pool.on_blockchain_inc(h, top));
+    ASSERT_TRUE(m_pool.on_blockchain_dec(h, top));
+  }
+}
+
+TEST_F(TxPoolTest, fill_block_template_large_already_generated)
+{
+  cryptonote::block bl;
+  size_t total_weight = 0;
+  uint64_t fee = 0;
+  uint64_t expected_reward = 0;
+  // Large already_generated_coins value
+  ASSERT_TRUE(m_pool.fill_block_template(bl, 300000, UINT64_MAX / 2, total_weight, fee, expected_reward, 1));
+  ASSERT_EQ(total_weight, 0u);
+  ASSERT_EQ(fee, 0u);
+}

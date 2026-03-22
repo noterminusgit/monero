@@ -1924,3 +1924,298 @@ TEST(parsing, strtoul)
   EXPECT_EQ(ERANGE, errno);
   EXPECT_EQ(ULLONG_MAX, ul);
 }
+
+// ============================================================
+// Additional Span coverage tests
+// ============================================================
+
+TEST(Span, CArrayConstruction)
+{
+  int arr[] = {1, 2, 3, 4, 5};
+  epee::span<int> s(arr);
+  EXPECT_EQ(s.size(), 5u);
+  EXPECT_EQ(s[0], 1);
+  EXPECT_EQ(s[4], 5);
+  EXPECT_EQ(s.data(), arr);
+}
+
+TEST(Span, SizeBytes)
+{
+  uint32_t arr[] = {1, 2, 3};
+  epee::span<uint32_t> s(arr);
+  EXPECT_EQ(s.size(), 3u);
+  EXPECT_EQ(s.size_bytes(), 12u);
+}
+
+TEST(Span, EmptySpanIsEmpty)
+{
+  epee::span<int> s;
+  EXPECT_TRUE(s.empty());
+  EXPECT_EQ(s.size(), 0u);
+  EXPECT_EQ(s.data(), nullptr);
+}
+
+TEST(Span, NullptrSpanIsEmpty)
+{
+  epee::span<int> s(nullptr);
+  EXPECT_TRUE(s.empty());
+  EXPECT_EQ(s.size(), 0u);
+}
+
+TEST(Span, IteratorRange)
+{
+  int arr[] = {10, 20, 30};
+  epee::span<int> s(arr);
+
+  int sum = 0;
+  for (auto it = s.begin(); it != s.end(); ++it)
+    sum += *it;
+  EXPECT_EQ(sum, 60);
+}
+
+TEST(Span, ConstIteratorRange)
+{
+  const int arr[] = {5, 10, 15};
+  epee::span<const int> s(arr);
+
+  int sum = 0;
+  for (auto it = s.cbegin(); it != s.cend(); ++it)
+    sum += *it;
+  EXPECT_EQ(sum, 30);
+}
+
+TEST(Span, RemovePrefixPartial)
+{
+  int arr[] = {1, 2, 3, 4, 5};
+  epee::span<int> s(arr);
+  std::size_t removed = s.remove_prefix(2);
+  EXPECT_EQ(removed, 2u);
+  EXPECT_EQ(s.size(), 3u);
+  EXPECT_EQ(s[0], 3);
+}
+
+TEST(Span, RemovePrefixAll)
+{
+  int arr[] = {1, 2, 3};
+  epee::span<int> s(arr);
+  std::size_t removed = s.remove_prefix(10);
+  EXPECT_EQ(removed, 3u);
+  EXPECT_TRUE(s.empty());
+}
+
+TEST(Span, RemovePrefixZero)
+{
+  int arr[] = {1, 2};
+  epee::span<int> s(arr);
+  std::size_t removed = s.remove_prefix(0);
+  EXPECT_EQ(removed, 0u);
+  EXPECT_EQ(s.size(), 2u);
+}
+
+TEST(Span, ToSpanFromVector)
+{
+  std::vector<uint8_t> v = {0x01, 0x02, 0x03};
+  auto s = epee::to_span(v);
+  EXPECT_EQ(s.size(), 3u);
+  EXPECT_EQ(s[0], 0x01);
+  EXPECT_EQ(s[2], 0x03);
+}
+
+TEST(Span, ToSpanFromString)
+{
+  std::string str = "test";
+  auto s = epee::to_span(str);
+  EXPECT_EQ(s.size(), 4u);
+  EXPECT_EQ(s[0], 't');
+  EXPECT_EQ(s[3], 't');
+}
+
+TEST(Span, ToMutSpanModify)
+{
+  std::vector<uint8_t> v = {0x01, 0x02, 0x03};
+  auto s = epee::to_mut_span(v);
+  s[0] = 0xff;
+  EXPECT_EQ(v[0], 0xff);
+}
+
+TEST(Span, CopyAssignment)
+{
+  int arr1[] = {1, 2, 3};
+  int arr2[] = {4, 5};
+  epee::span<int> s1(arr1);
+  epee::span<int> s2(arr2);
+  s1 = s2;
+  EXPECT_EQ(s1.size(), 2u);
+  EXPECT_EQ(s1[0], 4);
+  EXPECT_EQ(s1.data(), arr2);
+}
+
+TEST(Span, IndexOperator)
+{
+  uint8_t arr[] = {0xAA, 0xBB, 0xCC};
+  epee::span<uint8_t> s(arr);
+  EXPECT_EQ(s[0], 0xAA);
+  EXPECT_EQ(s[1], 0xBB);
+  EXPECT_EQ(s[2], 0xCC);
+}
+
+TEST(Span, StrspanFromString)
+{
+  std::string str = "hello";
+  auto s = epee::strspan<char>(str);
+  EXPECT_EQ(s.size(), 5u);
+  EXPECT_EQ(s[0], 'h');
+}
+
+TEST(Span, StrspanAsUnsignedChar)
+{
+  std::string str = "AB";
+  auto s = epee::strspan<unsigned char>(str);
+  EXPECT_EQ(s.size(), 2u);
+  EXPECT_EQ(s[0], 'A');
+}
+
+// ============================================================
+// Additional Hex coverage tests
+// ============================================================
+
+TEST(ToHex, EmptySpan)
+{
+  std::string result = epee::to_hex::string(epee::span<const uint8_t>());
+  EXPECT_EQ(result, "");
+}
+
+TEST(ToHex, SingleByte)
+{
+  uint8_t byte = 0xAB;
+  std::string result = epee::to_hex::string({&byte, 1});
+  EXPECT_EQ(result, "ab");
+}
+
+TEST(ToHex, AllZeros)
+{
+  uint8_t data[] = {0x00, 0x00, 0x00, 0x00};
+  std::string result = epee::to_hex::string({data, 4});
+  EXPECT_EQ(result, "00000000");
+}
+
+TEST(ToHex, AllFF)
+{
+  uint8_t data[] = {0xFF, 0xFF};
+  std::string result = epee::to_hex::string({data, 2});
+  EXPECT_EQ(result, "ffff");
+}
+
+TEST(ToHex, BufferExactSize)
+{
+  uint8_t data[] = {0xDE, 0xAD};
+  char out[4];
+  bool ok = epee::to_hex::buffer(epee::span<char>(out, 4), {data, 2});
+  EXPECT_TRUE(ok);
+  EXPECT_EQ(out[0], 'd');
+  EXPECT_EQ(out[1], 'e');
+  EXPECT_EQ(out[2], 'a');
+  EXPECT_EQ(out[3], 'd');
+}
+
+TEST(ToHex, BufferWrongSize)
+{
+  uint8_t data[] = {0xDE, 0xAD};
+  char out[3]; // Too small
+  bool ok = epee::to_hex::buffer(epee::span<char>(out, 3), {data, 2});
+  EXPECT_FALSE(ok);
+}
+
+TEST(ToHex, WipeableStringOutput)
+{
+  uint8_t data[] = {0x41, 0x42, 0x43}; // "ABC" in hex
+  epee::wipeable_string result = epee::to_hex::wipeable_string({data, 3});
+  EXPECT_EQ(result.size(), 6u);
+  EXPECT_TRUE(result == epee::wipeable_string("414243"));
+}
+
+TEST(FromHex, ToStringValid)
+{
+  std::string result;
+  ASSERT_TRUE(epee::from_hex::to_string(result, "48656c6c6f"));
+  EXPECT_EQ(result, "Hello");
+}
+
+TEST(FromHex, ToStringEmpty)
+{
+  std::string result;
+  ASSERT_TRUE(epee::from_hex::to_string(result, ""));
+  EXPECT_EQ(result, "");
+}
+
+TEST(FromHex, ToStringInvalidChars)
+{
+  std::string result;
+  EXPECT_FALSE(epee::from_hex::to_string(result, "xyz"));
+}
+
+TEST(FromHex, ToStringOddLength)
+{
+  std::string result;
+  EXPECT_FALSE(epee::from_hex::to_string(result, "abc"));
+}
+
+TEST(FromHex, ToBufferValid)
+{
+  uint8_t out[3];
+  ASSERT_TRUE(epee::from_hex::to_buffer({out, 3}, "414243"));
+  EXPECT_EQ(out[0], 0x41);
+  EXPECT_EQ(out[1], 0x42);
+  EXPECT_EQ(out[2], 0x43);
+}
+
+TEST(FromHex, ToBufferWrongSize)
+{
+  uint8_t out[2];
+  // "414243" is 3 bytes, but buffer is only 2
+  EXPECT_FALSE(epee::from_hex::to_buffer({out, 2}, "414243"));
+}
+
+TEST(FromHex, Roundtrip)
+{
+  uint8_t original[] = {0x00, 0x01, 0x7F, 0x80, 0xFE, 0xFF};
+  std::string hex = epee::to_hex::string({original, 6});
+  EXPECT_EQ(hex, "00017f80feff");
+
+  std::string decoded;
+  ASSERT_TRUE(epee::from_hex::to_string(decoded, hex));
+  ASSERT_EQ(decoded.size(), 6u);
+  EXPECT_EQ(static_cast<uint8_t>(decoded[0]), 0x00);
+  EXPECT_EQ(static_cast<uint8_t>(decoded[5]), 0xFF);
+}
+
+TEST(HexLocale, EmptyString)
+{
+  auto result = epee::from_hex_locale::to_vector("");
+  EXPECT_TRUE(result.empty());
+}
+
+TEST(HexLocale, ValidHex)
+{
+  auto result = epee::from_hex_locale::to_vector("deadbeef");
+  ASSERT_EQ(result.size(), 4u);
+  EXPECT_EQ(result[0], 0xde);
+  EXPECT_EQ(result[1], 0xad);
+  EXPECT_EQ(result[2], 0xbe);
+  EXPECT_EQ(result[3], 0xef);
+}
+
+TEST(HexLocale, UppercaseHex)
+{
+  auto result = epee::from_hex_locale::to_vector("DEADBEEF");
+  ASSERT_EQ(result.size(), 4u);
+  EXPECT_EQ(result[0], 0xDE);
+  EXPECT_EQ(result[1], 0xAD);
+}
+
+TEST(HexLocale, MixedCaseHex)
+{
+  auto result = epee::from_hex_locale::to_vector("DeAdBeEf");
+  ASSERT_EQ(result.size(), 4u);
+  EXPECT_EQ(result[0], 0xDE);
+}
