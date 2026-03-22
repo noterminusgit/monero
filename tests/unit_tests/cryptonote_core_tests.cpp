@@ -31,6 +31,7 @@
 #include "cryptonote_core/cryptonote_core.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "cryptonote_basic/cryptonote_basic_impl.h"
+#include "cryptonote_basic/account.h"
 #include "ringct/rctSigs.h"
 #include "cryptonote_config.h"
 
@@ -639,4 +640,173 @@ TEST(CryptonoteCore, BlockRewardVersion1BlockSlightlyOverMedian)
   cryptonote::get_block_reward(300000, 310000, UINT64_C(10000000000000), reward_over, 1);
   // Slightly over median should have slightly reduced reward
   EXPECT_LE(reward_over, reward_at);
+}
+
+// =============================================================================
+// Tests for cryptonote_basic_impl.cpp functions
+// =============================================================================
+
+// ---- get_block_reward additional tests ----
+
+TEST(CryptonoteCore, get_block_reward_genesis)
+{
+  // At height 0 (no coins generated yet), reward should be non-zero
+  uint64_t reward = 0;
+  bool r = cryptonote::get_block_reward(0, 0, 0, reward, 1);
+  ASSERT_TRUE(r);
+  EXPECT_GT(reward, 0u);
+}
+
+TEST(CryptonoteCore, get_block_reward_zero_median)
+{
+  // median_weight = 0 should use the default full reward zone
+  uint64_t reward = 0;
+  bool r = cryptonote::get_block_reward(0, 0, UINT64_C(5000000000000), reward, 1);
+  ASSERT_TRUE(r);
+  EXPECT_GT(reward, 0u);
+}
+
+TEST(CryptonoteCore, get_block_reward_oversized_block)
+{
+  // current_block_weight > 2*median: penalty applies, function returns false
+  uint64_t reward = 0;
+  size_t median = 300000;
+  size_t oversized = 2 * median + 1;
+  bool r = cryptonote::get_block_reward(median, oversized, UINT64_C(5000000000000), reward, 1);
+  EXPECT_FALSE(r);
+}
+
+TEST(CryptonoteCore, get_block_reward_at_median)
+{
+  // current_block_weight == median: full reward, no penalty
+  uint64_t reward_at_median = 0;
+  uint64_t reward_below_median = 0;
+  size_t median = 300000;
+  bool r1 = cryptonote::get_block_reward(median, median, UINT64_C(5000000000000), reward_at_median, 1);
+  bool r2 = cryptonote::get_block_reward(median, median / 2, UINT64_C(5000000000000), reward_below_median, 1);
+  ASSERT_TRUE(r1);
+  ASSERT_TRUE(r2);
+  // At median and below median should both get the full base reward
+  EXPECT_EQ(reward_at_median, reward_below_median);
+}
+
+TEST(CryptonoteCore, get_block_reward_returns_true)
+{
+  // Valid params should return true
+  uint64_t reward = 0;
+  bool r = cryptonote::get_block_reward(300000, 100000, UINT64_C(1000000000000), reward, 8);
+  EXPECT_TRUE(r);
+  EXPECT_GT(reward, 0u);
+}
+
+// ---- get_min_block_weight tests ----
+
+TEST(CryptonoteCore, get_min_block_weight_v1)
+{
+  // At HF version 1, should return CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1
+  size_t min_weight = cryptonote::get_min_block_weight(1);
+  EXPECT_EQ(min_weight, CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1);
+}
+
+TEST(CryptonoteCore, get_min_block_weight_v5_larger)
+{
+  // At HF version 5, min weight should be larger than v1
+  size_t weight_v1 = cryptonote::get_min_block_weight(1);
+  size_t weight_v5 = cryptonote::get_min_block_weight(5);
+  EXPECT_GT(weight_v5, weight_v1);
+  EXPECT_EQ(weight_v5, CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5);
+}
+
+// ---- get_max_tx_size test ----
+
+TEST(CryptonoteCore, get_max_tx_size_positive)
+{
+  size_t max_size = cryptonote::get_max_tx_size();
+  EXPECT_GT(max_size, 0u);
+}
+
+// ---- address roundtrip tests ----
+
+TEST(CryptonoteCore, address_roundtrip_mainnet)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  std::string addr_str = cryptonote::get_account_address_as_str(cryptonote::MAINNET, false, keys.m_account_address);
+  EXPECT_FALSE(addr_str.empty());
+
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, addr_str);
+  ASSERT_TRUE(r);
+  EXPECT_FALSE(info.is_subaddress);
+  EXPECT_FALSE(info.has_payment_id);
+  EXPECT_EQ(info.address.m_spend_public_key, keys.m_account_address.m_spend_public_key);
+  EXPECT_EQ(info.address.m_view_public_key, keys.m_account_address.m_view_public_key);
+}
+
+TEST(CryptonoteCore, address_roundtrip_testnet)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  std::string addr_str = cryptonote::get_account_address_as_str(cryptonote::TESTNET, false, keys.m_account_address);
+  EXPECT_FALSE(addr_str.empty());
+
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::TESTNET, addr_str);
+  ASSERT_TRUE(r);
+  EXPECT_FALSE(info.is_subaddress);
+  EXPECT_FALSE(info.has_payment_id);
+  EXPECT_EQ(info.address.m_spend_public_key, keys.m_account_address.m_spend_public_key);
+  EXPECT_EQ(info.address.m_view_public_key, keys.m_account_address.m_view_public_key);
+}
+
+TEST(CryptonoteCore, address_roundtrip_stagenet)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  std::string addr_str = cryptonote::get_account_address_as_str(cryptonote::STAGENET, false, keys.m_account_address);
+  EXPECT_FALSE(addr_str.empty());
+
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::STAGENET, addr_str);
+  ASSERT_TRUE(r);
+  EXPECT_FALSE(info.is_subaddress);
+  EXPECT_FALSE(info.has_payment_id);
+  EXPECT_EQ(info.address.m_spend_public_key, keys.m_account_address.m_spend_public_key);
+  EXPECT_EQ(info.address.m_view_public_key, keys.m_account_address.m_view_public_key);
+}
+
+TEST(CryptonoteCore, integrated_address_roundtrip)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  crypto::hash8 payment_id;
+  memset(&payment_id, 0xAB, sizeof(payment_id));
+
+  std::string integrated_str = cryptonote::get_account_integrated_address_as_str(
+    cryptonote::MAINNET, keys.m_account_address, payment_id);
+  EXPECT_FALSE(integrated_str.empty());
+
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, integrated_str);
+  ASSERT_TRUE(r);
+  EXPECT_TRUE(info.has_payment_id);
+  EXPECT_FALSE(info.is_subaddress);
+  EXPECT_EQ(info.address.m_spend_public_key, keys.m_account_address.m_spend_public_key);
+  EXPECT_EQ(info.address.m_view_public_key, keys.m_account_address.m_view_public_key);
+  EXPECT_EQ(info.payment_id, payment_id);
+}
+
+TEST(CryptonoteCore, invalid_address_string)
+{
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, "this_is_not_a_valid_address");
+  EXPECT_FALSE(r);
 }

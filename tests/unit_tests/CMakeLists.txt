@@ -49,6 +49,7 @@ set(unit_tests_sources
   decompose_amount_into_digits.cpp
   device.cpp
   difficulty.cpp
+  difficulty_tests.cpp
   dns_resolver.cpp
   download.cpp
   epee_boosted_tcp_server.cpp
