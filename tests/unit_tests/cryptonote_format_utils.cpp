@@ -37,6 +37,7 @@
 #include "serialization/binary_utils.h"
 #include "serialization/string.h"
 #include "ringct/rctSigs.h"
+#include "cryptonote_core/cryptonote_tx_utils.h"
 #include "wipeable_string.h"
 #include <vector>
 #include <string>
@@ -3452,4 +3453,343 @@ TEST(cn_format_utils, block_serialization_hash_consistency)
     cryptonote::blobdata hb1 = cryptonote::get_block_hashing_blob(b);
     cryptonote::blobdata hb2 = cryptonote::get_block_hashing_blob(b2);
     ASSERT_EQ(hb1, hb2);
+}
+
+// =====================================================================
+// get_transaction_weight with clawback (3 tests)
+// =====================================================================
+
+// Helper: create a v2 tx with bulletproof outputs for weight clawback testing
+static cryptonote::transaction make_v2_bp_tx(size_t n_outputs, bool use_plus)
+{
+    cryptonote::transaction tx;
+    tx.version = 2;
+    tx.unlock_time = 0;
+
+    // Add a coinbase input so serialization works
+    cryptonote::txin_gen gen;
+    gen.height = 100;
+    tx.vin.push_back(gen);
+
+    // Add n_outputs zero-amount outputs
+    for (size_t i = 0; i < n_outputs; ++i)
+    {
+        cryptonote::tx_out out;
+        out.amount = 0;
+        cryptonote::txout_to_key tk;
+        tk.key = crypto::public_key();
+        out.target = tk;
+        tx.vout.push_back(out);
+    }
+
+    // Set up RCT signature type
+    if (use_plus)
+        tx.rct_signatures.type = rct::RCTTypeBulletproofPlus;
+    else
+        tx.rct_signatures.type = rct::RCTTypeBulletproof;
+
+    // Create a fake bulletproof (plus) with correct L/R sizes for n_outputs
+    // n_padded_outputs is next power of 2 >= n_outputs
+    size_t n_padded = 1;
+    size_t nlr = 0;
+    while (n_padded < n_outputs)
+    {
+        n_padded <<= 1;
+        ++nlr;
+    }
+    nlr += 6; // base L/R size
+
+    if (use_plus)
+    {
+        rct::BulletproofPlus bpp;
+        bpp.L.resize(nlr);
+        bpp.R.resize(nlr);
+        bpp.V.resize(n_outputs);
+        tx.rct_signatures.p.bulletproofs_plus.push_back(bpp);
+    }
+    else
+    {
+        rct::Bulletproof bp;
+        bp.L.resize(nlr);
+        bp.R.resize(nlr);
+        bp.V.resize(n_outputs);
+        tx.rct_signatures.p.bulletproofs.push_back(bp);
+    }
+
+    // Set outPk and ecdhInfo to match outputs
+    tx.rct_signatures.outPk.resize(n_outputs);
+    tx.rct_signatures.ecdhInfo.resize(n_outputs);
+
+    return tx;
+}
+
+TEST(cn_format_utils, get_transaction_weight_v2_bp_4_outputs_clawback)
+{
+    // 4 bulletproof outputs should trigger clawback (n_padded_outputs = 4 > 2)
+    auto tx = make_v2_bp_tx(4, false);
+
+    // Use the overload that takes an explicit blob_size.
+    // The tx is not serializable as a real rctSig, but get_transaction_weight(tx, blob_size)
+    // only needs the tx structure and a notional blob size.
+    const size_t fake_blob_size = 2000;
+    uint64_t weight = cryptonote::get_transaction_weight(tx, fake_blob_size);
+    // Weight should be greater than blob size due to clawback
+    ASSERT_GT(weight, fake_blob_size);
+}
+
+TEST(cn_format_utils, get_transaction_weight_v2_bp_2_outputs_no_clawback)
+{
+    // 2 bulletproof outputs: n_padded_outputs = 2, no clawback
+    auto tx = make_v2_bp_tx(2, false);
+
+    const size_t fake_blob_size = 2000;
+    uint64_t weight = cryptonote::get_transaction_weight(tx, fake_blob_size);
+    // With 2 outputs, clawback is 0, so weight == blob_size
+    ASSERT_EQ(weight, fake_blob_size);
+}
+
+TEST(cn_format_utils, get_transaction_weight_v2_bp_plus_4_outputs_clawback)
+{
+    // 4 bulletproof_plus outputs should also trigger clawback
+    auto tx = make_v2_bp_tx(4, true);
+
+    const size_t fake_blob_size = 2000;
+    uint64_t weight = cryptonote::get_transaction_weight(tx, fake_blob_size);
+    // Weight should be greater than blob size due to clawback
+    ASSERT_GT(weight, fake_blob_size);
+}
+
+// =====================================================================
+// parse_and_validate_tx_from_blob edge cases (2 tests)
+// =====================================================================
+
+TEST(cn_format_utils, parse_and_validate_tx_from_blob_v1_roundtrip)
+{
+    // Construct a valid v1 tx, serialize, then parse back
+    auto tx = make_v1_coinbase_tx(42, {{1000000000000ULL, crypto::get_H()}});
+
+    cryptonote::blobdata blob;
+    ASSERT_TRUE(cryptonote::t_serializable_object_to_blob(tx, blob));
+
+    cryptonote::transaction parsed;
+    crypto::hash tx_hash;
+    ASSERT_TRUE(cryptonote::parse_and_validate_tx_from_blob(blob, parsed, tx_hash));
+    ASSERT_EQ(parsed.version, 1u);
+    ASSERT_EQ(parsed.vout.size(), 1u);
+    ASSERT_EQ(parsed.vout[0].amount, 1000000000000ULL);
+
+    // Hash should be non-null
+    ASSERT_NE(tx_hash, crypto::null_hash);
+}
+
+TEST(cn_format_utils, parse_and_validate_tx_from_blob_truncated_fails)
+{
+    // Create a valid tx blob, then truncate in the middle of the output data
+    auto tx = make_v1_coinbase_tx(42, {{1000000000000ULL, crypto::get_H()}, {2000000000000ULL, crypto::get_H()}});
+
+    cryptonote::blobdata blob;
+    ASSERT_TRUE(cryptonote::t_serializable_object_to_blob(tx, blob));
+    ASSERT_GT(blob.size(), 20u);
+
+    // Truncate midway through the serialized outputs
+    cryptonote::blobdata truncated = blob.substr(0, blob.size() / 2);
+
+    cryptonote::transaction parsed;
+    ASSERT_FALSE(cryptonote::parse_and_validate_tx_from_blob(truncated, parsed));
+}
+
+// =====================================================================
+// get_block_reward tests (3 tests)
+// =====================================================================
+
+TEST(cn_format_utils, get_block_reward_penalty_for_oversize_block)
+{
+    // Block slightly over median should get a penalty (reduced reward)
+    uint64_t reward_at_median = 0;
+    uint64_t reward_over_median = 0;
+    const size_t median = 300000;
+    const uint64_t already_generated = 1000000000000000ULL; // ~1M XMR
+
+    ASSERT_TRUE(cryptonote::get_block_reward(median, median, already_generated, reward_at_median, 14));
+    ASSERT_TRUE(cryptonote::get_block_reward(median, median + 1000, already_generated, reward_over_median, 14));
+
+    // Reward should be less when block is over median
+    ASSERT_LT(reward_over_median, reward_at_median);
+}
+
+TEST(cn_format_utils, get_block_reward_tail_emission)
+{
+    // With very large already_generated_coins (near MONEY_SUPPLY), we hit tail emission
+    // MONEY_SUPPLY is (uint64_t)(-1), so use a value close to it
+    uint64_t reward = 0;
+    uint64_t near_max = MONEY_SUPPLY - 1;
+    ASSERT_TRUE(cryptonote::get_block_reward(300000, 300000, near_max, reward, 14));
+
+    // Should get the tail emission: FINAL_SUBSIDY_PER_MINUTE * target_minutes
+    // For v14 (v >= 2), target = DIFFICULTY_TARGET_V2 = 120s, target_minutes = 2
+    uint64_t expected_tail = FINAL_SUBSIDY_PER_MINUTE * 2;
+    ASSERT_EQ(reward, expected_tail);
+}
+
+TEST(cn_format_utils, get_block_reward_too_large_block_fails)
+{
+    // Block weight > 2 * median should fail
+    uint64_t reward = 0;
+    const size_t median = 300000;
+    ASSERT_FALSE(cryptonote::get_block_reward(median, 2 * median + 1, 1000000000000000ULL, reward, 14));
+}
+
+// =====================================================================
+// check_output_types at different HF versions (3 tests)
+// =====================================================================
+
+TEST(cn_format_utils, check_output_types_only_txout_to_key_before_view_tags)
+{
+    // Before HF_VERSION_VIEW_TAGS, only txout_to_key is valid
+    cryptonote::transaction tx;
+    tx.version = 1;
+    tx.unlock_time = 0;
+    cryptonote::txin_gen gen;
+    gen.height = 1;
+    tx.vin.push_back(gen);
+
+    // Add two txout_to_key outputs
+    for (int i = 0; i < 2; ++i)
+    {
+        cryptonote::tx_out out;
+        cryptonote::set_tx_out(1000000000000ULL, crypto::get_H(), false, crypto::view_tag{}, out);
+        tx.vout.push_back(out);
+    }
+
+    ASSERT_TRUE(cryptonote::check_output_types(tx, HF_VERSION_VIEW_TAGS - 1));
+}
+
+TEST(cn_format_utils, check_output_types_at_view_tag_fork_tagged_key_ok)
+{
+    // At HF_VERSION_VIEW_TAGS, txout_to_tagged_key outputs are ok (all same type)
+    cryptonote::transaction tx;
+    tx.version = 2;
+    tx.unlock_time = 0;
+
+    for (int i = 0; i < 2; ++i)
+    {
+        cryptonote::tx_out out;
+        crypto::view_tag vt;
+        vt.data = 0x42;
+        cryptonote::set_tx_out(0, crypto::get_H(), true, vt, out);
+        tx.vout.push_back(out);
+    }
+
+    ASSERT_TRUE(cryptonote::check_output_types(tx, HF_VERSION_VIEW_TAGS));
+}
+
+TEST(cn_format_utils, check_output_types_mixed_types_at_view_tag_fork_fails)
+{
+    // At HF_VERSION_VIEW_TAGS, mixed output types in the same tx should fail
+    // Use v1 tx so get_transaction_hash in error logging doesn't throw
+    cryptonote::transaction tx;
+    tx.version = 1;
+    tx.unlock_time = 0;
+    cryptonote::txin_gen gen;
+    gen.height = 1;
+    tx.vin.push_back(gen);
+
+    // First output: txout_to_key
+    cryptonote::tx_out out1;
+    cryptonote::set_tx_out(1000000000000ULL, crypto::get_H(), false, crypto::view_tag{}, out1);
+    tx.vout.push_back(out1);
+
+    // Second output: txout_to_tagged_key (mixed!)
+    cryptonote::tx_out out2;
+    crypto::view_tag vt;
+    vt.data = 0x42;
+    cryptonote::set_tx_out(1000000000000ULL, crypto::get_H(), true, vt, out2);
+    tx.vout.push_back(out2);
+
+    ASSERT_FALSE(cryptonote::check_output_types(tx, HF_VERSION_VIEW_TAGS));
+}
+
+// =====================================================================
+// construct_miner_tx additional tests (4 tests)
+// =====================================================================
+
+// Helper: create a default miner address for testing
+static cryptonote::account_public_address make_test_miner_address()
+{
+    cryptonote::account_base acct;
+    acct.generate();
+    return acct.get_keys().m_account_address;
+}
+
+TEST(cn_format_utils, construct_miner_tx_with_extra_nonce)
+{
+    auto addr = make_test_miner_address();
+    cryptonote::transaction tx;
+    std::string extra_nonce(4, '\x42'); // 4-byte nonce
+
+    ASSERT_TRUE(cryptonote::construct_miner_tx(100, 300000, 1000000000000000ULL, 0, 0, addr, tx, extra_nonce, 999, 14));
+
+    // The extra should contain the nonce field
+    std::vector<cryptonote::tx_extra_field> fields;
+    ASSERT_TRUE(cryptonote::parse_tx_extra(tx.extra, fields));
+
+    cryptonote::tx_extra_nonce nonce_field;
+    ASSERT_TRUE(cryptonote::find_tx_extra_field_by_type(fields, nonce_field));
+    ASSERT_FALSE(nonce_field.nonce.empty());
+}
+
+TEST(cn_format_utils, construct_miner_tx_output_count_max_outs_1)
+{
+    auto addr = make_test_miner_address();
+    cryptonote::transaction tx;
+
+    // With max_outs = 1 and HF >= 4, all outputs get merged into 1
+    ASSERT_TRUE(cryptonote::construct_miner_tx(100, 300000, 1000000000000000ULL, 0, 0, addr, tx, cryptonote::blobdata(), 1, 14));
+    ASSERT_EQ(tx.vout.size(), 1u);
+    ASSERT_GT(tx.vout[0].amount, 0u);
+}
+
+TEST(cn_format_utils, construct_miner_tx_hf16_uses_view_tags)
+{
+    auto addr = make_test_miner_address();
+    cryptonote::transaction tx;
+
+    ASSERT_TRUE(cryptonote::construct_miner_tx(100, 300000, 1000000000000000ULL, 0, 0, addr, tx, cryptonote::blobdata(), 999, 16));
+
+    // At HF 16 (>= HF_VERSION_VIEW_TAGS=15), outputs should use txout_to_tagged_key
+    ASSERT_GE(tx.vout.size(), 1u);
+    for (const auto& out : tx.vout)
+    {
+        ASSERT_TRUE(out.target.type() == typeid(cryptonote::txout_to_tagged_key))
+            << "Expected txout_to_tagged_key at HF 16";
+    }
+    // tx version should be 2 at HF >= 4
+    ASSERT_EQ(tx.version, 2u);
+}
+
+TEST(cn_format_utils, construct_miner_tx_with_zero_fee)
+{
+    auto addr = make_test_miner_address();
+    cryptonote::transaction tx;
+
+    // Zero fee, non-zero block reward from already_generated_coins
+    ASSERT_TRUE(cryptonote::construct_miner_tx(100, 300000, 1000000000000000ULL, 0, 0, addr, tx, cryptonote::blobdata(), 999, 14));
+
+    // Output amounts should sum to the block reward (no fee added)
+    uint64_t total_output = 0;
+    for (const auto& out : tx.vout)
+        total_output += out.amount;
+    ASSERT_GT(total_output, 0u);
+
+    // Now with a fee
+    cryptonote::transaction tx_with_fee;
+    uint64_t fee = 100000000ULL; // 0.0001 XMR
+    ASSERT_TRUE(cryptonote::construct_miner_tx(100, 300000, 1000000000000000ULL, 0, fee, addr, tx_with_fee, cryptonote::blobdata(), 999, 14));
+
+    uint64_t total_with_fee = 0;
+    for (const auto& out : tx_with_fee.vout)
+        total_with_fee += out.amount;
+
+    // Output with fee should be greater than output without fee
+    ASSERT_GT(total_with_fee, total_output);
 }

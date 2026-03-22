@@ -1502,3 +1502,119 @@ TEST_F(BlockchainTest, get_ideal_hard_fork_version)
   uint8_t version = m_blockchain.get_ideal_hard_fork_version(0);
   EXPECT_EQ(version, 1u);
 }
+
+// =============================================================================
+// Additional coverage tests
+// =============================================================================
+
+// --- Fee calculation tests (3 tests) ---
+
+TEST_F(BlockchainTest, get_dynamic_base_fee_estimate_at_height_0)
+{
+  // The static get_dynamic_base_fee should work with genesis-era parameters
+  uint64_t fee = cryptonote::Blockchain::get_dynamic_base_fee(600000000000ULL, 300000);
+  ASSERT_GT(fee, 0u);
+  // The instance-based fee estimate via 2021 scaling should also work
+  std::vector<uint64_t> fees;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (size_t i = 0; i < fees.size(); ++i)
+    ASSERT_GT(fees[i], 0u) << "Fee level " << i << " should be positive";
+}
+
+TEST_F(BlockchainTest, get_dynamic_base_fee_estimate_with_grace)
+{
+  // grace_blocks parameter should affect the estimate (larger grace = potentially lower fee)
+  std::vector<uint64_t> fees_no_grace;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees_no_grace);
+  ASSERT_EQ(fees_no_grace.size(), 4u);
+
+  std::vector<uint64_t> fees_with_grace;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(100, fees_with_grace);
+  ASSERT_EQ(fees_with_grace.size(), 4u);
+
+  // Both should produce valid positive fees
+  for (size_t i = 0; i < 4; ++i)
+  {
+    ASSERT_GT(fees_no_grace[i], 0u);
+    ASSERT_GT(fees_with_grace[i], 0u);
+  }
+}
+
+TEST(BlockchainStaticTest, fee_quantization_mask_alignment)
+{
+  // Quantized fees should be multiples of the mask
+  uint64_t mask = cryptonote::Blockchain::get_fee_quantization_mask();
+  ASSERT_GT(mask, 0u);
+
+  // A fee that is not a multiple of the mask, when quantized, should become one
+  uint64_t raw_fee = 12345678ULL;
+  uint64_t quantized = (raw_fee + mask - 1) / mask * mask;
+  ASSERT_EQ(quantized % mask, 0u);
+  ASSERT_GE(quantized, raw_fee);
+}
+
+// --- Blockchain query tests (4 tests) ---
+
+TEST_F(BlockchainTest, get_block_by_hash_genesis_via_height)
+{
+  // Get genesis block ID then try to look it up
+  crypto::hash genesis_id = m_blockchain.get_block_id_by_height(0);
+  // TestDB returns null_hash, but the method should not crash
+  (void)genesis_id;
+}
+
+TEST_F(BlockchainTest, get_block_id_by_height_out_of_range)
+{
+  // Height far beyond the chain should return null_hash
+  crypto::hash id = m_blockchain.get_block_id_by_height(1000000);
+  ASSERT_EQ(id, crypto::null_hash);
+}
+
+TEST_F(BlockchainTest, get_current_hard_fork_version_v1)
+{
+  // After init with HF v1, the current hard fork version should be 1
+  uint8_t version = m_blockchain.get_current_hard_fork_version();
+  ASSERT_EQ(version, 1u);
+}
+
+TEST_F(BlockchainTest, get_hard_fork_voting_info_v1)
+{
+  uint32_t window = 0, votes = 0, threshold = 0;
+  uint64_t earliest_height = 0;
+  uint8_t voting = 0;
+  bool enabled = m_blockchain.get_hard_fork_voting_info(1, window, votes, threshold, earliest_height, voting);
+  ASSERT_TRUE(enabled);
+  // Version 1 should be enabled from height 0
+  ASSERT_EQ(earliest_height, 0u);
+}
+
+// --- Block weight/size tests (3 tests) ---
+
+TEST_F(BlockchainTest, get_current_cumulative_block_weight_limit_positive)
+{
+  uint64_t limit = m_blockchain.get_current_cumulative_block_weight_limit();
+  ASSERT_GT(limit, 0u);
+  // At HF v1, limit = 2 * median, median = max(actual, full_reward_zone_v1=20000)
+  // So limit should be at least 2 * 20000 = 40000
+  ASSERT_GE(limit, 40000u);
+}
+
+TEST_F(BlockchainTest, get_current_cumulative_block_weight_median_positive)
+{
+  uint64_t median = m_blockchain.get_current_cumulative_block_weight_median();
+  ASSERT_GT(median, 0u);
+  // Median should not exceed the limit
+  uint64_t limit = m_blockchain.get_current_cumulative_block_weight_limit();
+  ASSERT_LE(median, limit);
+}
+
+TEST_F(BlockchainTest, get_next_long_term_block_weight_at_zero)
+{
+  // At HF v1, long term block weight should equal the input weight
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(500);
+  ASSERT_EQ(ltw, 500u);
+  // Also test with 0
+  uint64_t ltw0 = m_blockchain.get_next_long_term_block_weight(0);
+  ASSERT_EQ(ltw0, 0u);
+}

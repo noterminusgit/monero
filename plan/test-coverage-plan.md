@@ -124,8 +124,13 @@ make coverage   # generates HTML report
 | `722da8f3a` | ~2800+ | Session 4: Massive expansion across wallet, crypto, P2P, RPC, and core |
 | `925fe3b0a` | 39 | Session 5: Phase 5 wallet tests + 4 bug fixes |
 | `9e41dd522` | 87 | Session 6: P2P protocol serialization, tx proofs, wallet fee tests |
-| (uncommitted) | 205 | Session 7: blockchain, tx_pool, block_queue, wallet2, core_rpc, rpc_payment, net_utils |
-| **Total** | **~3900+** | |
+| `5632fa972` | 205 | Session 7: blockchain, tx_pool, block_queue, wallet2, core_rpc, rpc_payment, net_utils |
+| `1c5a7846d` | 0 | Session 8: Fix tx_pool test, add untestable-lines.md, fix CodeCoverage.cmake |
+| `da7439075` | 57 | Session 8: blockchain checkpoints/outputs, tx_pool set_relayed/fill_template, wallet2 address_book/freeze |
+| `1928ce28a` | 31 | Session 8: tx_utils get_destination_view_key_pub/construct_miner_tx, util concurrency/dirs/sync_weight |
+| `48cb34541` | 41 | Session 8: rpc_payment flush/store/load, hardfork version tracking, difficulty check_hash, core block_reward |
+| `d2712dbfc` | 27 | Session 8: wallet2 tx notes, attributes, transfer details, config, hash chain, fees, subaddress expansion |
+| **Total** | **~4260+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
@@ -150,7 +155,10 @@ make coverage   # generates HTML report
 - `tests/unit_tests/core_rpc_server.cpp` (+25 tests — RPC command serialization roundtrips)
 - `tests/unit_tests/cryptonote_core_tests.cpp` (+20 tests — construct_miner_tx, account address checksum)
 - `tests/unit_tests/net_utils.cpp` (+10 tests — network zone/address utilities)
-- `tests/unit_tests/rpc_payment.cpp` (+10 tests — rpc_payment balance, pay, foreach, hashes)
+- `tests/unit_tests/rpc_payment.cpp` (+21 tests — rpc_payment balance, pay, foreach, hashes, flush, store/load)
+- `tests/unit_tests/hardfork.cpp` (+11 tests — version tracking, ideal height, on_block_popped, state, voting)
+- `tests/unit_tests/difficulty_tests.cpp` (6 tests — check_hash, next_difficulty)
+- `tests/unit_tests/test_tx_utils.cpp` (+12 tests — get_destination_view_key_pub, construct_miner_tx)
 
 ---
 
@@ -159,4 +167,5 @@ make coverage   # generates HTML report
 1. **Anonymous namespaces**: Several testable helpers in `rpc_command_executor.cpp` and `simplewallet.cpp` are hidden in anonymous namespaces. Refactoring them into named namespaces is a prerequisite for Phase 6.
 2. **Device testing**: `device_ledger` has private `hw::io::device_io_hid` member (not injectable). Tests limited to helper classes (ABPkeys, Keymap, HMACmap) via `#ifdef WITH_DEVICE_LEDGER`.
 3. **Trezor**: Requires `WITH_DEVICE_TREZOR`, protobuf, libusb — heavy external deps, skipped for unit tests.
-4. **No cmake on current machine**: Tests have not been compile-verified yet. Install cmake + deps first.
+4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage: **30.0% lines** (23145/77126), **21.8% functions** (3310/15159) with 3968 tests running.
+5. **Hanging tests**: `multisig.*`, `long_term_block_weight*`, and some network tests hang during execution and must be excluded from coverage runs.
