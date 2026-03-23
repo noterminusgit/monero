@@ -33,6 +33,7 @@ set(unit_tests_sources
   base58.cpp
   blockchain.cpp
   blockchain_db.cpp
+  db_lmdb_tests.cpp
   block_queue.cpp
   block_reward.cpp
   bootstrap_file.cpp

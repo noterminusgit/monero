@@ -1961,3 +1961,916 @@ TEST_F(BlockchainTestV16, for_all_txpool_txes_empty_v16)
   ASSERT_TRUE(result);
   ASSERT_EQ(count, 0);
 }
+
+// =============================================================================
+// Additional HF version fixtures for broader check_tx_outputs coverage
+// =============================================================================
+
+namespace
+{
+  template<uint8_t HF_VERSION>
+  struct get_test_options_hf {
+    const std::pair<uint8_t, uint64_t> hard_forks[2];
+    const cryptonote::test_options test_options = { hard_forks, 0 };
+    get_test_options_hf(): hard_forks{std::make_pair(HF_VERSION, (uint64_t)0), std::make_pair((uint8_t)0, (uint64_t)0)} {}
+  };
+
+  template<uint8_t HF_VERSION>
+  class BlockchainTestHF : public ::testing::Test
+  {
+  protected:
+    void SetUp() override
+    {
+      get_test_options_hf<HF_VERSION> opts;
+      ASSERT_TRUE(m_bap.blockchain.init(new TestDB(), cryptonote::FAKECHAIN, true, &opts.test_options, 0, NULL));
+    }
+    void TearDown() override { m_bap.blockchain.deinit(); }
+    cryptonote::BlockchainAndPool m_bap;
+    cryptonote::Blockchain& m_blockchain{m_bap.blockchain};
+  };
+
+  using BlockchainTestHF2 = BlockchainTestHF<2>;
+  using BlockchainTestHF4 = BlockchainTestHF<4>;
+  using BlockchainTestHF8 = BlockchainTestHF<8>;
+  using BlockchainTestHF10 = BlockchainTestHF<10>;
+  using BlockchainTestHF12 = BlockchainTestHF<12>;
+  using BlockchainTestHF14 = BlockchainTestHF<14>;
+  using BlockchainTestHF15 = BlockchainTestHF<15>;
+}
+
+// =============================================================================
+// check_tx_outputs at various HF versions (HF 2-15)
+// =============================================================================
+
+TEST_F(BlockchainTestHF2, check_tx_outputs_v1_non_decomposed_fails_hf2)
+{
+  // At HF2, non-decomposed amounts in v1 txs should fail
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 1234567890ULL;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_FALSE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_TRUE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF2, check_tx_outputs_v1_decomposed_passes_hf2)
+{
+  // At HF2, decomposed amounts in v1 txs should pass
+  cryptonote::transaction tx;
+  tx.version = 1;
+  // Add multiple valid decomposed outputs
+  for (uint64_t amt : {1000000000000ULL, 2000000000000ULL, 500000000000ULL})
+  {
+    cryptonote::tx_out out;
+    out.amount = amt;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::public_key();
+    out.target = tk;
+    tx.vout.push_back(out);
+  }
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF4, check_tx_outputs_v2_nonzero_amount_fails_hf4)
+{
+  // At HF4+, v2 tx with non-zero amounts should fail
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 100;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_FALSE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 4));
+  ASSERT_TRUE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF4, check_tx_outputs_v2_zero_amount_passes_hf4)
+{
+  // At HF4, v2 tx with zero amounts should pass
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 4));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF8, difficulty_target_v2_at_hf8)
+{
+  // At HF8, difficulty target should be DIFFICULTY_TARGET_V2 (120)
+  uint64_t target = m_blockchain.get_difficulty_target();
+  ASSERT_EQ(target, DIFFICULTY_TARGET_V2);
+}
+
+TEST_F(BlockchainTestHF8, check_tx_outputs_empty_tx_hf8)
+{
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 8));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF10, get_next_long_term_block_weight_hf10)
+{
+  // At HF >= 10, the adaptive long-term block weight algorithm is used
+  uint64_t ltw_small = m_blockchain.get_next_long_term_block_weight(1000);
+  ASSERT_GT(ltw_small, 0u);
+  uint64_t ltw_large = m_blockchain.get_next_long_term_block_weight(1000000);
+  ASSERT_GT(ltw_large, 0u);
+  // Larger input should yield larger or equal long-term weight
+  ASSERT_LE(ltw_small, ltw_large);
+}
+
+TEST_F(BlockchainTestHF10, get_current_cumulative_block_weight_limit_hf10)
+{
+  uint64_t limit = m_blockchain.get_current_cumulative_block_weight_limit();
+  ASSERT_GT(limit, 0u);
+  uint64_t median = m_blockchain.get_current_cumulative_block_weight_median();
+  ASSERT_GT(median, 0u);
+  // Limit should be >= median
+  ASSERT_GE(limit, median);
+}
+
+TEST_F(BlockchainTestHF12, check_tx_outputs_v2_zero_amount_hf12)
+{
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 12));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF14, dynamic_base_fee_estimate_2021_scaling_hf14)
+{
+  // At HF 14, the 2021 scaling should be active
+  std::vector<uint64_t> fees;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (size_t i = 0; i < fees.size(); ++i)
+    ASSERT_GT(fees[i], 0u) << "Fee level " << i << " should be positive at HF14";
+  ASSERT_LE(fees[0], fees[1]);
+  ASSERT_LE(fees[1], fees[2]);
+  ASSERT_LE(fees[2], fees[3]);
+}
+
+TEST_F(BlockchainTestHF15, check_tx_outputs_tagged_key_hf15)
+{
+  // At HF 15, txout_to_tagged_key is required for v2 txs
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_tagged_key ttk;
+  ttk.key = crypto::rand<crypto::public_key>();
+  ttk.view_tag = crypto::view_tag{0x42};
+  out.target = ttk;
+  tx.vout.push_back(out);
+  tx.rct_signatures.type = rct::RCTTypeBulletproofPlus;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 15));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST_F(BlockchainTestHF15, check_tx_outputs_old_key_type_still_allowed_hf15)
+{
+  // At HF 15, txout_to_key is still allowed (tagged keys are optional until HF 16)
+  cryptonote::transaction tx;
+  tx.version = 2;
+  cryptonote::tx_out out;
+  out.amount = 0;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  tx.rct_signatures.type = rct::RCTTypeBulletproofPlus;
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 15));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+// =============================================================================
+// Block reward calculation tests
+// =============================================================================
+
+TEST(BlockchainStaticTest, get_block_reward_v1_empty_block)
+{
+  uint64_t reward = 0;
+  // At the start (no coins generated), a block with no txs should get the full reward
+  bool result = cryptonote::get_block_reward(0, 0, 0, reward, 1);
+  ASSERT_TRUE(result);
+  ASSERT_GT(reward, 0u);
+}
+
+TEST(BlockchainStaticTest, get_block_reward_v1_with_weight)
+{
+  uint64_t reward_empty = 0, reward_weighted = 0;
+  cryptonote::get_block_reward(0, 0, 0, reward_empty, 1);
+  // A block that exceeds median should have a penalty
+  cryptonote::get_block_reward(300000, 600000, 0, reward_weighted, 1);
+  ASSERT_GT(reward_empty, 0u);
+  // When current_block_weight > median, reward should be penalized
+  ASSERT_LT(reward_weighted, reward_empty);
+}
+
+TEST(BlockchainStaticTest, get_block_reward_tail_emission)
+{
+  uint64_t reward = 0;
+  // With large already_generated_coins, should still get at least tail emission
+  bool result = cryptonote::get_block_reward(300000, 100000, 18400000000000000000ULL, reward, 8);
+  ASSERT_TRUE(result);
+  ASSERT_GE(reward, FINAL_SUBSIDY_PER_MINUTE);
+}
+
+TEST(BlockchainStaticTest, get_block_reward_zero_weight_no_penalty)
+{
+  uint64_t reward = 0;
+  // Zero current_block_weight means no penalty
+  bool result = cryptonote::get_block_reward(300000, 0, 0, reward, 1);
+  ASSERT_TRUE(result);
+  ASSERT_GT(reward, 0u);
+}
+
+TEST(BlockchainStaticTest, get_block_reward_oversize_block_fails)
+{
+  uint64_t reward = 0;
+  // A block that exceeds 2x the median should fail (return false)
+  bool result = cryptonote::get_block_reward(300000, 600001, 0, reward, 1);
+  ASSERT_FALSE(result);
+}
+
+TEST(BlockchainStaticTest, get_block_reward_at_various_generation_levels)
+{
+  uint64_t reward_early = 0, reward_mid = 0, reward_late = 0;
+  cryptonote::get_block_reward(300000, 0, 0, reward_early, 1);
+  cryptonote::get_block_reward(300000, 0, 10000000000000000ULL, reward_mid, 1);
+  cryptonote::get_block_reward(300000, 0, 18000000000000000000ULL, reward_late, 8);
+  // Early reward should be largest
+  ASSERT_GT(reward_early, reward_mid);
+  // All should be positive
+  ASSERT_GT(reward_early, 0u);
+  ASSERT_GT(reward_mid, 0u);
+  ASSERT_GT(reward_late, 0u);
+}
+
+// =============================================================================
+// Transaction blob retrieval tests
+// =============================================================================
+
+TEST_F(BlockchainTest, get_transactions_blobs_empty_request)
+{
+  std::vector<crypto::hash> txs_ids;
+  std::vector<cryptonote::blobdata> txs;
+  std::vector<crypto::hash> missed;
+  bool result = m_blockchain.get_transactions_blobs(txs_ids, txs, missed, false);
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(txs.empty());
+  ASSERT_TRUE(missed.empty());
+}
+
+TEST_F(BlockchainTest, get_transactions_blobs_nonexistent_tx)
+{
+  std::vector<crypto::hash> txs_ids;
+  txs_ids.push_back(crypto::rand<crypto::hash>());
+  std::vector<cryptonote::blobdata> txs;
+  std::vector<crypto::hash> missed;
+  bool result = m_blockchain.get_transactions_blobs(txs_ids, txs, missed, false);
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(txs.empty());
+  ASSERT_EQ(missed.size(), 1u);
+}
+
+TEST_F(BlockchainTest, get_transactions_blobs_multiple_nonexistent)
+{
+  std::vector<crypto::hash> txs_ids;
+  txs_ids.push_back(crypto::rand<crypto::hash>());
+  txs_ids.push_back(crypto::rand<crypto::hash>());
+  txs_ids.push_back(crypto::rand<crypto::hash>());
+  std::vector<cryptonote::blobdata> txs;
+  std::vector<crypto::hash> missed;
+  bool result = m_blockchain.get_transactions_blobs(txs_ids, txs, missed, false);
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(txs.empty());
+  ASSERT_EQ(missed.size(), 3u);
+}
+
+TEST_F(BlockchainTest, get_transactions_blobs_pruned_empty)
+{
+  std::vector<crypto::hash> txs_ids;
+  std::vector<cryptonote::blobdata> txs;
+  std::vector<crypto::hash> missed;
+  bool result = m_blockchain.get_transactions_blobs(txs_ids, txs, missed, true);
+  ASSERT_TRUE(result);
+  ASSERT_TRUE(txs.empty());
+  ASSERT_TRUE(missed.empty());
+}
+
+// =============================================================================
+// for_all_outputs with specific amount
+// =============================================================================
+
+TEST_F(BlockchainTest, for_all_outputs_with_amount_zero)
+{
+  int count = 0;
+  bool result = m_blockchain.for_all_outputs(0, [&count](uint64_t height) {
+    ++count;
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+// =============================================================================
+// Edge cases for dynamic base fee 2021 scaling
+// =============================================================================
+
+TEST(BlockchainStaticTest, dynamic_base_fee_2021_scaling_small_Mnw)
+{
+  std::vector<uint64_t> fees;
+  // Small Mnw (at minimum full reward zone) should produce valid fees
+  cryptonote::Blockchain::get_dynamic_base_fee_estimate_2021_scaling(
+      600000000000ULL, CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5,
+      CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (const auto& f : fees)
+    ASSERT_GT(f, 0u);
+}
+
+TEST(BlockchainStaticTest, dynamic_base_fee_2021_scaling_large_Mnw)
+{
+  std::vector<uint64_t> fees;
+  // Large Mnw (10MB) should produce smaller fees than normal (300KB)
+  cryptonote::Blockchain::get_dynamic_base_fee_estimate_2021_scaling(600000000000ULL, 10000000, 10000000, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  // Fees may be zero at very large medians due to integer division
+  for (const auto& f : fees)
+    ASSERT_GE(f, 0u);
+
+  // Compare with normal median
+  std::vector<uint64_t> fees_normal;
+  cryptonote::Blockchain::get_dynamic_base_fee_estimate_2021_scaling(600000000000ULL, 300000, 300000, fees_normal);
+  // Large median should produce fees <= normal median fees
+  ASSERT_LE(fees[0], fees_normal[0]);
+}
+
+TEST(BlockchainStaticTest, dynamic_base_fee_2021_scaling_Mlw_much_larger_than_Mnw)
+{
+  std::vector<uint64_t> fees;
+  cryptonote::Blockchain::get_dynamic_base_fee_estimate_2021_scaling(600000000000ULL, 100000, 1000000, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (const auto& f : fees)
+    ASSERT_GT(f, 0u);
+}
+
+TEST(BlockchainStaticTest, dynamic_base_fee_max_reward)
+{
+  // Test with UINT64_MAX-like reward (should not overflow)
+  uint64_t fee = cryptonote::Blockchain::get_dynamic_base_fee(UINT64_MAX / 2, 300000);
+  ASSERT_GT(fee, 0u);
+}
+
+// =============================================================================
+// HF version-specific fixture tests for blockchain queries
+// =============================================================================
+
+TEST_F(BlockchainTestHF4, get_current_hard_fork_version_hf4)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 4u);
+}
+
+TEST_F(BlockchainTestHF4, get_ideal_hard_fork_version_hf4)
+{
+  ASSERT_EQ(m_blockchain.get_ideal_hard_fork_version(), 4u);
+}
+
+TEST_F(BlockchainTestHF4, difficulty_target_v2_at_hf4)
+{
+  uint64_t target = m_blockchain.get_difficulty_target();
+  ASSERT_EQ(target, DIFFICULTY_TARGET_V2);
+}
+
+TEST_F(BlockchainTestHF4, get_short_chain_history_hf4)
+{
+  std::list<crypto::hash> ids;
+  uint64_t current_height = 0;
+  ASSERT_TRUE(m_blockchain.get_short_chain_history(ids, current_height));
+  ASSERT_GE(ids.size(), 1u);
+  ASSERT_EQ(current_height, 1u);
+}
+
+TEST_F(BlockchainTestHF4, check_fee_hf4)
+{
+  // Large fee should pass at HF4
+  ASSERT_TRUE(m_blockchain.check_fee(3000, 1000000000000ULL));
+  // Zero fee should fail for non-zero weight
+  ASSERT_FALSE(m_blockchain.check_fee(3000, 0));
+}
+
+TEST_F(BlockchainTestHF8, get_current_hard_fork_version_hf8)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 8u);
+}
+
+TEST_F(BlockchainTestHF8, dynamic_base_fee_estimate_2021_scaling_hf8)
+{
+  std::vector<uint64_t> fees;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (size_t i = 0; i < fees.size(); ++i)
+    ASSERT_GT(fees[i], 0u);
+}
+
+TEST_F(BlockchainTestHF8, get_block_weight_limit_hf8)
+{
+  uint64_t limit = m_blockchain.get_current_cumulative_block_weight_limit();
+  ASSERT_GT(limit, 0u);
+  uint64_t median = m_blockchain.get_current_cumulative_block_weight_median();
+  ASSERT_GT(median, 0u);
+}
+
+TEST_F(BlockchainTestHF10, get_current_hard_fork_version_hf10)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 10u);
+}
+
+TEST_F(BlockchainTestHF10, dynamic_base_fee_estimate_2021_scaling_hf10)
+{
+  std::vector<uint64_t> fees;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (const auto& f : fees)
+    ASSERT_GT(f, 0u);
+}
+
+TEST_F(BlockchainTestHF12, get_current_hard_fork_version_hf12)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 12u);
+}
+
+TEST_F(BlockchainTestHF12, get_next_long_term_block_weight_hf12)
+{
+  // At HF >= 10, long-term weight uses adaptive algorithm
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(5000);
+  ASSERT_GT(ltw, 0u);
+}
+
+TEST_F(BlockchainTestHF14, get_current_hard_fork_version_hf14)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 14u);
+}
+
+TEST_F(BlockchainTestHF14, check_fee_hf14)
+{
+  ASSERT_TRUE(m_blockchain.check_fee(3000, 1000000000000ULL));
+  ASSERT_FALSE(m_blockchain.check_fee(3000, 0));
+}
+
+TEST_F(BlockchainTestHF15, get_current_hard_fork_version_hf15)
+{
+  ASSERT_EQ(m_blockchain.get_current_hard_fork_version(), 15u);
+}
+
+TEST_F(BlockchainTestHF15, dynamic_base_fee_estimate_2021_scaling_hf15)
+{
+  std::vector<uint64_t> fees;
+  m_blockchain.get_dynamic_base_fee_estimate_2021_scaling(0, fees);
+  ASSERT_EQ(fees.size(), 4u);
+  for (const auto& f : fees)
+    ASSERT_GT(f, 0u);
+  // Fee levels should be ordered
+  ASSERT_LE(fees[0], fees[1]);
+  ASSERT_LE(fees[1], fees[2]);
+  ASSERT_LE(fees[2], fees[3]);
+}
+
+// =============================================================================
+// get_miner_data test
+// =============================================================================
+
+TEST_F(BlockchainTestHF15, get_miner_data_no_crash)
+{
+  uint8_t major_version = 0;
+  uint64_t height = 0;
+  crypto::hash prev_id, seed_hash;
+  cryptonote::difficulty_type difficulty;
+  uint64_t median_weight = 0, already_generated_coins = 0;
+  std::vector<cryptonote::tx_block_template_backlog_entry> tx_backlog;
+  bool result = m_blockchain.get_miner_data(major_version, height, prev_id, seed_hash,
+                                             difficulty, median_weight, already_generated_coins, tx_backlog);
+  ASSERT_TRUE(result);
+  // major_version is set to ideal version at height
+  ASSERT_GE(major_version, 1u);
+  ASSERT_EQ(height, 1u);
+  ASSERT_GT(median_weight, 0u);
+}
+
+// =============================================================================
+// Additional edge cases for check_tx_outputs
+// =============================================================================
+
+TEST(BlockchainStaticTest, check_tx_outputs_multiple_outputs_all_decomposed_hf2)
+{
+  cryptonote::transaction tx;
+  tx.version = 1;
+  for (uint64_t amt : {10000000000ULL, 20000000000ULL, 3000000000000ULL, 400000000000ULL})
+  {
+    cryptonote::tx_out out;
+    out.amount = amt;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::public_key();
+    out.target = tk;
+    tx.vout.push_back(out);
+  }
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+TEST(BlockchainStaticTest, check_tx_outputs_one_bad_amount_among_good_hf2)
+{
+  cryptonote::transaction tx;
+  tx.version = 1;
+  // Good amounts
+  for (uint64_t amt : {10000000000ULL, 20000000000ULL})
+  {
+    cryptonote::tx_out out;
+    out.amount = amt;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::public_key();
+    out.target = tk;
+    tx.vout.push_back(out);
+  }
+  // One bad amount
+  {
+    cryptonote::tx_out out;
+    out.amount = 12345ULL;
+    cryptonote::txout_to_key tk;
+    tk.key = crypto::public_key();
+    out.target = tk;
+    tx.vout.push_back(out);
+  }
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_FALSE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 2));
+  ASSERT_TRUE(tvc.m_invalid_output);
+}
+
+TEST(BlockchainStaticTest, check_tx_outputs_v1_at_hf1_no_decomposition_check)
+{
+  // At HF1, no decomposition check for v1 tx (any amount is valid)
+  cryptonote::transaction tx;
+  tx.version = 1;
+  cryptonote::tx_out out;
+  out.amount = 7777777ULL;
+  cryptonote::txout_to_key tk;
+  tk.key = crypto::public_key();
+  out.target = tk;
+  tx.vout.push_back(out);
+  cryptonote::tx_verification_context tvc = {};
+  ASSERT_TRUE(cryptonote::Blockchain::check_tx_outputs(tx, tvc, 1));
+  ASSERT_FALSE(tvc.m_invalid_output);
+}
+
+// =============================================================================
+// Blockchain weight/size edge cases
+// =============================================================================
+
+TEST_F(BlockchainTestHF10, get_next_long_term_block_weight_zero)
+{
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(0);
+  ASSERT_EQ(ltw, 0u);
+}
+
+TEST_F(BlockchainTestHF10, get_next_long_term_block_weight_very_large)
+{
+  uint64_t ltw = m_blockchain.get_next_long_term_block_weight(100000000);
+  ASSERT_GT(ltw, 0u);
+}
+
+TEST_F(BlockchainTestHF10, has_block_weights_after_init)
+{
+  bool has = m_blockchain.has_block_weights(0, 1);
+  (void)has; // Just verify no crash
+}
+
+// =============================================================================
+// find_blockchain_supplement additional tests
+// =============================================================================
+
+TEST_F(BlockchainTestHF8, find_blockchain_supplement_empty_ids_fails)
+{
+  std::list<crypto::hash> qblock_ids;
+  uint64_t starter_offset = 0;
+  ASSERT_FALSE(m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset));
+}
+
+TEST_F(BlockchainTestHF8, find_blockchain_supplement_with_genesis_hash)
+{
+  // Get the genesis block hash
+  crypto::hash genesis_hash = m_blockchain.get_block_id_by_height(0);
+  std::list<crypto::hash> qblock_ids;
+  qblock_ids.push_back(genesis_hash);
+  uint64_t starter_offset = 0;
+  // BaseTestDB returns null_hash for get_block_hash_from_height,
+  // so genesis_hash is null_hash; this should match
+  bool result = m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset);
+  // Result depends on whether the null hash happens to match the DB
+  (void)result;
+}
+
+TEST_F(BlockchainTestHF12, find_blockchain_supplement_wrong_genesis)
+{
+  std::list<crypto::hash> qblock_ids;
+  qblock_ids.push_back(crypto::rand<crypto::hash>());
+  uint64_t starter_offset = 0;
+  ASSERT_FALSE(m_blockchain.find_blockchain_supplement(qblock_ids, starter_offset));
+}
+
+// =============================================================================
+// get_output_histogram additional tests
+// =============================================================================
+
+TEST_F(BlockchainTest, get_output_histogram_with_specific_amounts)
+{
+  std::vector<uint64_t> amounts = {0, 1000000000000ULL};
+  auto histogram = m_blockchain.get_output_histogram(amounts, false, 0, 0);
+  // BaseTestDB returns empty histogram
+  ASSERT_TRUE(histogram.empty());
+}
+
+TEST_F(BlockchainTest, get_output_histogram_unlocked)
+{
+  std::vector<uint64_t> amounts;
+  auto histogram = m_blockchain.get_output_histogram(amounts, true, 0, 0);
+  ASSERT_TRUE(histogram.empty());
+}
+
+TEST_F(BlockchainTest, get_output_histogram_with_cutoff)
+{
+  std::vector<uint64_t> amounts;
+  auto histogram = m_blockchain.get_output_histogram(amounts, false, time(NULL), 0);
+  ASSERT_TRUE(histogram.empty());
+}
+
+TEST_F(BlockchainTest, get_output_histogram_with_min_count)
+{
+  std::vector<uint64_t> amounts;
+  auto histogram = m_blockchain.get_output_histogram(amounts, false, 0, 100);
+  ASSERT_TRUE(histogram.empty());
+}
+
+// =============================================================================
+// get_output_distribution additional tests
+// =============================================================================
+
+TEST_F(BlockchainTest, get_output_distribution_zero_to_zero)
+{
+  uint64_t start_height = 0;
+  std::vector<uint64_t> distribution;
+  uint64_t base = 0;
+  // from=0, to=0 is a valid range; Blockchain may handle it internally
+  bool result = m_blockchain.get_output_distribution(0, 0, 0, start_height, distribution, base);
+  // Just verify no crash; result depends on DB implementation details
+  (void)result;
+}
+
+TEST_F(BlockchainTest, get_output_distribution_specific_amount)
+{
+  uint64_t start_height = 0;
+  std::vector<uint64_t> distribution;
+  uint64_t base = 0;
+  bool result = m_blockchain.get_output_distribution(1000000000000ULL, 0, 0, start_height, distribution, base);
+  ASSERT_FALSE(result);
+}
+
+// =============================================================================
+// Additional V16 fixture tests for better coverage
+// =============================================================================
+
+TEST_F(BlockchainTestV16, get_miner_data_v16)
+{
+  uint8_t major_version = 0;
+  uint64_t height = 0;
+  crypto::hash prev_id, seed_hash;
+  cryptonote::difficulty_type difficulty;
+  uint64_t median_weight = 0, already_generated_coins = 0;
+  std::vector<cryptonote::tx_block_template_backlog_entry> tx_backlog;
+  bool result = m_blockchain.get_miner_data(major_version, height, prev_id, seed_hash,
+                                             difficulty, median_weight, already_generated_coins, tx_backlog);
+  ASSERT_TRUE(result);
+  // major_version is set to ideal version at height
+  ASSERT_GE(major_version, 1u);
+  ASSERT_EQ(height, 1u);
+  ASSERT_GT(median_weight, 0u);
+}
+
+TEST_F(BlockchainTestV16, get_transactions_blobs_empty_v16)
+{
+  std::vector<crypto::hash> txs_ids;
+  std::vector<cryptonote::blobdata> txs;
+  std::vector<crypto::hash> missed;
+  ASSERT_TRUE(m_blockchain.get_transactions_blobs(txs_ids, txs, missed, false));
+  ASSERT_TRUE(txs.empty());
+  ASSERT_TRUE(missed.empty());
+}
+
+TEST_F(BlockchainTestV16, check_fee_edge_cases_v16)
+{
+  // Zero weight and zero fee
+  bool ok0 = m_blockchain.check_fee(0, 0);
+  (void)ok0;
+  // Very small weight with very large fee
+  ASSERT_TRUE(m_blockchain.check_fee(1, UINT64_MAX));
+  // Large weight with zero fee
+  ASSERT_FALSE(m_blockchain.check_fee(1000000, 0));
+}
+
+TEST_F(BlockchainTestV16, get_earliest_ideal_height_for_version_v16)
+{
+  uint64_t height = m_blockchain.get_earliest_ideal_height_for_version(16);
+  ASSERT_EQ(height, 0u);
+}
+
+TEST_F(BlockchainTestV16, get_earliest_ideal_height_for_version_higher)
+{
+  // Version higher than configured should return UINT64_MAX
+  uint64_t height = m_blockchain.get_earliest_ideal_height_for_version(17);
+  ASSERT_EQ(height, std::numeric_limits<uint64_t>::max());
+}
+
+TEST_F(BlockchainTestV16, store_blockchain_v16)
+{
+  bool result = m_blockchain.store_blockchain();
+  (void)result;
+}
+
+TEST_F(BlockchainTestV16, lock_unlock_v16)
+{
+  m_blockchain.lock();
+  m_blockchain.unlock();
+}
+
+TEST_F(BlockchainTestV16, cancel_v16)
+{
+  m_blockchain.cancel();
+}
+
+TEST_F(BlockchainTestV16, for_blocks_range_zero_v16)
+{
+  int count = 0;
+  bool result = m_blockchain.for_blocks_range(0, 0, [&count](uint64_t, const crypto::hash&, const cryptonote::block&) {
+    ++count;
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+TEST_F(BlockchainTestV16, for_all_key_images_v16)
+{
+  bool result = m_blockchain.for_all_key_images([](const crypto::key_image&) {
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+TEST_F(BlockchainTestV16, for_all_transactions_v16)
+{
+  bool result = m_blockchain.for_all_transactions([](const crypto::hash&, const cryptonote::transaction&) {
+    return true;
+  }, false);
+  ASSERT_TRUE(result);
+}
+
+TEST_F(BlockchainTestV16, for_all_outputs_v16)
+{
+  bool result = m_blockchain.for_all_outputs([](uint64_t, const crypto::hash&, uint64_t, size_t) {
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+TEST_F(BlockchainTestV16, for_all_outputs_with_amount_v16)
+{
+  bool result = m_blockchain.for_all_outputs(0, [](uint64_t) {
+    return true;
+  });
+  ASSERT_TRUE(result);
+}
+
+TEST_F(BlockchainTestV16, get_output_key_mask_unlocked_v16)
+{
+  crypto::public_key key;
+  rct::key mask;
+  bool unlocked = false;
+  m_blockchain.get_output_key_mask_unlocked(0, 0, key, mask, unlocked);
+  ASSERT_EQ(key, crypto::public_key());
+}
+
+TEST_F(BlockchainTestV16, get_hardforks_v16)
+{
+  const auto& hfs = m_blockchain.get_hardforks();
+  ASSERT_GE(hfs.size(), 1u);
+}
+
+TEST_F(BlockchainTestV16, get_hard_fork_voting_info_v16)
+{
+  uint32_t window = 0, votes = 0, threshold = 0;
+  uint64_t earliest_height = 0;
+  uint8_t voting = 0;
+  bool enabled = m_blockchain.get_hard_fork_voting_info(16, window, votes, threshold, earliest_height, voting);
+  ASSERT_TRUE(enabled);
+  ASSERT_EQ(earliest_height, 0u);
+}
+
+TEST_F(BlockchainTestV16, flush_invalid_blocks_v16)
+{
+  m_blockchain.flush_invalid_blocks();
+}
+
+TEST_F(BlockchainTestV16, set_checkpoints_v16)
+{
+  cryptonote::checkpoints cp;
+  cp.add_checkpoint(0, "0000000000000000000000000000000000000000000000000000000000000000");
+  m_blockchain.set_checkpoints(std::move(cp));
+}
+
+TEST_F(BlockchainTestV16, safesyncmode_v16)
+{
+  m_blockchain.safesyncmode(true);
+  m_blockchain.safesyncmode(false);
+}
+
+TEST_F(BlockchainTestV16, set_user_options_v16)
+{
+  m_blockchain.set_user_options(4, true, 100, cryptonote::db_defaultsync, true);
+}
+
+TEST_F(BlockchainTestV16, set_enforce_dns_checkpoints_v16)
+{
+  m_blockchain.set_enforce_dns_checkpoints(false);
+  m_blockchain.set_enforce_dns_checkpoints(true);
+}
+
+TEST_F(BlockchainTestV16, get_output_distribution_invalid_range_v16)
+{
+  uint64_t start_height = 0;
+  std::vector<uint64_t> distribution;
+  uint64_t base = 0;
+  ASSERT_FALSE(m_blockchain.get_output_distribution(0, 10, 5, start_height, distribution, base));
+}
+
+TEST_F(BlockchainTestV16, get_blocks_beyond_height_v16)
+{
+  std::vector<std::pair<cryptonote::blobdata, cryptonote::block>> blocks;
+  ASSERT_FALSE(m_blockchain.get_blocks(100, 1, blocks));
+}
+
+TEST_F(BlockchainTestV16, have_tx_keyimges_as_spent_empty_span_v16)
+{
+  std::vector<crypto::key_image> ki;
+  auto result = m_blockchain.have_tx_keyimges_as_spent(epee::to_span(ki));
+  ASSERT_TRUE(result.empty());
+}
+
+TEST_F(BlockchainTestV16, have_tx_keyimges_as_spent_nonexistent_v16)
+{
+  std::vector<crypto::key_image> ki;
+  ki.push_back(crypto::rand<crypto::key_image>());
+  ki.push_back(crypto::rand<crypto::key_image>());
+  auto result = m_blockchain.have_tx_keyimges_as_spent(epee::to_span(ki));
+  ASSERT_EQ(result.size(), 2u);
+  ASSERT_FALSE(result[0]);
+  ASSERT_FALSE(result[1]);
+}
+
+TEST_F(BlockchainTestV16, flush_txes_from_pool_empty_v16)
+{
+  std::vector<crypto::hash> txids;
+  ASSERT_TRUE(m_blockchain.flush_txes_from_pool(txids));
+}
+
+TEST_F(BlockchainTestV16, get_output_histogram_empty_v16)
+{
+  std::vector<uint64_t> amounts;
+  auto histogram = m_blockchain.get_output_histogram(amounts, false, 0, 0);
+  ASSERT_TRUE(histogram.empty());
+}

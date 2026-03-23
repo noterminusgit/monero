@@ -130,35 +130,52 @@ make coverage   # generates HTML report
 | `1928ce28a` | 31 | Session 8: tx_utils get_destination_view_key_pub/construct_miner_tx, util concurrency/dirs/sync_weight |
 | `48cb34541` | 41 | Session 8: rpc_payment flush/store/load, hardfork version tracking, difficulty check_hash, core block_reward |
 | `d2712dbfc` | 27 | Session 8: wallet2 tx notes, attributes, transfer details, config, hash chain, fees, subaddress expansion |
-| **Total** | **~4260+** | |
+| `01092b278` | 25 | Session 9: format_utils weight/parse/reward/output_types, blockchain fee/weight/queries |
+| `46e43893a` | 251 | Session 9: ringct ops (111), tx_extra/format_utils (51), mnemonics (17), combinator (8), varint (11), daemon messages (19), serialization (17), epee serialization (17) |
+| `329b0b7e7` | 286 | Session 9: wallet2 URI/tags (38), RPC roundtrips (52), crypto (35), base58 (32), net/P2P (112), account (17) |
+| `1411b343c` | 335 | Session 9: ringct sigs (70), blockchain (43), tx_pool (52), block_queue (51), hardfork (15), wipeable_string (27), string_tools (39), epee_utils (38) |
+| **Total** | **~5157+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
 - `tests/unit_tests/device_registry.cpp` (18 tests)
-- `tests/unit_tests/string_tools.cpp` (19 tests)
+- `tests/unit_tests/string_tools.cpp` (58 tests)
 - `tests/unit_tests/rpc_version_str.cpp`
 - `tests/unit_tests/zmq_rpc.cpp`
+- `tests/unit_tests/ringct_ops.cpp` (111 tests)
+- `tests/unit_tests/daemon_messages_tests.cpp` (66 tests)
+- `tests/unit_tests/difficulty_tests.cpp` (6 tests)
+- `tests/unit_tests/crypto.cpp` (35 tests)
 
 ### Extended test files:
 - `tests/unit_tests/multisig.cpp` (+10 tests)
 - `tests/unit_tests/util.cpp` (+31 tests)
-- `tests/unit_tests/account.cpp` (+10 tests)
+- `tests/unit_tests/account.cpp` (+27 tests)
 - `tests/unit_tests/checkpoints.cpp` (+9 tests)
 - `tests/unit_tests/command_line.cpp` (+1 test)
-- `tests/unit_tests/test_protocol_pack.cpp` (+52 tests — P2P protocol message roundtrips)
-- `tests/unit_tests/p2p_net_node_tests.cpp` (+15 tests — P2P node data, CORE_SYNC_DATA, ping, support flags)
+- `tests/unit_tests/test_protocol_pack.cpp` (+68 tests — P2P protocol message roundtrips)
+- `tests/unit_tests/p2p_net_node_tests.cpp` (+62 tests — peerlist CRUD, anchor, merge, filter, serialization)
 - `tests/unit_tests/tx_proof.cpp` (+7 tests — proof verification edge cases)
-- `tests/unit_tests/wallet2_core.cpp` (+97 tests — fee multiplier, fee estimation, balance, address book, attributes, URI parsing)
-- `tests/unit_tests/blockchain.cpp` (+40 tests — get_top_block, difficulty, block template cache, tx outputs, supplements)
-- `tests/unit_tests/tx_pool.cpp` (+35 tests — add_tx error paths, take_tx, remove_stuck, transaction lifecycle)
-- `tests/unit_tests/block_queue.cpp` (+25 tests — add/flush/get_next/remove spans, data size)
-- `tests/unit_tests/core_rpc_server.cpp` (+25 tests — RPC command serialization roundtrips)
+- `tests/unit_tests/wallet2_core.cpp` (+135 tests — fee, URI parsing, account tags, sign/verify, address book, encryption)
+- `tests/unit_tests/blockchain.cpp` (+93 tests — queries, fee scaling, tx outputs, pruning, weight)
+- `tests/unit_tests/tx_pool.cpp` (+87 tests — RPC info, relay categories, complement, pool weight, lifecycle)
+- `tests/unit_tests/block_queue.cpp` (+76 tests — data size, foreach, speed/rate, stale flushing, lifecycle)
+- `tests/unit_tests/core_rpc_server.cpp` (+77 tests — JSON/binary RPC command roundtrips)
 - `tests/unit_tests/cryptonote_core_tests.cpp` (+20 tests — construct_miner_tx, account address checksum)
-- `tests/unit_tests/net_utils.cpp` (+10 tests — network zone/address utilities)
+- `tests/unit_tests/cryptonote_format_utils.cpp` (+66 tests — tx_extra, payment IDs, amounts, key encrypt, block/tx blobs)
+- `tests/unit_tests/net_utils.cpp` (+59 tests — network_address, IPv4/IPv6, connection context, zones)
 - `tests/unit_tests/rpc_payment.cpp` (+21 tests — rpc_payment balance, pay, foreach, hashes, flush, store/load)
-- `tests/unit_tests/hardfork.cpp` (+11 tests — version tracking, ideal height, on_block_popped, state, voting)
-- `tests/unit_tests/difficulty_tests.cpp` (6 tests — check_hash, next_difficulty)
+- `tests/unit_tests/hardfork.cpp` (+26 tests — version tracking, voting, reorganize, fork validation)
 - `tests/unit_tests/test_tx_utils.cpp` (+12 tests — get_destination_view_key_pub, construct_miner_tx)
+- `tests/unit_tests/ringct.cpp` (+70 tests — MLSAG, CLSAG, Borromean, genRct, bulletproof tampering)
+- `tests/unit_tests/base58.cpp` (+32 tests — encode/decode edges, addr roundtrips, checksum corruption)
+- `tests/unit_tests/mnemonics.cpp` (+17 tests — language detection, seed roundtrips, validation)
+- `tests/unit_tests/combinator.cpp` (+8 tests — counting, Pascal identity, uniqueness)
+- `tests/unit_tests/varint.cpp` (+11 tests — boundaries, powers of 2, size estimation)
+- `tests/unit_tests/serialization.cpp` (+17 tests — tx/block/address binary roundtrips)
+- `tests/unit_tests/epee_serialization.cpp` (+17 tests — JSON/binary/portable storage roundtrips)
+- `tests/unit_tests/wipeable_string.cpp` (+27 tests — constructors, resize, append, hex_to_pod)
+- `tests/unit_tests/epee_utils.cpp` (+38 tests — Span, ToHex, FromHex, HexLocale)
 
 ---
 
@@ -167,5 +184,5 @@ make coverage   # generates HTML report
 1. **Anonymous namespaces**: Several testable helpers in `rpc_command_executor.cpp` and `simplewallet.cpp` are hidden in anonymous namespaces. Refactoring them into named namespaces is a prerequisite for Phase 6.
 2. **Device testing**: `device_ledger` has private `hw::io::device_io_hid` member (not injectable). Tests limited to helper classes (ABPkeys, Keymap, HMACmap) via `#ifdef WITH_DEVICE_LEDGER`.
 3. **Trezor**: Requires `WITH_DEVICE_TREZOR`, protobuf, libusb — heavy external deps, skipped for unit tests.
-4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage: **30.0% lines** (23145/77126), **21.8% functions** (3310/15159) with 3968 tests running.
-5. **Hanging tests**: `multisig.*`, `long_term_block_weight*`, and some network tests hang during execution and must be excluded from coverage runs.
+4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage: **31.0% lines** (24477/78956), **34.1% functions** (6548/19230) with 4157+ tests running.
+5. **Hanging tests**: `multisig.*`, `long_term_block_weight*`, `DNSResolver*`, `download*`, `boosted_tcp_server*`, `test_epee_connection*`, `positive_test_connection*`, `test_levin_protocol*`, `http_server*`, `tx_verification_utils.ver_input_proofs_rings`, `levin_notify*`, `net_ssl*`, `socks*`, `cryptonote_protocol_handler*`, `network_throttle*`, and `Wallet2FileTest.keys_file_lock_unlock` hang or crash during execution and must be excluded from coverage runs.

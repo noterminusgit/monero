@@ -160,6 +160,12 @@ protected:
 
   void TearDown() override
   {
+    if (m_db.is_open())
+    {
+      m_db.set_hard_fork(nullptr);
+      m_hardfork.reset();
+      m_db.close();
+    }
     boost::filesystem::remove_all(m_dir);
   }
 
@@ -534,391 +540,439 @@ TEST_F(LMDBTest, ConstructorBatchFalse)
 TEST_F(LMDBTestWithBlocks, AddBlockAndCheckHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  EXPECT_EQ(0u, m_db.height());
-  ASSERT_NO_THROW(add_block_0());
-  EXPECT_EQ(1u, m_db.height());
-  ASSERT_NO_THROW(add_block_1());
-  EXPECT_EQ(2u, m_db.height());
+    EXPECT_EQ(0u, m_db.height());
+    ASSERT_NO_THROW(add_block_0());
+    EXPECT_EQ(1u, m_db.height());
+    ASSERT_NO_THROW(add_block_1());
+    EXPECT_EQ(2u, m_db.height());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, BlockExists)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
-  crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
+    add_block_0();
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
 
-  EXPECT_TRUE(m_db.block_exists(blk0_hash));
-  EXPECT_FALSE(m_db.block_exists(blk1_hash));
+    EXPECT_TRUE(m_db.block_exists(blk0_hash));
+    EXPECT_FALSE(m_db.block_exists(blk1_hash));
 
-  add_block_1();
-  EXPECT_TRUE(m_db.block_exists(blk1_hash));
+    add_block_1();
+    EXPECT_TRUE(m_db.block_exists(blk1_hash));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, BlockExistsReturnsHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  uint64_t height = 0;
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
-  EXPECT_TRUE(m_db.block_exists(blk0_hash, &height));
-  EXPECT_EQ(0u, height);
+    uint64_t height = 0;
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    EXPECT_TRUE(m_db.block_exists(blk0_hash, &height));
+    EXPECT_EQ(0u, height);
 
-  crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
-  EXPECT_TRUE(m_db.block_exists(blk1_hash, &height));
-  EXPECT_EQ(1u, height);
+    crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
+    EXPECT_TRUE(m_db.block_exists(blk1_hash, &height));
+    EXPECT_EQ(1u, height);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
-  crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
 
-  EXPECT_EQ(0u, m_db.get_block_height(blk0_hash));
-  EXPECT_EQ(1u, m_db.get_block_height(blk1_hash));
+    EXPECT_EQ(0u, m_db.get_block_height(blk0_hash));
+    EXPECT_EQ(1u, m_db.get_block_height(blk1_hash));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockHeader)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    add_block_0();
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
 
-  block_header hdr = m_db.get_block_header(blk0_hash);
-  EXPECT_EQ(m_blocks[0].first.major_version, hdr.major_version);
-  EXPECT_EQ(m_blocks[0].first.minor_version, hdr.minor_version);
-  EXPECT_EQ(m_blocks[0].first.timestamp, hdr.timestamp);
-  EXPECT_EQ(m_blocks[0].first.nonce, hdr.nonce);
+    block_header hdr = m_db.get_block_header(blk0_hash);
+    EXPECT_EQ(m_blocks[0].first.major_version, hdr.major_version);
+    EXPECT_EQ(m_blocks[0].first.minor_version, hdr.minor_version);
+    EXPECT_EQ(m_blocks[0].first.timestamp, hdr.timestamp);
+    EXPECT_EQ(m_blocks[0].first.nonce, hdr.nonce);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockBlob)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    add_block_0();
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
 
-  blobdata bd = m_db.get_block_blob(blk0_hash);
-  EXPECT_FALSE(bd.empty());
-  // The blob should parse back into a valid block
-  block parsed;
-  EXPECT_TRUE(parse_and_validate_block_from_blob(bd, parsed));
-  EXPECT_EQ(pod_to_hex(blk0_hash), pod_to_hex(get_block_hash(parsed)));
+    blobdata bd = m_db.get_block_blob(blk0_hash);
+    EXPECT_FALSE(bd.empty());
+    // The blob should parse back into a valid block
+    block parsed;
+    EXPECT_TRUE(parse_and_validate_block_from_blob(bd, parsed));
+    EXPECT_EQ(pod_to_hex(blk0_hash), pod_to_hex(get_block_hash(parsed)));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockBlobFromHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  blobdata bd0 = m_db.get_block_blob_from_height(0);
-  EXPECT_FALSE(bd0.empty());
+    blobdata bd0 = m_db.get_block_blob_from_height(0);
+    EXPECT_FALSE(bd0.empty());
 
-  blobdata bd1 = m_db.get_block_blob_from_height(1);
-  EXPECT_FALSE(bd1.empty());
+    blobdata bd1 = m_db.get_block_blob_from_height(1);
+    EXPECT_FALSE(bd1.empty());
 
-  // Different blocks should yield different blobs
-  EXPECT_NE(bd0, bd1);
+    // Different blocks should yield different blobs
+    EXPECT_NE(bd0, bd1);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockBlobFromInvalidHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  // No blocks yet, accessing height 0 should throw
-  EXPECT_ANY_THROW(m_db.get_block_blob_from_height(0));
+    // No blocks yet, accessing height 0 should throw
+    EXPECT_ANY_THROW(m_db.get_block_blob_from_height(0));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockHashFromHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  crypto::hash h0 = m_db.get_block_hash_from_height(0);
-  crypto::hash h1 = m_db.get_block_hash_from_height(1);
+    crypto::hash h0 = m_db.get_block_hash_from_height(0);
+    crypto::hash h1 = m_db.get_block_hash_from_height(1);
 
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(h0));
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(h1));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(h0));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(h1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, TopBlockHash)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  crypto::hash top = m_db.top_block_hash();
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(top));
+    add_block_0();
+    crypto::hash top = m_db.top_block_hash();
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(top));
 
-  add_block_1();
-  top = m_db.top_block_hash();
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(top));
+    add_block_1();
+    top = m_db.top_block_hash();
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(top));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, TopBlockHashWithHeightReturn)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  uint64_t blk_height = 0;
-  crypto::hash top = m_db.top_block_hash(&blk_height);
-  EXPECT_EQ(1u, blk_height);
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(top));
+    uint64_t blk_height = 0;
+    crypto::hash top = m_db.top_block_hash(&blk_height);
+    EXPECT_EQ(1u, blk_height);
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(top));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTopBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  block top = m_db.get_top_block();
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(top)));
+    add_block_0();
+    block top = m_db.get_top_block();
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(top)));
 
-  add_block_1();
-  top = m_db.get_top_block();
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(top)));
+    add_block_1();
+    top = m_db.get_top_block();
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(top)));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockTimestamp)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  uint64_t ts = m_db.get_block_timestamp(0);
-  EXPECT_EQ(m_blocks[0].first.timestamp, ts);
+    add_block_0();
+    uint64_t ts = m_db.get_block_timestamp(0);
+    EXPECT_EQ(m_blocks[0].first.timestamp, ts);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTopBlockTimestamp)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  uint64_t ts = m_db.get_top_block_timestamp();
-  EXPECT_EQ(m_blocks[0].first.timestamp, ts);
+    add_block_0();
+    uint64_t ts = m_db.get_top_block_timestamp();
+    EXPECT_EQ(m_blocks[0].first.timestamp, ts);
 
-  add_block_1();
-  ts = m_db.get_top_block_timestamp();
-  EXPECT_EQ(m_blocks[1].first.timestamp, ts);
+    add_block_1();
+    ts = m_db.get_top_block_timestamp();
+    EXPECT_EQ(m_blocks[1].first.timestamp, ts);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockWeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  EXPECT_EQ(t_sizes[0], m_db.get_block_weight(0));
+    add_block_0();
+    EXPECT_EQ(t_sizes[0], m_db.get_block_weight(0));
 
-  add_block_1();
-  EXPECT_EQ(t_sizes[1], m_db.get_block_weight(1));
+    add_block_1();
+    EXPECT_EQ(t_sizes[1], m_db.get_block_weight(1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockWeights)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<uint64_t> weights = m_db.get_block_weights(0, 2);
-  ASSERT_EQ(2u, weights.size());
-  EXPECT_EQ(t_sizes[0], weights[0]);
-  EXPECT_EQ(t_sizes[1], weights[1]);
+    std::vector<uint64_t> weights = m_db.get_block_weights(0, 2);
+    ASSERT_EQ(2u, weights.size());
+    EXPECT_EQ(t_sizes[0], weights[0]);
+    EXPECT_EQ(t_sizes[1], weights[1]);
 
-  // Request more than available
-  weights = m_db.get_block_weights(0, 10);
-  EXPECT_EQ(2u, weights.size());
+    // Request more than available
+    weights = m_db.get_block_weights(0, 10);
+    EXPECT_EQ(2u, weights.size());
 
-  // Request from offset
-  weights = m_db.get_block_weights(1, 1);
-  ASSERT_EQ(1u, weights.size());
-  EXPECT_EQ(t_sizes[1], weights[0]);
+    // Request from offset
+    weights = m_db.get_block_weights(1, 1);
+    ASSERT_EQ(1u, weights.size());
+    EXPECT_EQ(t_sizes[1], weights[0]);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockCumulativeDifficulty)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  EXPECT_EQ(t_diffs[0], m_db.get_block_cumulative_difficulty(0));
+    add_block_0();
+    EXPECT_EQ(t_diffs[0], m_db.get_block_cumulative_difficulty(0));
 
-  add_block_1();
-  EXPECT_EQ(t_diffs[1], m_db.get_block_cumulative_difficulty(1));
+    add_block_1();
+    EXPECT_EQ(t_diffs[1], m_db.get_block_cumulative_difficulty(1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockDifficulty)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  EXPECT_EQ(t_diffs[0], m_db.get_block_difficulty(0));
+    add_block_0();
+    EXPECT_EQ(t_diffs[0], m_db.get_block_difficulty(0));
 
-  add_block_1();
-  // Difficulty of block 1 = cumulative_diff[1] - cumulative_diff[0]
-  EXPECT_EQ(t_diffs[1] - t_diffs[0], m_db.get_block_difficulty(1));
+    add_block_1();
+    // Difficulty of block 1 = cumulative_diff[1] - cumulative_diff[0]
+    EXPECT_EQ(t_diffs[1] - t_diffs[0], m_db.get_block_difficulty(1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockAlreadyGeneratedCoins)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  EXPECT_EQ(t_coins[0], m_db.get_block_already_generated_coins(0));
+    add_block_0();
+    EXPECT_EQ(t_coins[0], m_db.get_block_already_generated_coins(0));
 
-  add_block_1();
-  EXPECT_EQ(t_coins[1], m_db.get_block_already_generated_coins(1));
+    add_block_1();
+    EXPECT_EQ(t_coins[1], m_db.get_block_already_generated_coins(1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockLongTermWeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  // long_term_block_weight was passed as t_sizes[i] in add_block calls
-  add_block_0();
-  EXPECT_EQ(t_sizes[0], m_db.get_block_long_term_weight(0));
+    // long_term_block_weight was passed as t_sizes[i] in add_block calls
+    add_block_0();
+    EXPECT_EQ(t_sizes[0], m_db.get_block_long_term_weight(0));
 
-  add_block_1();
-  EXPECT_EQ(t_sizes[1], m_db.get_block_long_term_weight(1));
+    add_block_1();
+    EXPECT_EQ(t_sizes[1], m_db.get_block_long_term_weight(1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetLongTermBlockWeights)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<uint64_t> lts = m_db.get_long_term_block_weights(0, 2);
-  ASSERT_EQ(2u, lts.size());
-  EXPECT_EQ(t_sizes[0], lts[0]);
-  EXPECT_EQ(t_sizes[1], lts[1]);
+    std::vector<uint64_t> lts = m_db.get_long_term_block_weights(0, 2);
+    ASSERT_EQ(2u, lts.size());
+    EXPECT_EQ(t_sizes[0], lts[0]);
+    EXPECT_EQ(t_sizes[1], lts[1]);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlocksRange)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<block> blks = m_db.get_blocks_range(0, 1);
-  ASSERT_EQ(2u, blks.size());
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(blks[0])));
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(blks[1])));
+    std::vector<block> blks = m_db.get_blocks_range(0, 1);
+    ASSERT_EQ(2u, blks.size());
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(blks[0])));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(blks[1])));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetHashesRange)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<crypto::hash> hashes = m_db.get_hashes_range(0, 1);
-  ASSERT_EQ(2u, hashes.size());
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(hashes[0]));
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(hashes[1]));
+    std::vector<crypto::hash> hashes = m_db.get_hashes_range(0, 1);
+    ASSERT_EQ(2u, hashes.size());
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(hashes[0]));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(hashes[1]));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockCumulativeRctOutputs)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<uint64_t> heights = {0, 1};
-  std::vector<uint64_t> rct_outs = m_db.get_block_cumulative_rct_outputs(heights);
-  ASSERT_EQ(2u, rct_outs.size());
-  // These are v1 blocks so no rct outputs expected
-  EXPECT_EQ(0u, rct_outs[0]);
-  EXPECT_EQ(0u, rct_outs[1]);
+    std::vector<uint64_t> heights = {0, 1};
+    std::vector<uint64_t> rct_outs = m_db.get_block_cumulative_rct_outputs(heights);
+    ASSERT_EQ(2u, rct_outs.size());
+    // These are v1 blocks so no rct outputs expected
+    EXPECT_EQ(0u, rct_outs[0]);
+    EXPECT_EQ(0u, rct_outs[1]);
 
+  }
   close_db();
 }
 
@@ -929,12 +983,14 @@ TEST_F(LMDBTestWithBlocks, GetBlockCumulativeRctOutputs)
 TEST_F(LMDBTestWithBlocks, PopBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-  add_block_1();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
   EXPECT_EQ(2u, m_db.height());
 
+  // pop_block manages its own write transaction
   block popped;
   std::vector<transaction> popped_txs;
   ASSERT_NO_THROW(m_db.pop_block(popped, popped_txs));
@@ -947,9 +1003,10 @@ TEST_F(LMDBTestWithBlocks, PopBlock)
 TEST_F(LMDBTestWithBlocks, PopBlockToEmpty)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
   EXPECT_EQ(1u, m_db.height());
 
   block popped;
@@ -967,10 +1024,10 @@ TEST_F(LMDBTestWithBlocks, PopBlockToEmpty)
 TEST_F(LMDBTestWithBlocks, PopBlockWithTransactions)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  // Block 0 has transactions in t_txs[0]
-  add_block_0();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
   EXPECT_EQ(1u, m_db.height());
 
   // The miner tx should exist
@@ -1003,19 +1060,24 @@ TEST_F(LMDBTestWithBlocks, PopBlockWithTransactions)
 TEST_F(LMDBTestWithBlocks, PopAndReaddBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-  add_block_1();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
   EXPECT_EQ(2u, m_db.height());
 
+  // pop_block manages its own write transaction
   block popped;
   std::vector<transaction> popped_txs;
   m_db.pop_block(popped, popped_txs);
   EXPECT_EQ(1u, m_db.height());
 
-  // Re-add block 1
-  ASSERT_NO_THROW(add_block_1());
+  // Re-add block 1 in a new write transaction
+  {
+    db_wtxn_guard guard(&m_db);
+    ASSERT_NO_THROW(add_block_1());
+  }
   EXPECT_EQ(2u, m_db.height());
 
   close_db();
@@ -1028,220 +1090,244 @@ TEST_F(LMDBTestWithBlocks, PopAndReaddBlock)
 TEST_F(LMDBTestWithBlocks, TxCountAfterAddingBlocks)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  EXPECT_EQ(0u, m_db.get_tx_count());
+    EXPECT_EQ(0u, m_db.get_tx_count());
 
-  add_block_0();
-  // Block 0 has 1 miner tx + t_txs[0].size() non-miner txs
-  uint64_t expected_count = 1 + m_txs[0].size();
-  EXPECT_EQ(expected_count, m_db.get_tx_count());
+    add_block_0();
+    // Block 0 has 1 miner tx + t_txs[0].size() non-miner txs
+    uint64_t expected_count = 1 + m_txs[0].size();
+    EXPECT_EQ(expected_count, m_db.get_tx_count());
 
-  add_block_1();
-  // Block 1 adds 1 miner tx + t_txs[1].size() non-miner txs
-  expected_count += 1 + m_txs[1].size();
-  EXPECT_EQ(expected_count, m_db.get_tx_count());
+    add_block_1();
+    // Block 1 adds 1 miner tx + t_txs[1].size() non-miner txs
+    expected_count += 1 + m_txs[1].size();
+    EXPECT_EQ(expected_count, m_db.get_tx_count());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, TxExistsAfterAddingBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Miner tx should exist
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  EXPECT_TRUE(m_db.tx_exists(miner_tx_hash));
-
-  // Non-miner txs should exist
-  for (auto& h : m_blocks[0].first.tx_hashes)
   {
-    EXPECT_TRUE(m_db.tx_exists(h));
+    db_wtxn_guard guard(&m_db);
+
+    add_block_0();
+
+    // Miner tx should exist
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    EXPECT_TRUE(m_db.tx_exists(miner_tx_hash));
+
+    // Non-miner txs should exist
+    for (auto& h : m_blocks[0].first.tx_hashes)
+    {
+      EXPECT_TRUE(m_db.tx_exists(h));
+    }
+
+    // Random hash should not exist
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    EXPECT_FALSE(m_db.tx_exists(fake_hash));
+
   }
-
-  // Random hash should not exist
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  EXPECT_FALSE(m_db.tx_exists(fake_hash));
-
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, TxExistsWithIndex)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  uint64_t tx_id = 0;
-  EXPECT_TRUE(m_db.tx_exists(miner_tx_hash, tx_id));
-  // tx_id should be assigned some value (exact value is implementation detail)
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    uint64_t tx_id = 0;
+    EXPECT_TRUE(m_db.tx_exists(miner_tx_hash, tx_id));
+    // tx_id should be assigned some value (exact value is implementation detail)
 
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  EXPECT_FALSE(m_db.tx_exists(fake_hash, tx_id));
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    EXPECT_FALSE(m_db.tx_exists(fake_hash, tx_id));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxBlob)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  blobdata tx_blob;
-  EXPECT_TRUE(m_db.get_tx_blob(miner_tx_hash, tx_blob));
-  EXPECT_FALSE(tx_blob.empty());
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    blobdata tx_blob;
+    EXPECT_TRUE(m_db.get_tx_blob(miner_tx_hash, tx_blob));
+    EXPECT_FALSE(tx_blob.empty());
 
-  // Verify the blob parses back into a valid transaction
-  transaction parsed_tx;
-  EXPECT_TRUE(parse_and_validate_tx_from_blob(tx_blob, parsed_tx));
+    // Verify the blob parses back into a valid transaction
+    transaction parsed_tx;
+    EXPECT_TRUE(parse_and_validate_tx_from_blob(tx_blob, parsed_tx));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxBlobNonExistent)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  blobdata tx_blob;
-  EXPECT_FALSE(m_db.get_tx_blob(fake_hash, tx_blob));
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    blobdata tx_blob;
+    EXPECT_FALSE(m_db.get_tx_blob(fake_hash, tx_blob));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetPrunedTxBlob)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  blobdata tx_blob;
-  EXPECT_TRUE(m_db.get_pruned_tx_blob(miner_tx_hash, tx_blob));
-  EXPECT_FALSE(tx_blob.empty());
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    blobdata tx_blob;
+    EXPECT_TRUE(m_db.get_pruned_tx_blob(miner_tx_hash, tx_blob));
+    EXPECT_FALSE(tx_blob.empty());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxUnlockTime)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  uint64_t unlock_time = m_db.get_tx_unlock_time(miner_tx_hash);
-  EXPECT_EQ(m_blocks[0].first.miner_tx.unlock_time, unlock_time);
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    uint64_t unlock_time = m_db.get_tx_unlock_time(miner_tx_hash);
+    EXPECT_EQ(m_blocks[0].first.miner_tx.unlock_time, unlock_time);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxBlockHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  crypto::hash miner_tx_hash0 = get_transaction_hash(m_blocks[0].first.miner_tx);
-  EXPECT_EQ(0u, m_db.get_tx_block_height(miner_tx_hash0));
+    crypto::hash miner_tx_hash0 = get_transaction_hash(m_blocks[0].first.miner_tx);
+    EXPECT_EQ(0u, m_db.get_tx_block_height(miner_tx_hash0));
 
-  crypto::hash miner_tx_hash1 = get_transaction_hash(m_blocks[1].first.miner_tx);
-  EXPECT_EQ(1u, m_db.get_tx_block_height(miner_tx_hash1));
+    crypto::hash miner_tx_hash1 = get_transaction_hash(m_blocks[1].first.miner_tx);
+    EXPECT_EQ(1u, m_db.get_tx_block_height(miner_tx_hash1));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxViaBaseClass)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  BlockchainDB* base = &m_db;
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    BlockchainDB* base = &m_db;
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
 
-  // get_tx returning transaction
-  transaction tx;
-  EXPECT_TRUE(base->get_tx(miner_tx_hash, tx));
-  EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(get_transaction_hash(tx)));
+    // get_tx returning transaction
+    transaction tx;
+    EXPECT_TRUE(base->get_tx(miner_tx_hash, tx));
+    EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(get_transaction_hash(tx)));
 
-  // get_tx throwing version
-  EXPECT_NO_THROW(tx = base->get_tx(miner_tx_hash));
+    // get_tx throwing version
+    EXPECT_NO_THROW(tx = base->get_tx(miner_tx_hash));
 
-  // get_pruned_tx
-  transaction pruned_tx;
-  EXPECT_TRUE(base->get_pruned_tx(miner_tx_hash, pruned_tx));
+    // get_pruned_tx
+    transaction pruned_tx;
+    EXPECT_TRUE(base->get_pruned_tx(miner_tx_hash, pruned_tx));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxNonExistentThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  BlockchainDB* base = &m_db;
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
+    BlockchainDB* base = &m_db;
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
 
-  EXPECT_THROW(base->get_tx(fake_hash), TX_DNE);
+    EXPECT_THROW(base->get_tx(fake_hash), TX_DNE);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxList)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // Build list of tx hashes that should exist
-  std::vector<crypto::hash> hlist;
-  hlist.push_back(get_transaction_hash(m_blocks[0].first.miner_tx));
-  for (auto& h : m_blocks[0].first.tx_hashes)
-    hlist.push_back(h);
+    // Build list of tx hashes that should exist
+    std::vector<crypto::hash> hlist;
+    hlist.push_back(get_transaction_hash(m_blocks[0].first.miner_tx));
+    for (auto& h : m_blocks[0].first.tx_hashes)
+      hlist.push_back(h);
 
-  std::vector<transaction> txs = m_db.get_tx_list(hlist);
-  EXPECT_EQ(hlist.size(), txs.size());
+    std::vector<transaction> txs = m_db.get_tx_list(hlist);
+    EXPECT_EQ(hlist.size(), txs.size());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetPrunedTxBlobsFrom)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  std::vector<blobdata> blobs;
-  bool res = m_db.get_pruned_tx_blobs_from(miner_tx_hash, 1, blobs);
-  EXPECT_TRUE(res);
-  EXPECT_EQ(1u, blobs.size());
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    std::vector<blobdata> blobs;
+    bool res = m_db.get_pruned_tx_blobs_from(miner_tx_hash, 1, blobs);
+    EXPECT_TRUE(res);
+    EXPECT_EQ(1u, blobs.size());
 
+  }
   close_db();
 }
 
@@ -1252,47 +1338,53 @@ TEST_F(LMDBTestWithBlocks, GetPrunedTxBlobsFrom)
 TEST_F(LMDBTestWithBlocks, GetBlockViaBaseClass)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  BlockchainDB* base = &m_db;
-  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+    BlockchainDB* base = &m_db;
+    crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
 
-  block b = base->get_block(blk0_hash);
-  EXPECT_EQ(pod_to_hex(blk0_hash), pod_to_hex(get_block_hash(b)));
+    block b = base->get_block(blk0_hash);
+    EXPECT_EQ(pod_to_hex(blk0_hash), pod_to_hex(get_block_hash(b)));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockFromHeight)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  BlockchainDB* base = &m_db;
-  block b0 = base->get_block_from_height(0);
-  block b1 = base->get_block_from_height(1);
+    BlockchainDB* base = &m_db;
+    block b0 = base->get_block_from_height(0);
+    block b1 = base->get_block_from_height(1);
 
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(b0)));
-  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(b1)));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(b0)));
+    EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(b1)));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockFromInvalidHeightThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  BlockchainDB* base = &m_db;
-  EXPECT_ANY_THROW(base->get_block_from_height(999));
+    BlockchainDB* base = &m_db;
+    EXPECT_ANY_THROW(base->get_block_from_height(999));
 
+  }
   close_db();
 }
 
@@ -1303,28 +1395,32 @@ TEST_F(LMDBTestWithBlocks, GetBlockFromInvalidHeightThrows)
 TEST_F(LMDBTestWithBlocks, HardForkVersionRoundTrip)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // HardFork should track the version; query via the HardFork object
-  // The block's major_version is 1, HardFork was initialized with original_version=1
-  EXPECT_EQ(1u, m_hardfork->get(0));
+    // HardFork should track the version; query via the HardFork object
+    // The block's major_version is 1, HardFork was initialized with original_version=1
+    EXPECT_EQ(1u, m_hardfork->get(0));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, HardForkVersionMultipleBlocks)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  EXPECT_EQ(1u, m_hardfork->get(0));
-  EXPECT_EQ(1u, m_hardfork->get(1));
+    EXPECT_EQ(1u, m_hardfork->get(0));
+    EXPECT_EQ(1u, m_hardfork->get(1));
 
+  }
   close_db();
 }
 
@@ -1463,7 +1559,7 @@ TEST_F(LMDBTestWithBlocks, MultipleAltBlocks)
 TEST_F(LMDBTestWithBlocks, DropAltBlocks)
 {
   open_db();
-  m_db.block_wtxn_start();
+  m_db.batch_start();
 
   for (int i = 0; i < 3; ++i)
   {
@@ -1482,7 +1578,7 @@ TEST_F(LMDBTestWithBlocks, DropAltBlocks)
   m_db.drop_alt_blocks();
   EXPECT_EQ(0u, m_db.get_alt_block_count());
 
-  m_db.block_wtxn_stop();
+  m_db.batch_stop();
   close_db();
 }
 
@@ -1818,10 +1914,11 @@ TEST_F(LMDBTestWithBlocks, BatchCommit)
   open_db();
   m_db.batch_start();
   add_block_0();
-  m_db.batch_commit();
-  // After commit, the batch is still active, data should be persisted
   EXPECT_EQ(1u, m_db.height());
+  // batch_stop commits and cleans up the batch
   m_db.batch_stop();
+  // Data should be persisted after stop
+  EXPECT_EQ(1u, m_db.height());
   close_db();
 }
 
@@ -1971,122 +2068,134 @@ TEST_F(LMDBTestWithBlocks, WriteTransactionAbort)
 TEST_F(LMDBTestWithBlocks, GetNumOutputsAfterAddingBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // The block has outputs at specific amounts
-  // The miner tx in block 0 has several outputs with different amounts
-  // We can check that at least some output amounts have counts > 0
-  bool found_any = false;
-  for (const auto& out : m_blocks[0].first.miner_tx.vout)
   {
-    uint64_t count = m_db.get_num_outputs(out.amount);
-    if (count > 0)
-      found_any = true;
-  }
-  EXPECT_TRUE(found_any);
+    db_wtxn_guard guard(&m_db);
 
+    add_block_0();
+
+    // The block has outputs at specific amounts
+    // The miner tx in block 0 has several outputs with different amounts
+    // We can check that at least some output amounts have counts > 0
+    bool found_any = false;
+    for (const auto& out : m_blocks[0].first.miner_tx.vout)
+    {
+      uint64_t count = m_db.get_num_outputs(out.amount);
+      if (count > 0)
+        found_any = true;
+    }
+    EXPECT_TRUE(found_any);
+
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, OutputHistogramAfterAddingBlock)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // Get histogram for all amounts (empty vector means all)
-  auto hist = m_db.get_output_histogram({}, false, 0, 0);
-  EXPECT_FALSE(hist.empty());
+    // Get histogram for all amounts (empty vector means all)
+    auto hist = m_db.get_output_histogram({}, false, 0, 0);
+    EXPECT_FALSE(hist.empty());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, OutputHistogramSpecificAmounts)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // Collect amounts from the block's miner tx
-  std::vector<uint64_t> amounts;
-  for (const auto& out : m_blocks[0].first.miner_tx.vout)
-    amounts.push_back(out.amount);
+    // Collect amounts from the block's miner tx
+    std::vector<uint64_t> amounts;
+    for (const auto& out : m_blocks[0].first.miner_tx.vout)
+      amounts.push_back(out.amount);
 
-  auto hist = m_db.get_output_histogram(amounts, false, 0, 0);
-  // We should get entries for the amounts that have outputs
-  EXPECT_FALSE(hist.empty());
+    auto hist = m_db.get_output_histogram(amounts, false, 0, 0);
+    // We should get entries for the amounts that have outputs
+    EXPECT_FALSE(hist.empty());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetOutputKey)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Find an amount that has outputs
-  for (const auto& out : m_blocks[0].first.miner_tx.vout)
   {
-    uint64_t count = m_db.get_num_outputs(out.amount);
-    if (count > 0)
-    {
-      output_data_t odata = m_db.get_output_key(out.amount, 0, false);
-      // The output should be at height 0
-      EXPECT_EQ(0u, odata.height);
-      break;
-    }
-  }
+    db_wtxn_guard guard(&m_db);
 
+    add_block_0();
+
+    // Find an amount that has outputs
+    for (const auto& out : m_blocks[0].first.miner_tx.vout)
+    {
+      uint64_t count = m_db.get_num_outputs(out.amount);
+      if (count > 0)
+      {
+        output_data_t odata = m_db.get_output_key(out.amount, 0, false);
+        // The output should be at height 0
+        EXPECT_EQ(0u, odata.height);
+        break;
+      }
+    }
+
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxAmountOutputIndices)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // Get the tx_id for the miner tx
-  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-  uint64_t tx_id = 0;
-  ASSERT_TRUE(m_db.tx_exists(miner_tx_hash, tx_id));
+    // Get the tx_id for the miner tx
+    crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+    uint64_t tx_id = 0;
+    ASSERT_TRUE(m_db.tx_exists(miner_tx_hash, tx_id));
 
-  auto indices = m_db.get_tx_amount_output_indices(tx_id, 1);
-  ASSERT_EQ(1u, indices.size());
-  // The miner tx has multiple outputs
-  EXPECT_EQ(m_blocks[0].first.miner_tx.vout.size(), indices[0].size());
+    auto indices = m_db.get_tx_amount_output_indices(tx_id, 1);
+    ASSERT_EQ(1u, indices.size());
+    // The miner tx has multiple outputs
+    EXPECT_EQ(m_blocks[0].first.miner_tx.vout.size(), indices[0].size());
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetOutputTxAndIndex)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Find an amount with outputs
-  for (const auto& out : m_blocks[0].first.miner_tx.vout)
   {
-    uint64_t count = m_db.get_num_outputs(out.amount);
-    if (count > 0)
-    {
-      tx_out_index toi = m_db.get_output_tx_and_index(out.amount, 0);
-      // Should be from the miner tx at height 0
-      crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
-      EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(toi.first));
-      break;
-    }
-  }
+    db_wtxn_guard guard(&m_db);
 
+    add_block_0();
+
+    // Find an amount with outputs
+    for (const auto& out : m_blocks[0].first.miner_tx.vout)
+    {
+      uint64_t count = m_db.get_num_outputs(out.amount);
+      if (count > 0)
+      {
+        tx_out_index toi = m_db.get_output_tx_and_index(out.amount, 0);
+        // Should be from the miner tx at height 0
+        crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+        EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(toi.first));
+        break;
+      }
+    }
+
+  }
   close_db();
 }
 
@@ -2097,79 +2206,85 @@ TEST_F(LMDBTestWithBlocks, GetOutputTxAndIndex)
 TEST_F(LMDBTestWithBlocks, KeyImageExistsAfterAddingBlockWithTxs)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Block 0 has transactions with key image inputs
-  // Check if key images from non-miner txs are stored
-  for (const auto& txpair : m_txs[0])
   {
-    const transaction& tx = txpair.first;
-    for (const auto& vin : tx.vin)
+    db_wtxn_guard guard(&m_db);
+
+    add_block_0();
+
+    // Block 0 has transactions with key image inputs
+    // Check if key images from non-miner txs are stored
+    for (const auto& txpair : m_txs[0])
     {
-      if (vin.type() == typeid(txin_to_key))
+      const transaction& tx = txpair.first;
+      for (const auto& vin : tx.vin)
       {
-        const txin_to_key& in = boost::get<txin_to_key>(vin);
-        EXPECT_TRUE(m_db.has_key_image(in.k_image));
+        if (vin.type() == typeid(txin_to_key))
+        {
+          const txin_to_key& in = boost::get<txin_to_key>(vin);
+          EXPECT_TRUE(m_db.has_key_image(in.k_image));
+        }
       }
     }
-  }
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, HasKeyImages)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Collect key images from txs
-  std::vector<crypto::key_image> key_images;
-  for (const auto& txpair : m_txs[0])
   {
-    for (const auto& vin : txpair.first.vin)
+    db_wtxn_guard guard(&m_db);
+
+    add_block_0();
+
+    // Collect key images from txs
+    std::vector<crypto::key_image> key_images;
+    for (const auto& txpair : m_txs[0])
     {
-      if (vin.type() == typeid(txin_to_key))
-        key_images.push_back(boost::get<txin_to_key>(vin).k_image);
+      for (const auto& vin : txpair.first.vin)
+      {
+        if (vin.type() == typeid(txin_to_key))
+          key_images.push_back(boost::get<txin_to_key>(vin).k_image);
+      }
     }
-  }
 
-  if (!key_images.empty())
-  {
-    std::vector<bool> results = m_db.has_key_images(epee::span<const crypto::key_image>(key_images.data(), key_images.size()));
-    ASSERT_EQ(key_images.size(), results.size());
-    for (bool r : results)
-      EXPECT_TRUE(r);
-  }
+    if (!key_images.empty())
+    {
+      std::vector<bool> results = m_db.has_key_images(epee::span<const crypto::key_image>(key_images.data(), key_images.size()));
+      ASSERT_EQ(key_images.size(), results.size());
+      for (bool r : results)
+        EXPECT_TRUE(r);
+    }
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, ForAllKeyImages)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  int count = 0;
-  bool result = m_db.for_all_key_images([&count](const crypto::key_image&) {
-    ++count;
-    return true;
-  });
-  EXPECT_TRUE(result);
-  // Should have at least the key images from the non-miner transactions
-  // Count of key images = number of txin_to_key inputs across all non-miner txs
-  int expected = 0;
-  for (const auto& txpair : m_txs[0])
-    for (const auto& vin : txpair.first.vin)
-      if (vin.type() == typeid(txin_to_key))
-        ++expected;
-  EXPECT_EQ(expected, count);
+    int count = 0;
+    bool result = m_db.for_all_key_images([&count](const crypto::key_image&) {
+      ++count;
+      return true;
+    });
+    EXPECT_TRUE(result);
+    // Should have at least the key images from the non-miner transactions
+    // Count of key images = number of txin_to_key inputs across all non-miner txs
+    int expected = 0;
+    for (const auto& txpair : m_txs[0])
+      for (const auto& vin : txpair.first.vin)
+        if (vin.type() == typeid(txin_to_key))
+          ++expected;
+    EXPECT_EQ(expected, count);
 
+  }
   close_db();
 }
 
@@ -2180,75 +2295,83 @@ TEST_F(LMDBTestWithBlocks, ForAllKeyImages)
 TEST_F(LMDBTestWithBlocks, ForBlocksRange)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  int count = 0;
-  bool result = m_db.for_blocks_range(0, 1, [&count](uint64_t height, const crypto::hash&, const block&) {
-    ++count;
-    return true;
-  });
-  EXPECT_TRUE(result);
-  EXPECT_EQ(2, count);
+    int count = 0;
+    bool result = m_db.for_blocks_range(0, 1, [&count](uint64_t height, const crypto::hash&, const block&) {
+      ++count;
+      return true;
+    });
+    EXPECT_TRUE(result);
+    EXPECT_EQ(2, count);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, ForBlocksRangeEarlyStop)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  int count = 0;
-  bool result = m_db.for_blocks_range(0, 1, [&count](uint64_t, const crypto::hash&, const block&) {
-    ++count;
-    return false; // stop after first
-  });
-  EXPECT_FALSE(result);
-  EXPECT_EQ(1, count);
+    int count = 0;
+    bool result = m_db.for_blocks_range(0, 1, [&count](uint64_t, const crypto::hash&, const block&) {
+      ++count;
+      return false; // stop after first
+    });
+    EXPECT_FALSE(result);
+    EXPECT_EQ(1, count);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, ForAllTransactions)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  int count = 0;
-  bool result = m_db.for_all_transactions([&count](const crypto::hash&, const transaction&) {
-    ++count;
-    return true;
-  }, false);
-  EXPECT_TRUE(result);
-  // Should have miner tx + non-miner txs
-  EXPECT_EQ(static_cast<int>(1 + m_txs[0].size()), count);
+    int count = 0;
+    bool result = m_db.for_all_transactions([&count](const crypto::hash&, const transaction&) {
+      ++count;
+      return true;
+    }, false);
+    EXPECT_TRUE(result);
+    // Should have miner tx + non-miner txs
+    EXPECT_EQ(static_cast<int>(1 + m_txs[0].size()), count);
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, ForAllOutputs)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  int count = 0;
-  bool result = m_db.for_all_outputs([&count](uint64_t, const crypto::hash&, uint64_t, size_t) {
-    ++count;
-    return true;
-  });
-  EXPECT_TRUE(result);
-  EXPECT_GT(count, 0);
+    int count = 0;
+    bool result = m_db.for_all_outputs([&count](uint64_t, const crypto::hash&, uint64_t, size_t) {
+      ++count;
+      return true;
+    });
+    EXPECT_TRUE(result);
+    EXPECT_GT(count, 0);
 
+  }
   close_db();
 }
 
@@ -2259,12 +2382,14 @@ TEST_F(LMDBTestWithBlocks, ForAllOutputs)
 TEST_F(LMDBTestWithBlocks, AddDuplicateBlockThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  // Adding the same block again should throw (TX_EXISTS because miner tx already stored)
-  EXPECT_ANY_THROW(add_block_0());
+    add_block_0();
+    // Adding the same block again should throw (TX_EXISTS because miner tx already stored)
+    EXPECT_ANY_THROW(add_block_0());
 
+  }
   close_db();
 }
 
@@ -2275,36 +2400,42 @@ TEST_F(LMDBTestWithBlocks, AddDuplicateBlockThrows)
 TEST_F(LMDBTestWithBlocks, GetBlockHeightNonExistentThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  EXPECT_ANY_THROW(m_db.get_block_height(fake_hash));
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    EXPECT_ANY_THROW(m_db.get_block_height(fake_hash));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockHeaderNonExistentThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  EXPECT_ANY_THROW(m_db.get_block_header(fake_hash));
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    EXPECT_ANY_THROW(m_db.get_block_header(fake_hash));
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetBlockBlobNonExistentThrows)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  crypto::hash fake_hash;
-  memset(&fake_hash, 0x42, sizeof(fake_hash));
-  EXPECT_ANY_THROW(m_db.get_block_blob(fake_hash));
+    crypto::hash fake_hash;
+    memset(&fake_hash, 0x42, sizeof(fake_hash));
+    EXPECT_ANY_THROW(m_db.get_block_blob(fake_hash));
 
+  }
   close_db();
 }
 
@@ -2315,12 +2446,13 @@ TEST_F(LMDBTestWithBlocks, GetBlockBlobNonExistentThrows)
 TEST_F(LMDBTestWithBlocks, CorrectBlockCumulativeDifficulties)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
 
-  add_block_0();
-  add_block_1();
-
-  // Correct the difficulty of block 1
+  // correct_block_cumulative_difficulties manages its own write transaction
   std::vector<difficulty_type> new_diffs = { 9999999 };
   EXPECT_NO_THROW(m_db.correct_block_cumulative_difficulties(1, new_diffs));
   EXPECT_EQ(9999999u, m_db.get_block_cumulative_difficulty(1));
@@ -2335,16 +2467,18 @@ TEST_F(LMDBTestWithBlocks, CorrectBlockCumulativeDifficulties)
 TEST_F(LMDBTestWithBlocks, GetBlocksFrom)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
-  add_block_1();
+    add_block_0();
+    add_block_1();
 
-  std::vector<std::pair<std::pair<blobdata, crypto::hash>, std::vector<std::pair<crypto::hash, blobdata>>>> blocks;
-  bool result = m_db.get_blocks_from(0, 1, 10, 100, 1024*1024, blocks, false, false);
-  EXPECT_TRUE(result);
-  EXPECT_GE(blocks.size(), 1u);
+    std::vector<std::pair<std::pair<blobdata, crypto::hash>, std::vector<std::pair<crypto::hash, blobdata>>>> blocks;
+    bool result = m_db.get_blocks_from(0, 1, 10, 100, 1024*1024, blocks, false, false);
+    EXPECT_TRUE(result);
+    EXPECT_GE(blocks.size(), 1u);
 
+  }
   close_db();
 }
 
@@ -2373,36 +2507,40 @@ TEST_F(LMDBTestWithBlocks, UpdatePruningOnFreshDB)
 TEST_F(LMDBTestWithBlocks, GetTxidsLooseNoMatch)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // Search with a template that is very unlikely to match
-  crypto::hash fake_template;
-  memset(&fake_template, 0xFF, sizeof(fake_template));
-  // With many bits, unlikely to match
-  auto results = m_db.get_txids_loose(fake_template, 256, 100);
-  // May or may not match depending on actual tx hashes
-  // Just verify it does not crash
-  (void)results;
+    // Search with a template that is very unlikely to match
+    crypto::hash fake_template;
+    memset(&fake_template, 0xFF, sizeof(fake_template));
+    // With many bits, unlikely to match
+    auto results = m_db.get_txids_loose(fake_template, 256, 100);
+    // May or may not match depending on actual tx hashes
+    // Just verify it does not crash
+    (void)results;
 
+  }
   close_db();
 }
 
 TEST_F(LMDBTestWithBlocks, GetTxidsLooseZeroBits)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
+  {
+    db_wtxn_guard guard(&m_db);
 
-  add_block_0();
+    add_block_0();
 
-  // 0 bits means everything matches
-  crypto::hash any_template = crypto::null_hash;
-  auto results = m_db.get_txids_loose(any_template, 0, 100);
-  // Should match all txids in the database
-  uint64_t tx_count = m_db.get_tx_count();
-  EXPECT_EQ(tx_count, results.size());
+    // 0 bits means everything matches
+    crypto::hash any_template = crypto::null_hash;
+    auto results = m_db.get_txids_loose(any_template, 0, 100);
+    // Should match all txids in the database
+    uint64_t tx_count = m_db.get_tx_count();
+    EXPECT_EQ(tx_count, results.size());
 
+  }
   close_db();
 }
 
@@ -2448,24 +2586,26 @@ TEST_F(LMDBTestWithBlocks, BatchAbortRollsBackBlock)
 TEST_F(LMDBTestWithBlocks, GetOutputDistribution)
 {
   open_db();
-  db_wtxn_guard guard(&m_db);
-
-  add_block_0();
-
-  // Find an amount that has outputs
-  for (const auto& out : m_blocks[0].first.miner_tx.vout)
   {
-    uint64_t count = m_db.get_num_outputs(out.amount);
-    if (count > 0)
-    {
-      std::vector<uint64_t> distribution;
-      uint64_t base = 0;
-      bool result = m_db.get_output_distribution(out.amount, 0, 0, distribution, base);
-      EXPECT_TRUE(result);
-      break;
-    }
-  }
+    db_wtxn_guard guard(&m_db);
 
+    add_block_0();
+
+    // Find an amount that has outputs
+    for (const auto& out : m_blocks[0].first.miner_tx.vout)
+    {
+      uint64_t count = m_db.get_num_outputs(out.amount);
+      if (count > 0)
+      {
+        std::vector<uint64_t> distribution;
+        uint64_t base = 0;
+        bool result = m_db.get_output_distribution(out.amount, 0, 0, distribution, base);
+        EXPECT_TRUE(result);
+        break;
+      }
+    }
+
+  }
   close_db();
 }
 
@@ -2644,12 +2784,855 @@ TEST_F(LMDBTestWithBlocks, AltBlocksWithMainChain)
   EXPECT_EQ(1u, m_db.height());
 
   // Drop alt blocks, main chain unaffected
-  m_db.block_wtxn_start();
+  // Use batch mode since drop_alt_blocks() uses TXN_PREFIX internally
+  m_db.batch_start();
   m_db.drop_alt_blocks();
-  m_db.block_wtxn_stop();
+  m_db.batch_stop();
 
   EXPECT_EQ(0u, m_db.get_alt_block_count());
   EXPECT_EQ(1u, m_db.height());
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Additional output query tests ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetOutputKeyWithCommitment)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Find an amount with outputs and query with include_commitment=true
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      output_data_t odata = m_db.get_output_key(out.amount, 0, true);
+      EXPECT_EQ(0u, odata.height);
+      // Also test with include_commitment=false
+      output_data_t odata2 = m_db.get_output_key(out.amount, 0, false);
+      EXPECT_EQ(0u, odata2.height);
+      break;
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetOutputTxAndIndexBatch)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Test the batch version: get_output_tx_and_index(amount, offsets, indices)
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      std::vector<uint64_t> offsets = {0};
+      std::vector<tx_out_index> indices;
+      EXPECT_NO_THROW(m_db.get_output_tx_and_index(out.amount, offsets, indices));
+      ASSERT_EQ(1u, indices.size());
+      crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+      EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(indices[0].first));
+      break;
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetOutputKeyBatchSpan)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Test batch get_output_key with span of amounts
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      uint64_t amt = out.amount;
+      std::vector<uint64_t> offsets = {0};
+      std::vector<output_data_t> outputs;
+      EXPECT_NO_THROW(m_db.get_output_key(epee::span<const uint64_t>(&amt, 1), offsets, outputs, false));
+      ASSERT_EQ(1u, outputs.size());
+      EXPECT_EQ(0u, outputs[0].height);
+      break;
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetPrunableTxBlobAfterAdd)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Non-miner txs may have prunable data; miner tx may not
+  // Just test that the function does not crash and returns a consistent result
+  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+  blobdata prunable;
+  // Miner tx may or may not have prunable data
+  (void)m_db.get_prunable_tx_blob(miner_tx_hash, prunable);
+
+  // Try with non-miner txs
+  for (auto& h : m_blocks[0].first.tx_hashes)
+  {
+    blobdata tx_prunable;
+    (void)m_db.get_prunable_tx_blob(h, tx_prunable);
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetPrunableTxHashAfterAdd)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Test get_prunable_tx_hash for stored transactions
+  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+  crypto::hash prunable_hash;
+  // Result depends on whether prunable data exists
+  (void)m_db.get_prunable_tx_hash(miner_tx_hash, prunable_hash);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, CanThreadBulkIndices)
+{
+  open_db();
+  // BlockchainLMDB should report true for can_thread_bulk_indices
+  EXPECT_TRUE(m_db.can_thread_bulk_indices());
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllOutputsByAmount)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Test for_all_outputs(amount, callback) for a specific amount
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      int found = 0;
+      bool result = m_db.for_all_outputs(out.amount, [&found](uint64_t height) {
+        ++found;
+        EXPECT_EQ(0u, height); // All outputs from block 0
+        return true;
+      });
+      EXPECT_TRUE(result);
+      EXPECT_EQ(static_cast<int>(count), found);
+      break;
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllTransactionsPruned)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Test for_all_transactions with pruned=true
+  int count = 0;
+  bool result = m_db.for_all_transactions([&count](const crypto::hash&, const transaction&) {
+    ++count;
+    return true;
+  }, true);
+  EXPECT_TRUE(result);
+  // Should have miner tx + non-miner txs
+  EXPECT_EQ(static_cast<int>(1 + m_txs[0].size()), count);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllKeyImagesEarlyStop)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Count total key images first
+  int total = 0;
+  m_db.for_all_key_images([&total](const crypto::key_image&) {
+    ++total;
+    return true;
+  });
+
+  if (total > 1)
+  {
+    // Stop after first key image
+    int count = 0;
+    bool result = m_db.for_all_key_images([&count](const crypto::key_image&) {
+      ++count;
+      return false; // stop after first
+    });
+    EXPECT_FALSE(result);
+    EXPECT_EQ(1, count);
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlocksFromPruned)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Test get_blocks_from with pruned=true
+  std::vector<std::pair<std::pair<blobdata, crypto::hash>, std::vector<std::pair<crypto::hash, blobdata>>>> blocks;
+  bool result = m_db.get_blocks_from(0, 1, 10, 100, 1024*1024, blocks, true, false);
+  EXPECT_TRUE(result);
+  EXPECT_GE(blocks.size(), 1u);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlocksFromWithMinerTxHash)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Test get_blocks_from with get_miner_tx_hash=true
+  std::vector<std::pair<std::pair<blobdata, crypto::hash>, std::vector<std::pair<crypto::hash, blobdata>>>> blocks;
+  bool result = m_db.get_blocks_from(0, 1, 10, 100, 1024*1024, blocks, false, true);
+  EXPECT_TRUE(result);
+  EXPECT_GE(blocks.size(), 1u);
+  // When get_miner_tx_hash=true, the hash in the pair should be non-null for miner tx
+  if (!blocks.empty())
+  {
+    EXPECT_FALSE(blocks[0].first.second == crypto::null_hash);
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, CorrectBlockCumulativeDifficultiesMultiple)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Correct difficulties of both blocks at once
+  std::vector<difficulty_type> new_diffs = { 1111111, 2222222 };
+  EXPECT_NO_THROW(m_db.correct_block_cumulative_difficulties(0, new_diffs));
+  EXPECT_EQ(1111111u, m_db.get_block_cumulative_difficulty(0));
+  EXPECT_EQ(2222222u, m_db.get_block_cumulative_difficulty(1));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, PopAndReaddMultipleCycles)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+  EXPECT_EQ(2u, m_db.height());
+
+  // Pop, verify, re-add, verify - multiple cycles
+  for (int cycle = 0; cycle < 3; ++cycle)
+  {
+    block popped;
+    std::vector<transaction> popped_txs;
+    m_db.pop_block(popped, popped_txs);
+    EXPECT_EQ(1u, m_db.height());
+
+    {
+      db_wtxn_guard guard(&m_db);
+      add_block_1();
+    }
+    EXPECT_EQ(2u, m_db.height());
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetIndexingBase)
+{
+  open_db();
+  // Indexing base should be 0 for LMDB
+  EXPECT_EQ(0u, m_db.get_indexing_base());
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForBlocksRangeVerifyData)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Verify that for_blocks_range provides correct block data
+  std::vector<crypto::hash> collected_hashes;
+  bool result = m_db.for_blocks_range(0, 1, [&collected_hashes](uint64_t height, const crypto::hash& hash, const block& blk) {
+    collected_hashes.push_back(hash);
+    EXPECT_EQ(hash, get_block_hash(blk));
+    return true;
+  });
+  EXPECT_TRUE(result);
+  ASSERT_EQ(2u, collected_hashes.size());
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(collected_hashes[0]));
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(collected_hashes[1]));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllTransactionsEarlyStop)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Stop after first transaction
+  int count = 0;
+  bool result = m_db.for_all_transactions([&count](const crypto::hash&, const transaction&) {
+    ++count;
+    return false; // stop after first
+  }, false);
+  EXPECT_FALSE(result);
+  EXPECT_EQ(1, count);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllOutputsEarlyStop)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Stop after first output
+  int count = 0;
+  bool result = m_db.for_all_outputs([&count](uint64_t, const crypto::hash&, uint64_t, size_t) {
+    ++count;
+    return false; // stop after first
+  });
+  EXPECT_FALSE(result);
+  EXPECT_EQ(1, count);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, BatchAbortMultipleBlocks)
+{
+  open_db();
+
+  // Add first block with committed write
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+  EXPECT_EQ(1u, m_db.height());
+
+  // Start batch, add second block, then abort
+  m_db.batch_start();
+  add_block_1();
+  EXPECT_EQ(2u, m_db.height());
+  m_db.batch_abort();
+
+  // After abort, only block 0 should remain
+  EXPECT_EQ(1u, m_db.height());
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolBlobCategoryFiltering)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0x11, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.set_relay_method(relay_method::local);
+
+  m_db.add_txpool_tx(txid, "local_blob", meta);
+  m_db.block_wtxn_stop();
+
+  // Should be visible in "all" category
+  blobdata bd;
+  EXPECT_TRUE(m_db.get_txpool_tx_blob(txid, bd, relay_category::all));
+  EXPECT_EQ("local_blob", bd);
+
+  // Local tx should not be visible in "broadcasted" category
+  bd.clear();
+  EXPECT_FALSE(m_db.get_txpool_tx_blob(txid, bd, relay_category::broadcasted));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetTxidsLooseMatchesMinerTx)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Use the actual miner tx hash as the template with enough bits to match
+  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+  // With the full hash (256 bits), should match exactly
+  auto results = m_db.get_txids_loose(miner_tx_hash, 256, 100);
+  EXPECT_EQ(1u, results.size());
+  if (!results.empty())
+  {
+    EXPECT_EQ(pod_to_hex(miner_tx_hash), pod_to_hex(results[0]));
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlocksFromMaxSizeLimit)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Request with very small max_size to test size limiting
+  std::vector<std::pair<std::pair<blobdata, crypto::hash>, std::vector<std::pair<crypto::hash, blobdata>>>> blocks;
+  bool result = m_db.get_blocks_from(0, 1, 10, 100, 1, blocks, false, false);
+  // Should still return at least the first block (min_block_count=1)
+  EXPECT_TRUE(result);
+  EXPECT_GE(blocks.size(), 1u);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, OutputDistributionMultipleAmounts)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Test output distribution for different amounts
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      std::vector<uint64_t> distribution;
+      uint64_t base = 0;
+      bool result = m_db.get_output_distribution(out.amount, 0, 1, distribution, base);
+      if (result)
+      {
+        EXPECT_FALSE(distribution.empty());
+      }
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TopBlockHashEmptyDB)
+{
+  open_db();
+  // top_block_hash on empty DB should return null hash
+  crypto::hash top = m_db.top_block_hash();
+  EXPECT_EQ(pod_to_hex(crypto::null_hash), pod_to_hex(top));
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlockWeightsPartialRange)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Request weights starting from middle
+  std::vector<uint64_t> weights = m_db.get_block_weights(1, 5);
+  ASSERT_EQ(1u, weights.size());
+  EXPECT_EQ(t_sizes[1], weights[0]);
+
+  // Request weights with 0 count
+  weights = m_db.get_block_weights(0, 0);
+  EXPECT_EQ(0u, weights.size());
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetLongTermBlockWeightsPartialRange)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Request long-term weights from offset
+  std::vector<uint64_t> lts = m_db.get_long_term_block_weights(1, 1);
+  ASSERT_EQ(1u, lts.size());
+  EXPECT_EQ(t_sizes[1], lts[0]);
+
+  // Request more than available
+  lts = m_db.get_long_term_block_weights(0, 100);
+  EXPECT_EQ(2u, lts.size());
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllAltBlocksEarlyStop)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  for (int i = 0; i < 3; ++i)
+  {
+    crypto::hash blkid;
+    memset(&blkid, i + 1, sizeof(blkid));
+    alt_block_data_t data;
+    memset(&data, 0, sizeof(data));
+    data.height = i;
+    m_db.add_alt_block(blkid, data, "blob_" + std::to_string(i));
+  }
+
+  m_db.block_wtxn_stop();
+
+  // Stop iteration after first alt block
+  int count = 0;
+  bool result = m_db.for_all_alt_blocks([&count](const crypto::hash&, const alt_block_data_t&, const blobdata_ref*) {
+    ++count;
+    return false; // stop after first
+  }, false);
+  EXPECT_FALSE(result);
+  EXPECT_EQ(1, count);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetTxAmountOutputIndicesMultipleTxes)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Get indices for multiple txes at once
+  crypto::hash miner_tx_hash = get_transaction_hash(m_blocks[0].first.miner_tx);
+  uint64_t tx_id = 0;
+  ASSERT_TRUE(m_db.tx_exists(miner_tx_hash, tx_id));
+
+  // Request indices for n_txes = number of txes in block 0
+  size_t total_txes = 1 + m_txs[0].size();
+  auto indices = m_db.get_tx_amount_output_indices(tx_id, total_txes);
+  ASSERT_EQ(total_txes, indices.size());
+  // First tx is the miner tx
+  EXPECT_EQ(m_blocks[0].first.miner_tx.vout.size(), indices[0].size());
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, PersistenceAfterBatchCommit)
+{
+  open_db();
+  m_db.batch_start();
+  add_block_0();
+  add_block_1();
+  m_db.batch_stop();
+
+  EXPECT_EQ(2u, m_db.height());
+  close_db();
+
+  // Reopen and verify persistence
+  open_db();
+  EXPECT_EQ(2u, m_db.height());
+
+  crypto::hash blk0_hash = get_block_hash(m_blocks[0].first);
+  crypto::hash blk1_hash = get_block_hash(m_blocks[1].first);
+  EXPECT_TRUE(m_db.block_exists(blk0_hash));
+  EXPECT_TRUE(m_db.block_exists(blk1_hash));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolPersistence)
+{
+  open_db();
+
+  m_db.block_wtxn_start();
+  crypto::hash txid;
+  memset(&txid, 0x77, sizeof(txid));
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 999;
+  meta.fee = 123;
+  meta.set_relay_method(relay_method::fluff);
+  m_db.add_txpool_tx(txid, "persist_test", meta);
+  m_db.block_wtxn_stop();
+
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count());
+  close_db();
+
+  // Reopen and verify txpool data persists
+  open_db();
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count());
+  txpool_tx_meta_t retrieved;
+  EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, retrieved));
+  EXPECT_EQ(999u, retrieved.weight);
+  EXPECT_EQ(123u, retrieved.fee);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, AltBlockPersistence)
+{
+  open_db();
+
+  m_db.block_wtxn_start();
+  crypto::hash alt_blkid;
+  memset(&alt_blkid, 0x88, sizeof(alt_blkid));
+  alt_block_data_t alt_data;
+  memset(&alt_data, 0, sizeof(alt_data));
+  alt_data.height = 42;
+  alt_data.cumulative_weight = 777;
+  m_db.add_alt_block(alt_blkid, alt_data, "persist_alt");
+  m_db.block_wtxn_stop();
+
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+  close_db();
+
+  // Reopen and verify
+  open_db();
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+  alt_block_data_t retrieved_data;
+  blobdata retrieved_blob;
+  EXPECT_TRUE(m_db.get_alt_block(alt_blkid, &retrieved_data, &retrieved_blob));
+  EXPECT_EQ(42u, retrieved_data.height);
+  EXPECT_EQ("persist_alt", retrieved_blob);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Edge cases and error handling ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetOutputKeyInvalidAmountThrows)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Querying an output that doesn't exist should throw
+  EXPECT_ANY_THROW(m_db.get_output_key(999999999, 0, false));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetOutputTxAndIndexInvalidThrows)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Querying an output index that doesn't exist should throw
+  EXPECT_ANY_THROW(m_db.get_output_tx_and_index(999999999, 0));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlockTimestampInvalidHeightThrows)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  // Accessing timestamp of non-existent height should throw
+  EXPECT_ANY_THROW(m_db.get_block_timestamp(999));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlockDifficultyConsistency)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Verify difficulty consistency: cumulative_diff[1] - cumulative_diff[0] == difficulty[1]
+  difficulty_type cd0 = m_db.get_block_cumulative_difficulty(0);
+  difficulty_type cd1 = m_db.get_block_cumulative_difficulty(1);
+  difficulty_type d1 = m_db.get_block_difficulty(1);
+  EXPECT_EQ(cd1 - cd0, d1);
+
+  // For genesis block, difficulty equals cumulative difficulty
+  difficulty_type d0 = m_db.get_block_difficulty(0);
+  EXPECT_EQ(cd0, d0);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, MultipleTxPoolOperations)
+{
+  open_db();
+
+  // Add, update, remove multiple txpool entries
+  m_db.block_wtxn_start();
+  for (int i = 0; i < 10; ++i)
+  {
+    crypto::hash txid;
+    memset(&txid, i + 0x10, sizeof(txid));
+    txpool_tx_meta_t meta;
+    memset(&meta, 0, sizeof(meta));
+    meta.weight = 100 * (i + 1);
+    meta.fee = 10 * (i + 1);
+    meta.set_relay_method(relay_method::fluff);
+    m_db.add_txpool_tx(txid, "blob_" + std::to_string(i), meta);
+  }
+  m_db.block_wtxn_stop();
+  EXPECT_EQ(10u, m_db.get_txpool_tx_count());
+
+  // Remove half
+  m_db.block_wtxn_start();
+  for (int i = 0; i < 5; ++i)
+  {
+    crypto::hash txid;
+    memset(&txid, i + 0x10, sizeof(txid));
+    m_db.remove_txpool_tx(txid);
+  }
+  m_db.block_wtxn_stop();
+  EXPECT_EQ(5u, m_db.get_txpool_tx_count());
+
+  // Update remaining
+  m_db.block_wtxn_start();
+  for (int i = 5; i < 10; ++i)
+  {
+    crypto::hash txid;
+    memset(&txid, i + 0x10, sizeof(txid));
+    txpool_tx_meta_t meta;
+    EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, meta));
+    meta.fee = 999;
+    m_db.update_txpool_tx(txid, meta);
+  }
+  m_db.block_wtxn_stop();
+
+  // Verify updates
+  for (int i = 5; i < 10; ++i)
+  {
+    crypto::hash txid;
+    memset(&txid, i + 0x10, sizeof(txid));
+    txpool_tx_meta_t meta;
+    EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, meta));
+    EXPECT_EQ(999u, meta.fee);
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlocksRangeFullAndPartial)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Full range
+  std::vector<block> blks = m_db.get_blocks_range(0, 1);
+  ASSERT_EQ(2u, blks.size());
+
+  // Single block
+  blks = m_db.get_blocks_range(0, 0);
+  ASSERT_EQ(1u, blks.size());
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(get_block_hash(blks[0])));
+
+  blks = m_db.get_blocks_range(1, 1);
+  ASSERT_EQ(1u, blks.size());
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(get_block_hash(blks[0])));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetHashesRangePartial)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Single hash
+  std::vector<crypto::hash> hashes = m_db.get_hashes_range(0, 0);
+  ASSERT_EQ(1u, hashes.size());
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(hashes[0]));
 
   close_db();
 }

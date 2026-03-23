@@ -239,3 +239,176 @@ TEST(pruning, next_pruned)
   ASSERT_EQ(tools::get_next_pruned_block_height(SS,   10000000, seedNS), SS);
   ASSERT_EQ(tools::get_next_pruned_block_height(TB-1, 10000000, seedNS), TB);
 }
+
+// =============================================================================
+// Additional pruning tests
+// =============================================================================
+
+TEST(pruning, get_random_stripe_in_range)
+{
+  // get_random_stripe should return a value in [1, 1 << CRYPTONOTE_PRUNING_LOG_STRIPES]
+  const uint32_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  for (int i = 0; i < 100; ++i)
+  {
+    uint32_t stripe = tools::get_random_stripe();
+    ASSERT_GE(stripe, 1u);
+    ASSERT_LE(stripe, NS);
+  }
+}
+
+TEST(pruning, seed_roundtrip_all_stripes)
+{
+  // For each valid stripe, create a seed and verify we can recover the stripe and log_stripes
+  for (uint32_t log_stripes = 1; log_stripes <= tools::PRUNING_SEED_LOG_STRIPES_MASK; ++log_stripes)
+  {
+    const uint32_t num_stripes = 1u << log_stripes;
+    for (uint32_t stripe = 1; stripe <= num_stripes; ++stripe)
+    {
+      uint32_t seed = tools::make_pruning_seed(stripe, log_stripes);
+      ASSERT_NE(seed, 0u);
+      ASSERT_EQ(tools::get_pruning_stripe(seed), stripe);
+      ASSERT_EQ(tools::get_pruning_log_stripes(seed), log_stripes);
+    }
+  }
+}
+
+TEST(pruning, zero_seed_returns_zero_stripe)
+{
+  // A seed of 0 means "no pruning"
+  ASSERT_EQ(tools::get_pruning_stripe(0), 0u);
+}
+
+TEST(pruning, has_unpruned_block_zero_seed_always_true)
+{
+  // With seed=0 (no pruning), all blocks are unpruned
+  for (uint64_t h = 0; h < 1000; h += 100)
+  {
+    ASSERT_TRUE(tools::has_unpruned_block(h, 10000000, 0));
+  }
+}
+
+TEST(pruning, has_unpruned_block_tip_always_true)
+{
+  // Blocks in the tip region are always unpruned regardless of seed
+  const uint64_t H = 10000000;
+  const uint32_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  for (uint32_t stripe = 1; stripe <= NS; ++stripe)
+  {
+    uint32_t seed = tools::make_pruning_seed(stripe, CRYPTONOTE_PRUNING_LOG_STRIPES);
+    for (uint64_t h = H - CRYPTONOTE_PRUNING_TIP_BLOCKS; h < H; ++h)
+    {
+      ASSERT_TRUE(tools::has_unpruned_block(h, H, seed));
+    }
+  }
+}
+
+TEST(pruning, get_pruning_seed_tip_returns_zero)
+{
+  // Blocks in the tip region should return seed=0
+  const uint64_t H = 10000000;
+  for (uint64_t h = H - CRYPTONOTE_PRUNING_TIP_BLOCKS; h < H; ++h)
+  {
+    uint32_t seed = tools::get_pruning_seed(h, H, CRYPTONOTE_PRUNING_LOG_STRIPES);
+    ASSERT_EQ(seed, 0u);
+  }
+}
+
+TEST(pruning, get_pruning_stripe_cyclic)
+{
+  // The stripe assignment should be cyclic over full cycles
+  const uint64_t SS = CRYPTONOTE_PRUNING_STRIPE_SIZE;
+  const uint64_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  const uint64_t TB = NS * SS;
+
+  for (uint64_t offset = 0; offset < 3 * TB; offset += TB)
+  {
+    for (uint32_t s = 0; s < NS; ++s)
+    {
+      uint32_t stripe = tools::get_pruning_stripe(offset + s * SS, 10000000, CRYPTONOTE_PRUNING_LOG_STRIPES);
+      ASSERT_EQ(stripe, s + 1);
+    }
+  }
+}
+
+TEST(pruning, make_pruning_seed_stripe_zero_throws)
+{
+  // stripe 0 is invalid
+  ASSERT_EX(tools::make_pruning_seed(0, CRYPTONOTE_PRUNING_LOG_STRIPES));
+}
+
+TEST(pruning, make_pruning_seed_stripe_too_large_throws)
+{
+  // stripe > (1 << log_stripes) is invalid
+  const uint32_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  ASSERT_EX(tools::make_pruning_seed(NS + 1, CRYPTONOTE_PRUNING_LOG_STRIPES));
+}
+
+TEST(pruning, get_next_unpruned_block_height_zero_seed_identity)
+{
+  // With seed=0, next unpruned is always the same block
+  for (uint64_t h = 0; h < 1000; h += 100)
+  {
+    ASSERT_EQ(tools::get_next_unpruned_block_height(h, 10000000, 0), h);
+  }
+}
+
+TEST(pruning, get_next_pruned_block_height_zero_seed_returns_blockchain_height)
+{
+  // With seed=0, there are no pruned blocks, so next pruned = blockchain_height
+  for (uint64_t h = 0; h < 1000; h += 100)
+  {
+    ASSERT_EQ(tools::get_next_pruned_block_height(h, 10000000, 0), 10000000);
+  }
+}
+
+TEST(pruning, coverage_all_blocks_by_all_stripes)
+{
+  // Every block (outside tip) should be covered by exactly one stripe
+  const uint64_t SS = CRYPTONOTE_PRUNING_STRIPE_SIZE;
+  const uint64_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  const uint64_t H = 10000000;
+
+  // Check a range of blocks
+  for (uint64_t h = 0; h < SS * NS * 3 && h + CRYPTONOTE_PRUNING_TIP_BLOCKS < H; ++h)
+  {
+    uint32_t count = 0;
+    for (uint32_t stripe = 1; stripe <= NS; ++stripe)
+    {
+      uint32_t seed = tools::make_pruning_seed(stripe, CRYPTONOTE_PRUNING_LOG_STRIPES);
+      if (tools::has_unpruned_block(h, H, seed))
+        ++count;
+    }
+    // Exactly one stripe should have this block
+    ASSERT_EQ(count, 1u) << "block " << h << " is covered by " << count << " stripes";
+  }
+}
+
+TEST(pruning, next_unpruned_then_pruned_alternates)
+{
+  // Starting from a pruned block, get_next_unpruned should jump forward
+  // Starting from an unpruned block, get_next_pruned should jump forward
+  const uint32_t seed = tools::make_pruning_seed(1, CRYPTONOTE_PRUNING_LOG_STRIPES);
+  const uint64_t SS = CRYPTONOTE_PRUNING_STRIPE_SIZE;
+  const uint64_t NS = 1 << CRYPTONOTE_PRUNING_LOG_STRIPES;
+  const uint64_t TB = NS * SS;
+
+  // Block at SS is pruned for stripe 1, next unpruned should jump to TB
+  uint64_t next_unpruned = tools::get_next_unpruned_block_height(SS, 10000000, seed);
+  ASSERT_EQ(next_unpruned, TB);
+
+  // Block at 0 is unpruned for stripe 1, next pruned should be SS
+  uint64_t next_pruned = tools::get_next_pruned_block_height(0, 10000000, seed);
+  ASSERT_EQ(next_pruned, SS);
+}
+
+TEST(pruning, log_stripes_value_range)
+{
+  // Test all valid log_stripes values produce valid seeds
+  for (uint32_t log_stripes = 1; log_stripes <= tools::PRUNING_SEED_LOG_STRIPES_MASK; ++log_stripes)
+  {
+    uint32_t seed = tools::make_pruning_seed(1, log_stripes);
+    ASSERT_NE(seed, 0u);
+    ASSERT_EQ(tools::get_pruning_log_stripes(seed), log_stripes);
+    ASSERT_EQ(tools::get_pruning_stripe(seed), 1u);
+  }
+}

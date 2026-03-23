@@ -6841,3 +6841,2472 @@ TEST(Wallet2StaticTest, estimate_fee_large_mixin)
   uint64_t fee_mixin32 = tools::wallet2::estimate_fee(true, true, 1, 32, 2, 100, true, true, true, true, 20000, 1);
   ASSERT_LT(fee_mixin8, fee_mixin32);
 }
+
+// ===========================================================================
+// Description get/set tests
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, set_description_and_get_description)
+{
+  // Initially empty
+  ASSERT_EQ(m_wallet.get_description(), "");
+
+  m_wallet.set_description("My test wallet");
+  ASSERT_EQ(m_wallet.get_description(), "My test wallet");
+}
+
+TEST_F(Wallet2GeneratedTest, set_description_overwrite_twice)
+{
+  m_wallet.set_description("First");
+  ASSERT_EQ(m_wallet.get_description(), "First");
+
+  m_wallet.set_description("Second");
+  ASSERT_EQ(m_wallet.get_description(), "Second");
+}
+
+TEST_F(Wallet2GeneratedTest, set_description_empty_string)
+{
+  m_wallet.set_description("Not empty");
+  ASSERT_EQ(m_wallet.get_description(), "Not empty");
+
+  m_wallet.set_description("");
+  ASSERT_EQ(m_wallet.get_description(), "");
+}
+
+TEST_F(Wallet2GeneratedTest, set_description_unicode)
+{
+  m_wallet.set_description("Wallet \xc3\xa9\xc3\xa0\xc3\xbc");  // UTF-8 accented chars
+  ASSERT_EQ(m_wallet.get_description(), "Wallet \xc3\xa9\xc3\xa0\xc3\xbc");
+}
+
+TEST_F(Wallet2GeneratedTest, set_description_long_string)
+{
+  std::string long_desc(10000, 'x');
+  m_wallet.set_description(long_desc);
+  ASSERT_EQ(m_wallet.get_description(), long_desc);
+}
+
+// ===========================================================================
+// Confirm/settings getter-setter tests
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, always_confirm_transfers_roundtrip)
+{
+  m_wallet.always_confirm_transfers(true);
+  ASSERT_TRUE(m_wallet.always_confirm_transfers());
+
+  m_wallet.always_confirm_transfers(false);
+  ASSERT_FALSE(m_wallet.always_confirm_transfers());
+}
+
+TEST_F(Wallet2GeneratedTest, print_ring_members_roundtrip)
+{
+  m_wallet.print_ring_members(true);
+  ASSERT_TRUE(m_wallet.print_ring_members());
+
+  m_wallet.print_ring_members(false);
+  ASSERT_FALSE(m_wallet.print_ring_members());
+}
+
+TEST_F(Wallet2GeneratedTest, store_tx_info_roundtrip)
+{
+  m_wallet.store_tx_info(true);
+  ASSERT_TRUE(m_wallet.store_tx_info());
+
+  m_wallet.store_tx_info(false);
+  ASSERT_FALSE(m_wallet.store_tx_info());
+}
+
+TEST_F(Wallet2GeneratedTest, default_mixin_set_and_get)
+{
+  m_wallet.default_mixin(10);
+  ASSERT_EQ(m_wallet.default_mixin(), 10u);
+
+  m_wallet.default_mixin(0);
+  ASSERT_EQ(m_wallet.default_mixin(), 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, confirm_backlog_toggle)
+{
+  m_wallet.confirm_backlog(true);
+  ASSERT_TRUE(m_wallet.confirm_backlog());
+
+  m_wallet.confirm_backlog(false);
+  ASSERT_FALSE(m_wallet.confirm_backlog());
+}
+
+TEST_F(Wallet2GeneratedTest, confirm_backlog_threshold_set_and_get)
+{
+  m_wallet.set_confirm_backlog_threshold(5);
+  ASSERT_EQ(m_wallet.get_confirm_backlog_threshold(), 5u);
+
+  m_wallet.set_confirm_backlog_threshold(100);
+  ASSERT_EQ(m_wallet.get_confirm_backlog_threshold(), 100u);
+}
+
+TEST_F(Wallet2GeneratedTest, confirm_export_overwrite_toggle)
+{
+  m_wallet.confirm_export_overwrite(true);
+  ASSERT_TRUE(m_wallet.confirm_export_overwrite());
+
+  m_wallet.confirm_export_overwrite(false);
+  ASSERT_FALSE(m_wallet.confirm_export_overwrite());
+}
+
+TEST_F(Wallet2GeneratedTest, auto_low_priority_toggle)
+{
+  m_wallet.auto_low_priority(true);
+  ASSERT_TRUE(m_wallet.auto_low_priority());
+
+  m_wallet.auto_low_priority(false);
+  ASSERT_FALSE(m_wallet.auto_low_priority());
+}
+
+TEST_F(Wallet2GeneratedTest, segregate_pre_fork_outputs_toggle)
+{
+  m_wallet.segregate_pre_fork_outputs(true);
+  ASSERT_TRUE(m_wallet.segregate_pre_fork_outputs());
+
+  m_wallet.segregate_pre_fork_outputs(false);
+  ASSERT_FALSE(m_wallet.segregate_pre_fork_outputs());
+}
+
+TEST_F(Wallet2GeneratedTest, key_reuse_mitigation2_toggle)
+{
+  m_wallet.key_reuse_mitigation2(true);
+  ASSERT_TRUE(m_wallet.key_reuse_mitigation2());
+
+  m_wallet.key_reuse_mitigation2(false);
+  ASSERT_FALSE(m_wallet.key_reuse_mitigation2());
+}
+
+TEST_F(Wallet2GeneratedTest, segregation_height_set_and_get)
+{
+  m_wallet.segregation_height(1234567);
+  ASSERT_EQ(m_wallet.segregation_height(), 1234567u);
+}
+
+TEST_F(Wallet2GeneratedTest, ignore_fractional_outputs_toggle)
+{
+  m_wallet.ignore_fractional_outputs(true);
+  ASSERT_TRUE(m_wallet.ignore_fractional_outputs());
+
+  m_wallet.ignore_fractional_outputs(false);
+  ASSERT_FALSE(m_wallet.ignore_fractional_outputs());
+}
+
+TEST_F(Wallet2GeneratedTest, ignore_outputs_above_set_and_get)
+{
+  m_wallet.ignore_outputs_above(1000000000000ULL);
+  ASSERT_EQ(m_wallet.ignore_outputs_above(), 1000000000000ULL);
+}
+
+TEST_F(Wallet2GeneratedTest, ignore_outputs_below_set_and_get)
+{
+  m_wallet.ignore_outputs_below(5000);
+  ASSERT_EQ(m_wallet.ignore_outputs_below(), 5000u);
+}
+
+TEST_F(Wallet2GeneratedTest, track_uses_toggle)
+{
+  m_wallet.track_uses(true);
+  ASSERT_TRUE(m_wallet.track_uses());
+
+  m_wallet.track_uses(false);
+  ASSERT_FALSE(m_wallet.track_uses());
+}
+
+TEST_F(Wallet2GeneratedTest, show_wallet_name_when_locked_toggle)
+{
+  m_wallet.show_wallet_name_when_locked(true);
+  ASSERT_TRUE(m_wallet.show_wallet_name_when_locked());
+
+  m_wallet.show_wallet_name_when_locked(false);
+  ASSERT_FALSE(m_wallet.show_wallet_name_when_locked());
+}
+
+TEST_F(Wallet2GeneratedTest, inactivity_lock_timeout_set_and_get)
+{
+  m_wallet.inactivity_lock_timeout(300);
+  ASSERT_EQ(m_wallet.inactivity_lock_timeout(), 300u);
+
+  m_wallet.inactivity_lock_timeout(0);
+  ASSERT_EQ(m_wallet.inactivity_lock_timeout(), 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, device_name_set_and_get)
+{
+  m_wallet.device_name("Ledger");
+  ASSERT_EQ(m_wallet.device_name(), "Ledger");
+
+  m_wallet.device_name("");
+  ASSERT_EQ(m_wallet.device_name(), "");
+}
+
+TEST_F(Wallet2GeneratedTest, device_derivation_path_set_and_get)
+{
+  m_wallet.device_derivation_path("m/44'/128'/0'");
+  ASSERT_EQ(m_wallet.device_derivation_path(), "m/44'/128'/0'");
+}
+
+TEST_F(Wallet2GeneratedTest, merge_destinations_toggle)
+{
+  m_wallet.merge_destinations(true);
+  ASSERT_TRUE(m_wallet.merge_destinations());
+
+  m_wallet.merge_destinations(false);
+  ASSERT_FALSE(m_wallet.merge_destinations());
+}
+
+TEST_F(Wallet2GeneratedTest, ask_password_type_set_and_get)
+{
+  m_wallet.ask_password(tools::wallet2::AskPasswordToDecrypt);
+  ASSERT_EQ(m_wallet.ask_password(), tools::wallet2::AskPasswordToDecrypt);
+
+  m_wallet.ask_password(tools::wallet2::AskPasswordNever);
+  ASSERT_EQ(m_wallet.ask_password(), tools::wallet2::AskPasswordNever);
+}
+
+TEST_F(Wallet2GeneratedTest, export_format_set_and_get)
+{
+  m_wallet.set_export_format(tools::wallet2::ExportFormat::Ascii);
+  ASSERT_EQ(m_wallet.export_format(), tools::wallet2::ExportFormat::Ascii);
+
+  m_wallet.set_export_format(tools::wallet2::ExportFormat::Binary);
+  ASSERT_EQ(m_wallet.export_format(), tools::wallet2::ExportFormat::Binary);
+}
+
+TEST_F(Wallet2GeneratedTest, enable_multisig_toggle)
+{
+  ASSERT_FALSE(m_wallet.is_multisig_enabled());
+
+  m_wallet.enable_multisig(true);
+  ASSERT_TRUE(m_wallet.is_multisig_enabled());
+
+  m_wallet.enable_multisig(false);
+  ASSERT_FALSE(m_wallet.is_multisig_enabled());
+}
+
+TEST_F(Wallet2GeneratedTest, allow_mismatched_daemon_version_toggle)
+{
+  m_wallet.allow_mismatched_daemon_version(true);
+  ASSERT_TRUE(m_wallet.is_mismatched_daemon_version_allowed());
+
+  m_wallet.allow_mismatched_daemon_version(false);
+  ASSERT_FALSE(m_wallet.is_mismatched_daemon_version_allowed());
+}
+
+TEST_F(Wallet2GeneratedTest, min_output_count_set_and_get)
+{
+  m_wallet.set_min_output_count(10);
+  ASSERT_EQ(m_wallet.get_min_output_count(), 10u);
+
+  m_wallet.set_min_output_count(0);
+  ASSERT_EQ(m_wallet.get_min_output_count(), 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, min_output_value_set_and_get)
+{
+  m_wallet.set_min_output_value(1000000);
+  ASSERT_EQ(m_wallet.get_min_output_value(), 1000000u);
+
+  m_wallet.set_min_output_value(0);
+  ASSERT_EQ(m_wallet.get_min_output_value(), 0u);
+}
+
+TEST_F(Wallet2GeneratedTest, setup_background_mining_set_and_get)
+{
+  m_wallet.setup_background_mining(tools::wallet2::BackgroundMiningYes);
+  ASSERT_EQ(m_wallet.setup_background_mining(), tools::wallet2::BackgroundMiningYes);
+
+  m_wallet.setup_background_mining(tools::wallet2::BackgroundMiningNo);
+  ASSERT_EQ(m_wallet.setup_background_mining(), tools::wallet2::BackgroundMiningNo);
+
+  m_wallet.setup_background_mining(tools::wallet2::BackgroundMiningMaybe);
+  ASSERT_EQ(m_wallet.setup_background_mining(), tools::wallet2::BackgroundMiningMaybe);
+}
+
+// ===========================================================================
+// Key management and accessor tests
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, account_keys_spend_key_nonzero)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  // The spend secret key should not be all zeros
+  ASSERT_NE(keys.m_spend_secret_key, crypto::null_skey);
+}
+
+TEST_F(Wallet2GeneratedTest, account_keys_view_key_nonzero)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  ASSERT_NE(keys.m_view_secret_key, crypto::null_skey);
+}
+
+TEST_F(Wallet2GeneratedTest, account_keys_public_spend_key_nonzero)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  ASSERT_NE(keys.m_account_address.m_spend_public_key, crypto::null_pkey);
+}
+
+TEST_F(Wallet2GeneratedTest, account_keys_public_view_key_nonzero)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  ASSERT_NE(keys.m_account_address.m_view_public_key, crypto::null_pkey);
+}
+
+TEST_F(Wallet2GeneratedTest, account_keys_spend_and_view_differ)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  ASSERT_NE(keys.m_spend_secret_key, keys.m_view_secret_key);
+}
+
+TEST_F(Wallet2GeneratedTest, account_keys_public_spend_view_differ)
+{
+  const auto& keys = m_wallet.get_account().get_keys();
+  ASSERT_NE(keys.m_account_address.m_spend_public_key, keys.m_account_address.m_view_public_key);
+}
+
+TEST_F(Wallet2GeneratedTest, two_generated_wallets_have_different_spend_keys)
+{
+  // Generate a second wallet with two_random=false, recover=false (fresh wallet)
+  tools::wallet2 w2;
+  w2.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w2.set_subaddress_lookahead(2, 5);
+  crypto::secret_key rk2;
+  w2.generate("", "", rk2, false, false);
+
+  const auto& keys1 = m_wallet.get_account().get_keys();
+  const auto& keys2 = w2.get_account().get_keys();
+  // Spend keys should be different for independently generated wallets
+  ASSERT_NE(keys1.m_spend_secret_key, keys2.m_spend_secret_key);
+}
+
+TEST_F(Wallet2GeneratedTest, seed_language_roundtrip)
+{
+  m_wallet.set_seed_language("English");
+  ASSERT_EQ(m_wallet.get_seed_language(), "English");
+
+  m_wallet.set_seed_language("Spanish");
+  ASSERT_EQ(m_wallet.get_seed_language(), "Spanish");
+}
+
+TEST(Wallet2StaticTest, is_deterministic_for_fresh_wallet)
+{
+  tools::wallet2 w;
+  w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w.set_subaddress_lookahead(2, 5);
+  crypto::secret_key rk;
+  w.generate("", "", rk, false, false);  // not recover, not two_random
+  // Keys are encrypted after generate, unlock them first
+  epee::wipeable_string password("");
+  tools::wallet_keys_unlocker unlocker(w, &password);
+  ASSERT_TRUE(w.is_deterministic());
+}
+
+TEST(Wallet2StaticTest, is_not_deterministic_for_two_random_wallet)
+{
+  tools::wallet2 w;
+  w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w.set_subaddress_lookahead(2, 5);
+  crypto::secret_key rk;
+  w.generate("", "", rk, false, true);  // two_random = true
+  ASSERT_FALSE(w.is_deterministic());
+}
+
+TEST(Wallet2StaticTest, get_seed_with_english_language)
+{
+  tools::wallet2 w;
+  w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+  w.set_subaddress_lookahead(2, 5);
+  crypto::secret_key rk;
+  w.generate("", "", rk, false, false);  // deterministic
+  w.set_seed_language("English");
+  // Keys are encrypted after generate, unlock them first
+  epee::wipeable_string password("");
+  tools::wallet_keys_unlocker unlocker(w, &password);
+  epee::wipeable_string seed;
+  bool has_seed = w.get_seed(seed);
+  ASSERT_TRUE(has_seed);
+  // Monero seed is 25 words separated by spaces
+  std::string seed_str(seed.data(), seed.size());
+  size_t word_count = 1;
+  for (char c : seed_str) {
+    if (c == ' ') word_count++;
+  }
+  ASSERT_EQ(word_count, 25u);
+}
+
+TEST_F(Wallet2GeneratedTest, refresh_from_block_height_roundtrip)
+{
+  m_wallet.set_refresh_from_block_height(500000);
+  ASSERT_EQ(m_wallet.get_refresh_from_block_height(), 500000u);
+
+  m_wallet.set_refresh_from_block_height(0);
+  ASSERT_EQ(m_wallet.get_refresh_from_block_height(), 0u);
+
+  m_wallet.set_refresh_from_block_height(999999999);
+  ASSERT_EQ(m_wallet.get_refresh_from_block_height(), 999999999u);
+}
+
+// ===========================================================================
+// Export/import utilities
+// ===========================================================================
+
+TEST_F(Wallet2GeneratedTest, export_outputs_empty_wallet)
+{
+  auto result = m_wallet.export_outputs();
+  uint64_t base_offset = std::get<0>(result);
+  uint64_t count = std::get<1>(result);
+  auto& details = std::get<2>(result);
+  ASSERT_EQ(base_offset, 0u);
+  ASSERT_EQ(count, 0u);
+  ASSERT_TRUE(details.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, export_outputs_to_str_empty_wallet)
+{
+  std::string str = m_wallet.export_outputs_to_str();
+  // Even with no outputs, should return a non-empty serialized string
+  ASSERT_FALSE(str.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, export_key_images_empty_wallet)
+{
+  auto result = m_wallet.export_key_images(false);
+  uint64_t offset = result.first;
+  ASSERT_EQ(offset, 0u);
+  ASSERT_TRUE(result.second.empty());
+}
+
+TEST_F(Wallet2GeneratedTest, export_key_images_all_empty_wallet)
+{
+  auto result = m_wallet.export_key_images(true);
+  ASSERT_EQ(result.first, 0u);
+  ASSERT_TRUE(result.second.empty());
+}
+
+// ===========================================================================
+// Static utility method tests
+// ===========================================================================
+
+TEST(Wallet2StaticTest, parse_long_payment_id_valid)
+{
+  // Valid 64-char hex (32 bytes)
+  std::string pid_str = "0000000000000000000000000000000000000000000000000000000000000001";
+  crypto::hash pid;
+  ASSERT_TRUE(tools::wallet2::parse_long_payment_id(pid_str, pid));
+  // Last byte should be 1
+  ASSERT_EQ(pid.data[31], 1);
+}
+
+TEST(Wallet2StaticTest, parse_long_payment_id_invalid_too_short)
+{
+  std::string pid_str = "0000000000000001";
+  crypto::hash pid;
+  ASSERT_FALSE(tools::wallet2::parse_long_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, parse_long_payment_id_invalid_not_hex)
+{
+  std::string pid_str = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";
+  crypto::hash pid;
+  ASSERT_FALSE(tools::wallet2::parse_long_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, parse_long_payment_id_empty)
+{
+  std::string pid_str = "";
+  crypto::hash pid;
+  ASSERT_FALSE(tools::wallet2::parse_long_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, parse_short_payment_id_valid)
+{
+  // Valid 16-char hex (8 bytes)
+  std::string pid_str = "0000000000000001";
+  crypto::hash8 pid;
+  ASSERT_TRUE(tools::wallet2::parse_short_payment_id(pid_str, pid));
+  ASSERT_EQ(pid.data[7], 1);
+}
+
+TEST(Wallet2StaticTest, parse_short_payment_id_invalid_too_long)
+{
+  std::string pid_str = "0000000000000000000000000000000000000000000000000000000000000001";
+  crypto::hash8 pid;
+  ASSERT_FALSE(tools::wallet2::parse_short_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, parse_short_payment_id_invalid_not_hex)
+{
+  std::string pid_str = "gggggggggggggggg";
+  crypto::hash8 pid;
+  ASSERT_FALSE(tools::wallet2::parse_short_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, parse_payment_id_accepts_long)
+{
+  std::string pid_str = "0000000000000000000000000000000000000000000000000000000000000001";
+  crypto::hash pid;
+  ASSERT_TRUE(tools::wallet2::parse_payment_id(pid_str, pid));
+  ASSERT_EQ(pid.data[31], 1);
+}
+
+TEST(Wallet2StaticTest, parse_payment_id_accepts_short)
+{
+  std::string pid_str = "0000000000000002";
+  crypto::hash pid;
+  ASSERT_TRUE(tools::wallet2::parse_payment_id(pid_str, pid));
+  // Short payment IDs get padded: first 8 bytes from hash8, rest are zeros
+  ASSERT_EQ(pid.data[7], 2);
+  ASSERT_EQ(pid.data[8], 0);
+}
+
+TEST(Wallet2StaticTest, parse_payment_id_rejects_garbage)
+{
+  std::string pid_str = "not_a_payment_id";
+  crypto::hash pid;
+  ASSERT_FALSE(tools::wallet2::parse_payment_id(pid_str, pid));
+}
+
+TEST(Wallet2StaticTest, wallet_valid_path_format_nonempty)
+{
+  ASSERT_TRUE(tools::wallet2::wallet_valid_path_format("/tmp/test_wallet"));
+  ASSERT_TRUE(tools::wallet2::wallet_valid_path_format("relative_path"));
+  ASSERT_TRUE(tools::wallet2::wallet_valid_path_format("a"));
+}
+
+TEST(Wallet2StaticTest, wallet_valid_path_format_empty_returns_false)
+{
+  ASSERT_FALSE(tools::wallet2::wallet_valid_path_format(""));
+}
+
+TEST(Wallet2StaticTest, make_background_wallet_file_name_roundtrip)
+{
+  std::string name = tools::wallet2::make_background_wallet_file_name("/tmp/my_wallet");
+  ASSERT_EQ(name, "/tmp/my_wallet.background");
+}
+
+TEST(Wallet2StaticTest, make_background_keys_file_name_roundtrip)
+{
+  std::string name = tools::wallet2::make_background_keys_file_name("/tmp/my_wallet");
+  ASSERT_EQ(name, "/tmp/my_wallet.background.keys");
+}
+
+TEST(Wallet2StaticTest, background_sync_type_from_str_off)
+{
+  ASSERT_EQ(tools::wallet2::background_sync_type_from_str("off"),
+            tools::wallet2::BackgroundSyncOff);
+}
+
+TEST(Wallet2StaticTest, background_sync_type_from_str_reuse)
+{
+  ASSERT_EQ(tools::wallet2::background_sync_type_from_str("reuse-wallet-password"),
+            tools::wallet2::BackgroundSyncReusePassword);
+}
+
+TEST(Wallet2StaticTest, background_sync_type_from_str_custom)
+{
+  ASSERT_EQ(tools::wallet2::background_sync_type_from_str("custom-background-password"),
+            tools::wallet2::BackgroundSyncCustomPassword);
+}
+
+TEST(Wallet2StaticTest, background_sync_type_from_str_invalid_throws)
+{
+  ASSERT_THROW(tools::wallet2::background_sync_type_from_str("invalid"), std::logic_error);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_zero_inputs_returns_nonzero)
+{
+  // Even with zero inputs, there's a base size
+  uint64_t fee = tools::wallet2::estimate_fee(true, true, 0, 15, 2, 0, true, true, true, true, 20000, 1);
+  ASSERT_GT(fee, 0u);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_extra_size_effect)
+{
+  uint64_t fee_0 = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 0, true, true, true, true, 20000, 1);
+  uint64_t fee_1000 = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 1000, true, true, true, true, 20000, 1);
+  ASSERT_LT(fee_0, fee_1000);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_more_outputs_costs_more)
+{
+  uint64_t fee_2out = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 0, true, true, true, true, 20000, 1);
+  uint64_t fee_10out = tools::wallet2::estimate_fee(true, true, 1, 15, 10, 0, true, true, true, true, 20000, 1);
+  ASSERT_LT(fee_2out, fee_10out);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_quantization_mask_alignment)
+{
+  // With quantization mask of 10000, fee should be a multiple of 10000
+  uint64_t fee = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 100, true, true, true, true, 20000, 10000);
+  ASSERT_EQ(fee % 10000, 0u);
+}
+
+TEST(Wallet2StaticTest, estimate_fee_higher_base_fee_increases_total)
+{
+  uint64_t fee_low = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 100, true, true, true, true, 1000, 1);
+  uint64_t fee_high = tools::wallet2::estimate_fee(true, true, 1, 15, 2, 100, true, true, true, true, 100000, 1);
+  ASSERT_LT(fee_low, fee_high);
+}
+
+// ===========================================================================
+// Wallet RPC serialization roundtrip tests
+// ===========================================================================
+
+#include "wallet/wallet_rpc_server_commands_defs.h"
+#include "storages/portable_storage_template_helper.h"
+
+// Helper macro: serialize to JSON then deserialize and compare fields
+#define WALLET_RPC_ROUNDTRIP_TEST(TestName, CommandType, SetupOrig, VerifyRestored) \
+TEST(WalletRpcSerialization, TestName) \
+{ \
+  tools::wallet_rpc::CommandType::request_t orig; \
+  SetupOrig; \
+  std::string json; \
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json)); \
+  ASSERT_FALSE(json.empty()); \
+  tools::wallet_rpc::CommandType::request_t restored; \
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json)); \
+  VerifyRestored; \
+}
+
+#define WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(TestName, CommandType, SetupOrig, VerifyRestored) \
+TEST(WalletRpcSerialization, TestName) \
+{ \
+  tools::wallet_rpc::CommandType::response_t orig; \
+  SetupOrig; \
+  std::string json; \
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json)); \
+  ASSERT_FALSE(json.empty()); \
+  tools::wallet_rpc::CommandType::response_t restored; \
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json)); \
+  VerifyRestored; \
+}
+
+// --- COMMAND_RPC_GET_BALANCE ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_balance_request,
+  COMMAND_RPC_GET_BALANCE,
+  {
+    orig.account_index = 3;
+    orig.address_indices.insert(0);
+    orig.address_indices.insert(5);
+    orig.all_accounts = true;
+    orig.strict = true;
+  },
+  {
+    ASSERT_EQ(restored.account_index, 3u);
+    ASSERT_EQ(restored.address_indices.size(), 2u);
+    ASSERT_TRUE(restored.address_indices.count(0));
+    ASSERT_TRUE(restored.address_indices.count(5));
+    ASSERT_TRUE(restored.all_accounts);
+    ASSERT_TRUE(restored.strict);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_balance_response,
+  COMMAND_RPC_GET_BALANCE,
+  {
+    orig.balance = 1000000000000ULL;
+    orig.unlocked_balance = 500000000000ULL;
+    orig.multisig_import_needed = true;
+    orig.blocks_to_unlock = 10;
+    orig.time_to_unlock = 600;
+
+    tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::per_subaddress_info si;
+    si.account_index = 0;
+    si.address_index = 1;
+    si.address = "test_address";
+    si.balance = 100;
+    si.unlocked_balance = 50;
+    si.label = "my label";
+    si.num_unspent_outputs = 3;
+    si.blocks_to_unlock = 2;
+    si.time_to_unlock = 120;
+    orig.per_subaddress.push_back(si);
+  },
+  {
+    ASSERT_EQ(restored.balance, 1000000000000ULL);
+    ASSERT_EQ(restored.unlocked_balance, 500000000000ULL);
+    ASSERT_TRUE(restored.multisig_import_needed);
+    ASSERT_EQ(restored.blocks_to_unlock, 10u);
+    ASSERT_EQ(restored.time_to_unlock, 600u);
+    ASSERT_EQ(restored.per_subaddress.size(), 1u);
+    ASSERT_EQ(restored.per_subaddress[0].label, "my label");
+    ASSERT_EQ(restored.per_subaddress[0].num_unspent_outputs, 3u);
+  }
+)
+
+// --- COMMAND_RPC_GET_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_address_request,
+  COMMAND_RPC_GET_ADDRESS,
+  {
+    orig.account_index = 2;
+    orig.address_index.push_back(0);
+    orig.address_index.push_back(3);
+    orig.address_index.push_back(7);
+  },
+  {
+    ASSERT_EQ(restored.account_index, 2u);
+    ASSERT_EQ(restored.address_index.size(), 3u);
+    ASSERT_EQ(restored.address_index[0], 0u);
+    ASSERT_EQ(restored.address_index[1], 3u);
+    ASSERT_EQ(restored.address_index[2], 7u);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_address_response,
+  COMMAND_RPC_GET_ADDRESS,
+  {
+    orig.address = "4...test_main_address";
+    tools::wallet_rpc::COMMAND_RPC_GET_ADDRESS::address_info ai;
+    ai.address = "4...sub_addr";
+    ai.label = "savings";
+    ai.address_index = 1;
+    ai.used = true;
+    orig.addresses.push_back(ai);
+  },
+  {
+    ASSERT_EQ(restored.address, "4...test_main_address");
+    ASSERT_EQ(restored.addresses.size(), 1u);
+    ASSERT_EQ(restored.addresses[0].label, "savings");
+    ASSERT_EQ(restored.addresses[0].address_index, 1u);
+    ASSERT_TRUE(restored.addresses[0].used);
+  }
+)
+
+// --- COMMAND_RPC_GET_HEIGHT ---
+
+TEST(WalletRpcSerialization, get_height_request_empty)
+{
+  tools::wallet_rpc::COMMAND_RPC_GET_HEIGHT::request_t orig;
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  tools::wallet_rpc::COMMAND_RPC_GET_HEIGHT::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  // Empty request, just ensure roundtrip succeeds
+}
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_height_response,
+  COMMAND_RPC_GET_HEIGHT,
+  {
+    orig.height = 2500000;
+  },
+  {
+    ASSERT_EQ(restored.height, 2500000u);
+  }
+)
+
+// --- COMMAND_RPC_TRANSFER ---
+
+WALLET_RPC_ROUNDTRIP_TEST(transfer_request,
+  COMMAND_RPC_TRANSFER,
+  {
+    tools::wallet_rpc::transfer_destination dest;
+    dest.amount = 1000000000;
+    dest.address = "4...recipient_address";
+    orig.destinations.push_back(dest);
+    orig.account_index = 0;
+    orig.subaddr_indices.insert(0);
+    orig.subaddr_indices.insert(1);
+    orig.priority = 2;
+    orig.ring_size = 16;
+    orig.unlock_time = 0;
+    orig.payment_id = "";
+    orig.get_tx_key = true;
+    orig.do_not_relay = false;
+    orig.get_tx_hex = true;
+    orig.get_tx_metadata = false;
+  },
+  {
+    ASSERT_EQ(restored.destinations.size(), 1u);
+    ASSERT_EQ(restored.destinations.front().amount, 1000000000u);
+    ASSERT_EQ(restored.destinations.front().address, "4...recipient_address");
+    ASSERT_EQ(restored.account_index, 0u);
+    ASSERT_EQ(restored.subaddr_indices.size(), 2u);
+    ASSERT_EQ(restored.priority, 2u);
+    ASSERT_EQ(restored.ring_size, 16u);
+    ASSERT_TRUE(restored.get_tx_key);
+    ASSERT_TRUE(restored.get_tx_hex);
+    ASSERT_FALSE(restored.get_tx_metadata);
+  }
+)
+
+// --- COMMAND_RPC_TRANSFER_SPLIT ---
+
+WALLET_RPC_ROUNDTRIP_TEST(transfer_split_request,
+  COMMAND_RPC_TRANSFER_SPLIT,
+  {
+    tools::wallet_rpc::transfer_destination dest1;
+    dest1.amount = 500000000;
+    dest1.address = "addr1";
+    tools::wallet_rpc::transfer_destination dest2;
+    dest2.amount = 300000000;
+    dest2.address = "addr2";
+    orig.destinations.push_back(dest1);
+    orig.destinations.push_back(dest2);
+    orig.account_index = 1;
+    orig.priority = 3;
+    orig.ring_size = 16;
+    orig.unlock_time = 0;
+    orig.get_tx_keys = true;
+    orig.do_not_relay = true;
+    orig.get_tx_hex = false;
+    orig.get_tx_metadata = true;
+  },
+  {
+    ASSERT_EQ(restored.destinations.size(), 2u);
+    auto it = restored.destinations.begin();
+    ASSERT_EQ(it->amount, 500000000u);
+    ASSERT_EQ(it->address, "addr1");
+    ++it;
+    ASSERT_EQ(it->amount, 300000000u);
+    ASSERT_EQ(it->address, "addr2");
+    ASSERT_EQ(restored.account_index, 1u);
+    ASSERT_EQ(restored.priority, 3u);
+    ASSERT_TRUE(restored.get_tx_keys);
+    ASSERT_TRUE(restored.do_not_relay);
+    ASSERT_TRUE(restored.get_tx_metadata);
+  }
+)
+
+// --- COMMAND_RPC_GET_TRANSFERS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_transfers_request,
+  COMMAND_RPC_GET_TRANSFERS,
+  {
+    orig.in = true;
+    orig.out = true;
+    orig.pending = true;
+    orig.failed = false;
+    orig.pool = false;
+    orig.filter_by_height = true;
+    orig.min_height = 100000;
+    orig.max_height = 200000;
+    orig.account_index = 0;
+    orig.subaddr_indices.insert(0);
+    orig.all_accounts = false;
+  },
+  {
+    ASSERT_TRUE(restored.in);
+    ASSERT_TRUE(restored.out);
+    ASSERT_TRUE(restored.pending);
+    ASSERT_FALSE(restored.failed);
+    ASSERT_FALSE(restored.pool);
+    ASSERT_TRUE(restored.filter_by_height);
+    ASSERT_EQ(restored.min_height, 100000u);
+    ASSERT_EQ(restored.max_height, 200000u);
+    ASSERT_EQ(restored.account_index, 0u);
+    ASSERT_FALSE(restored.all_accounts);
+  }
+)
+
+// --- COMMAND_RPC_GET_PAYMENTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_payments_request,
+  COMMAND_RPC_GET_PAYMENTS,
+  {
+    orig.payment_id = "0000000000000000000000000000000000000000000000000000000000001234";
+  },
+  {
+    ASSERT_EQ(restored.payment_id, "0000000000000000000000000000000000000000000000000000000000001234");
+  }
+)
+
+// --- COMMAND_RPC_GET_BULK_PAYMENTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_bulk_payments_request,
+  COMMAND_RPC_GET_BULK_PAYMENTS,
+  {
+    orig.payment_ids.push_back("pid1");
+    orig.payment_ids.push_back("pid2");
+    orig.min_block_height = 50000;
+  },
+  {
+    ASSERT_EQ(restored.payment_ids.size(), 2u);
+    ASSERT_EQ(restored.payment_ids[0], "pid1");
+    ASSERT_EQ(restored.payment_ids[1], "pid2");
+    ASSERT_EQ(restored.min_block_height, 50000u);
+  }
+)
+
+// --- COMMAND_RPC_INCOMING_TRANSFERS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(incoming_transfers_request,
+  COMMAND_RPC_INCOMING_TRANSFERS,
+  {
+    orig.transfer_type = "all";
+    orig.account_index = 0;
+    orig.subaddr_indices.insert(1);
+    orig.subaddr_indices.insert(2);
+  },
+  {
+    ASSERT_EQ(restored.transfer_type, "all");
+    ASSERT_EQ(restored.account_index, 0u);
+    ASSERT_EQ(restored.subaddr_indices.size(), 2u);
+    ASSERT_TRUE(restored.subaddr_indices.count(1));
+    ASSERT_TRUE(restored.subaddr_indices.count(2));
+  }
+)
+
+// --- COMMAND_RPC_QUERY_KEY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(query_key_request,
+  COMMAND_RPC_QUERY_KEY,
+  {
+    orig.key_type = "view_key";
+  },
+  {
+    ASSERT_EQ(restored.key_type, "view_key");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(query_key_response,
+  COMMAND_RPC_QUERY_KEY,
+  {
+    orig.key = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789";
+  },
+  {
+    ASSERT_EQ(restored.key, "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789");
+  }
+)
+
+// --- COMMAND_RPC_MAKE_INTEGRATED_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(make_integrated_address_request,
+  COMMAND_RPC_MAKE_INTEGRATED_ADDRESS,
+  {
+    orig.standard_address = "4...some_standard_address";
+    orig.payment_id = "abcdef0123456789";
+  },
+  {
+    ASSERT_EQ(restored.standard_address, "4...some_standard_address");
+    ASSERT_EQ(restored.payment_id, "abcdef0123456789");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(make_integrated_address_response,
+  COMMAND_RPC_MAKE_INTEGRATED_ADDRESS,
+  {
+    orig.integrated_address = "4...integrated_addr";
+    orig.payment_id = "1234567890abcdef";
+  },
+  {
+    ASSERT_EQ(restored.integrated_address, "4...integrated_addr");
+    ASSERT_EQ(restored.payment_id, "1234567890abcdef");
+  }
+)
+
+// --- COMMAND_RPC_SPLIT_INTEGRATED_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(split_integrated_address_request,
+  COMMAND_RPC_SPLIT_INTEGRATED_ADDRESS,
+  {
+    orig.integrated_address = "4...integrated_addr_to_split";
+  },
+  {
+    ASSERT_EQ(restored.integrated_address, "4...integrated_addr_to_split");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(split_integrated_address_response,
+  COMMAND_RPC_SPLIT_INTEGRATED_ADDRESS,
+  {
+    orig.standard_address = "4...standard";
+    orig.payment_id = "aabbccdd11223344";
+    orig.is_subaddress = true;
+  },
+  {
+    ASSERT_EQ(restored.standard_address, "4...standard");
+    ASSERT_EQ(restored.payment_id, "aabbccdd11223344");
+    ASSERT_TRUE(restored.is_subaddress);
+  }
+)
+
+// --- COMMAND_RPC_SET_TX_NOTES ---
+
+WALLET_RPC_ROUNDTRIP_TEST(set_tx_notes_request,
+  COMMAND_RPC_SET_TX_NOTES,
+  {
+    orig.txids.push_back("txid_a");
+    orig.txids.push_back("txid_b");
+    orig.notes.push_back("note for a");
+    orig.notes.push_back("note for b");
+  },
+  {
+    ASSERT_EQ(restored.txids.size(), 2u);
+    ASSERT_EQ(restored.notes.size(), 2u);
+    auto it_txid = restored.txids.begin();
+    ASSERT_EQ(*it_txid++, "txid_a");
+    ASSERT_EQ(*it_txid, "txid_b");
+    auto it_note = restored.notes.begin();
+    ASSERT_EQ(*it_note++, "note for a");
+    ASSERT_EQ(*it_note, "note for b");
+  }
+)
+
+// --- COMMAND_RPC_GET_TX_NOTES ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_tx_notes_request,
+  COMMAND_RPC_GET_TX_NOTES,
+  {
+    orig.txids.push_back("txid_1");
+    orig.txids.push_back("txid_2");
+  },
+  {
+    ASSERT_EQ(restored.txids.size(), 2u);
+  }
+)
+
+// --- COMMAND_RPC_SET_ATTRIBUTE ---
+
+WALLET_RPC_ROUNDTRIP_TEST(set_attribute_request,
+  COMMAND_RPC_SET_ATTRIBUTE,
+  {
+    orig.key = "my_key";
+    orig.value = "my_value";
+  },
+  {
+    ASSERT_EQ(restored.key, "my_key");
+    ASSERT_EQ(restored.value, "my_value");
+  }
+)
+
+// --- COMMAND_RPC_GET_ATTRIBUTE ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_attribute_request,
+  COMMAND_RPC_GET_ATTRIBUTE,
+  {
+    orig.key = "some_attribute";
+  },
+  {
+    ASSERT_EQ(restored.key, "some_attribute");
+  }
+)
+
+// --- COMMAND_RPC_EXPORT_OUTPUTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(export_outputs_request,
+  COMMAND_RPC_EXPORT_OUTPUTS,
+  {
+    orig.all = true;
+    orig.start = 10;
+    orig.count = 50;
+  },
+  {
+    ASSERT_TRUE(restored.all);
+    ASSERT_EQ(restored.start, 10u);
+    ASSERT_EQ(restored.count, 50u);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(export_outputs_response,
+  COMMAND_RPC_EXPORT_OUTPUTS,
+  {
+    orig.outputs_data_hex = "deadbeef0102030405060708";
+  },
+  {
+    ASSERT_EQ(restored.outputs_data_hex, "deadbeef0102030405060708");
+  }
+)
+
+// --- COMMAND_RPC_IMPORT_OUTPUTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(import_outputs_request,
+  COMMAND_RPC_IMPORT_OUTPUTS,
+  {
+    orig.outputs_data_hex = "cafebabe";
+  },
+  {
+    ASSERT_EQ(restored.outputs_data_hex, "cafebabe");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(import_outputs_response,
+  COMMAND_RPC_IMPORT_OUTPUTS,
+  {
+    orig.num_imported = 42;
+  },
+  {
+    ASSERT_EQ(restored.num_imported, 42u);
+  }
+)
+
+// --- COMMAND_RPC_EXPORT_KEY_IMAGES ---
+
+WALLET_RPC_ROUNDTRIP_TEST(export_key_images_request,
+  COMMAND_RPC_EXPORT_KEY_IMAGES,
+  {
+    orig.all = true;
+  },
+  {
+    ASSERT_TRUE(restored.all);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(export_key_images_response,
+  COMMAND_RPC_EXPORT_KEY_IMAGES,
+  {
+    orig.offset = 5;
+    tools::wallet_rpc::COMMAND_RPC_EXPORT_KEY_IMAGES::signed_key_image ski;
+    ski.key_image = "ki_hex";
+    ski.signature = "sig_hex";
+    orig.signed_key_images.push_back(ski);
+  },
+  {
+    ASSERT_EQ(restored.offset, 5u);
+    ASSERT_EQ(restored.signed_key_images.size(), 1u);
+    ASSERT_EQ(restored.signed_key_images[0].key_image, "ki_hex");
+    ASSERT_EQ(restored.signed_key_images[0].signature, "sig_hex");
+  }
+)
+
+// --- COMMAND_RPC_IMPORT_KEY_IMAGES ---
+
+WALLET_RPC_ROUNDTRIP_TEST(import_key_images_request,
+  COMMAND_RPC_IMPORT_KEY_IMAGES,
+  {
+    orig.offset = 3;
+    tools::wallet_rpc::COMMAND_RPC_IMPORT_KEY_IMAGES::signed_key_image ski;
+    ski.key_image = "ki1";
+    ski.signature = "sig1";
+    orig.signed_key_images.push_back(ski);
+  },
+  {
+    ASSERT_EQ(restored.offset, 3u);
+    ASSERT_EQ(restored.signed_key_images.size(), 1u);
+    ASSERT_EQ(restored.signed_key_images[0].key_image, "ki1");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(import_key_images_response,
+  COMMAND_RPC_IMPORT_KEY_IMAGES,
+  {
+    orig.height = 100000;
+    orig.spent = 50000000000ULL;
+    orig.unspent = 200000000000ULL;
+  },
+  {
+    ASSERT_EQ(restored.height, 100000u);
+    ASSERT_EQ(restored.spent, 50000000000ULL);
+    ASSERT_EQ(restored.unspent, 200000000000ULL);
+  }
+)
+
+// --- COMMAND_RPC_FREEZE ---
+
+WALLET_RPC_ROUNDTRIP_TEST(freeze_request,
+  COMMAND_RPC_FREEZE,
+  {
+    orig.key_image = "freeze_ki_hex";
+  },
+  {
+    ASSERT_EQ(restored.key_image, "freeze_ki_hex");
+  }
+)
+
+// --- COMMAND_RPC_THAW ---
+
+WALLET_RPC_ROUNDTRIP_TEST(thaw_request,
+  COMMAND_RPC_THAW,
+  {
+    orig.key_image = "thaw_ki_hex";
+  },
+  {
+    ASSERT_EQ(restored.key_image, "thaw_ki_hex");
+  }
+)
+
+// --- COMMAND_RPC_FROZEN ---
+
+WALLET_RPC_ROUNDTRIP_TEST(frozen_request,
+  COMMAND_RPC_FROZEN,
+  {
+    orig.key_image = "frozen_ki";
+  },
+  {
+    ASSERT_EQ(restored.key_image, "frozen_ki");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(frozen_response,
+  COMMAND_RPC_FROZEN,
+  {
+    orig.frozen = true;
+  },
+  {
+    ASSERT_TRUE(restored.frozen);
+  }
+)
+
+// --- COMMAND_RPC_SIGN ---
+
+WALLET_RPC_ROUNDTRIP_TEST(sign_request,
+  COMMAND_RPC_SIGN,
+  {
+    orig.data = "Hello, Monero!";
+    orig.account_index = 0;
+    orig.address_index = 1;
+    orig.signature_type = "spend";
+  },
+  {
+    ASSERT_EQ(restored.data, "Hello, Monero!");
+    ASSERT_EQ(restored.account_index, 0u);
+    ASSERT_EQ(restored.address_index, 1u);
+    ASSERT_EQ(restored.signature_type, "spend");
+  }
+)
+
+// --- COMMAND_RPC_VERIFY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(verify_request,
+  COMMAND_RPC_VERIFY,
+  {
+    orig.data = "data to verify";
+    orig.address = "4...verifier_address";
+    orig.signature = "SigV2...";
+  },
+  {
+    ASSERT_EQ(restored.data, "data to verify");
+    ASSERT_EQ(restored.address, "4...verifier_address");
+    ASSERT_EQ(restored.signature, "SigV2...");
+  }
+)
+
+// --- COMMAND_RPC_GET_SPEND_PROOF ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_spend_proof_request,
+  COMMAND_RPC_GET_SPEND_PROOF,
+  {
+    orig.txid = "aabbccdd";
+    orig.message = "proof message";
+  },
+  {
+    ASSERT_EQ(restored.txid, "aabbccdd");
+    ASSERT_EQ(restored.message, "proof message");
+  }
+)
+
+// --- COMMAND_RPC_CHECK_SPEND_PROOF ---
+
+WALLET_RPC_ROUNDTRIP_TEST(check_spend_proof_request,
+  COMMAND_RPC_CHECK_SPEND_PROOF,
+  {
+    orig.txid = "check_txid";
+    orig.message = "msg";
+    orig.signature = "SpendProofV2...";
+  },
+  {
+    ASSERT_EQ(restored.txid, "check_txid");
+    ASSERT_EQ(restored.message, "msg");
+    ASSERT_EQ(restored.signature, "SpendProofV2...");
+  }
+)
+
+// --- COMMAND_RPC_ADD_ADDRESS_BOOK_ENTRY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(add_address_book_entry_request,
+  COMMAND_RPC_ADD_ADDRESS_BOOK_ENTRY,
+  {
+    orig.address = "4...friend_address";
+    orig.description = "Alice";
+  },
+  {
+    ASSERT_EQ(restored.address, "4...friend_address");
+    ASSERT_EQ(restored.description, "Alice");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(add_address_book_entry_response,
+  COMMAND_RPC_ADD_ADDRESS_BOOK_ENTRY,
+  {
+    orig.index = 7;
+  },
+  {
+    ASSERT_EQ(restored.index, 7u);
+  }
+)
+
+// --- COMMAND_RPC_EDIT_ADDRESS_BOOK_ENTRY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(edit_address_book_entry_request,
+  COMMAND_RPC_EDIT_ADDRESS_BOOK_ENTRY,
+  {
+    orig.index = 2;
+    orig.set_address = true;
+    orig.address = "new_address";
+    orig.set_description = true;
+    orig.description = "new desc";
+  },
+  {
+    ASSERT_EQ(restored.index, 2u);
+    ASSERT_TRUE(restored.set_address);
+    ASSERT_EQ(restored.address, "new_address");
+    ASSERT_TRUE(restored.set_description);
+    ASSERT_EQ(restored.description, "new desc");
+  }
+)
+
+// --- COMMAND_RPC_GET_ADDRESS_BOOK_ENTRY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_address_book_entry_request,
+  COMMAND_RPC_GET_ADDRESS_BOOK_ENTRY,
+  {
+    orig.entries.push_back(0);
+    orig.entries.push_back(3);
+    orig.entries.push_back(5);
+  },
+  {
+    ASSERT_EQ(restored.entries.size(), 3u);
+    auto it = restored.entries.begin();
+    ASSERT_EQ(*it++, 0u);
+    ASSERT_EQ(*it++, 3u);
+    ASSERT_EQ(*it, 5u);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_address_book_entry_response,
+  COMMAND_RPC_GET_ADDRESS_BOOK_ENTRY,
+  {
+    tools::wallet_rpc::COMMAND_RPC_GET_ADDRESS_BOOK_ENTRY::entry e;
+    e.index = 0;
+    e.address = "4...addr";
+    e.description = "Bob";
+    orig.entries.push_back(e);
+  },
+  {
+    ASSERT_EQ(restored.entries.size(), 1u);
+    ASSERT_EQ(restored.entries[0].index, 0u);
+    ASSERT_EQ(restored.entries[0].address, "4...addr");
+    ASSERT_EQ(restored.entries[0].description, "Bob");
+  }
+)
+
+// --- COMMAND_RPC_DELETE_ADDRESS_BOOK_ENTRY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(delete_address_book_entry_request,
+  COMMAND_RPC_DELETE_ADDRESS_BOOK_ENTRY,
+  {
+    orig.index = 4;
+  },
+  {
+    ASSERT_EQ(restored.index, 4u);
+  }
+)
+
+// --- COMMAND_RPC_CREATE_WALLET ---
+
+WALLET_RPC_ROUNDTRIP_TEST(create_wallet_request,
+  COMMAND_RPC_CREATE_WALLET,
+  {
+    orig.filename = "test_wallet";
+    orig.password = "s3cur3";
+    orig.language = "English";
+  },
+  {
+    ASSERT_EQ(restored.filename, "test_wallet");
+    ASSERT_EQ(restored.password, "s3cur3");
+    ASSERT_EQ(restored.language, "English");
+  }
+)
+
+// --- COMMAND_RPC_OPEN_WALLET ---
+
+WALLET_RPC_ROUNDTRIP_TEST(open_wallet_request,
+  COMMAND_RPC_OPEN_WALLET,
+  {
+    orig.filename = "existing_wallet";
+    orig.password = "pass";
+    orig.autosave_current = false;
+  },
+  {
+    ASSERT_EQ(restored.filename, "existing_wallet");
+    ASSERT_EQ(restored.password, "pass");
+    ASSERT_FALSE(restored.autosave_current);
+  }
+)
+
+// --- COMMAND_RPC_CLOSE_WALLET ---
+
+WALLET_RPC_ROUNDTRIP_TEST(close_wallet_request,
+  COMMAND_RPC_CLOSE_WALLET,
+  {
+    orig.autosave_current = false;
+  },
+  {
+    ASSERT_FALSE(restored.autosave_current);
+  }
+)
+
+// --- COMMAND_RPC_CHANGE_WALLET_PASSWORD ---
+
+WALLET_RPC_ROUNDTRIP_TEST(change_wallet_password_request,
+  COMMAND_RPC_CHANGE_WALLET_PASSWORD,
+  {
+    orig.old_password = "old_pass";
+    orig.new_password = "new_pass";
+  },
+  {
+    ASSERT_EQ(restored.old_password, "old_pass");
+    ASSERT_EQ(restored.new_password, "new_pass");
+  }
+)
+
+// --- COMMAND_RPC_RESCAN_BLOCKCHAIN ---
+
+WALLET_RPC_ROUNDTRIP_TEST(rescan_blockchain_request,
+  COMMAND_RPC_RESCAN_BLOCKCHAIN,
+  {
+    orig.hard = true;
+  },
+  {
+    ASSERT_TRUE(restored.hard);
+  }
+)
+
+// --- COMMAND_RPC_IS_MULTISIG ---
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(is_multisig_response,
+  COMMAND_RPC_IS_MULTISIG,
+  {
+    orig.multisig = true;
+    orig.kex_is_done = true;
+    orig.ready = true;
+    orig.threshold = 2;
+    orig.total = 3;
+  },
+  {
+    ASSERT_TRUE(restored.multisig);
+    ASSERT_TRUE(restored.kex_is_done);
+    ASSERT_TRUE(restored.ready);
+    ASSERT_EQ(restored.threshold, 2u);
+    ASSERT_EQ(restored.total, 3u);
+  }
+)
+
+// --- COMMAND_RPC_PREPARE_MULTISIG ---
+
+WALLET_RPC_ROUNDTRIP_TEST(prepare_multisig_request,
+  COMMAND_RPC_PREPARE_MULTISIG,
+  {
+    orig.enable_multisig_experimental = true;
+  },
+  {
+    ASSERT_TRUE(restored.enable_multisig_experimental);
+  }
+)
+
+// --- COMMAND_RPC_MAKE_MULTISIG ---
+
+WALLET_RPC_ROUNDTRIP_TEST(make_multisig_request,
+  COMMAND_RPC_MAKE_MULTISIG,
+  {
+    orig.multisig_info.push_back("info1");
+    orig.multisig_info.push_back("info2");
+    orig.threshold = 2;
+    orig.password = "test_password";
+  },
+  {
+    ASSERT_EQ(restored.multisig_info.size(), 2u);
+    ASSERT_EQ(restored.multisig_info[0], "info1");
+    ASSERT_EQ(restored.multisig_info[1], "info2");
+    ASSERT_EQ(restored.threshold, 2u);
+    ASSERT_EQ(restored.password, "test_password");
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(make_multisig_response,
+  COMMAND_RPC_MAKE_MULTISIG,
+  {
+    orig.address = "4...multisig_address";
+    orig.multisig_info = "multisig_info_hex";
+  },
+  {
+    ASSERT_EQ(restored.address, "4...multisig_address");
+    ASSERT_EQ(restored.multisig_info, "multisig_info_hex");
+  }
+)
+
+// --- COMMAND_RPC_GET_VERSION ---
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_version_response,
+  COMMAND_RPC_GET_VERSION,
+  {
+    orig.version = WALLET_RPC_VERSION;
+    orig.release = true;
+  },
+  {
+    ASSERT_EQ(restored.version, WALLET_RPC_VERSION);
+    ASSERT_TRUE(restored.release);
+  }
+)
+
+// --- COMMAND_RPC_VALIDATE_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(validate_address_request,
+  COMMAND_RPC_VALIDATE_ADDRESS,
+  {
+    orig.address = "4...some_address";
+    orig.any_net_type = true;
+    orig.allow_openalias = false;
+  },
+  {
+    ASSERT_EQ(restored.address, "4...some_address");
+    ASSERT_TRUE(restored.any_net_type);
+    ASSERT_FALSE(restored.allow_openalias);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(validate_address_response,
+  COMMAND_RPC_VALIDATE_ADDRESS,
+  {
+    orig.valid = true;
+    orig.integrated = false;
+    orig.subaddress = true;
+    orig.nettype = "mainnet";
+    orig.openalias_address = "";
+  },
+  {
+    ASSERT_TRUE(restored.valid);
+    ASSERT_FALSE(restored.integrated);
+    ASSERT_TRUE(restored.subaddress);
+    ASSERT_EQ(restored.nettype, "mainnet");
+    ASSERT_EQ(restored.openalias_address, "");
+  }
+)
+
+// --- COMMAND_RPC_GET_TX_KEY ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_tx_key_request,
+  COMMAND_RPC_GET_TX_KEY,
+  {
+    orig.txid = "abcdef1234567890";
+  },
+  {
+    ASSERT_EQ(restored.txid, "abcdef1234567890");
+  }
+)
+
+// --- COMMAND_RPC_GET_TX_PROOF ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_tx_proof_request,
+  COMMAND_RPC_GET_TX_PROOF,
+  {
+    orig.txid = "tx_hash_here";
+    orig.address = "4...proof_address";
+    orig.message = "proof message text";
+  },
+  {
+    ASSERT_EQ(restored.txid, "tx_hash_here");
+    ASSERT_EQ(restored.address, "4...proof_address");
+    ASSERT_EQ(restored.message, "proof message text");
+  }
+)
+
+// --- COMMAND_RPC_GET_RESERVE_PROOF ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_reserve_proof_request,
+  COMMAND_RPC_GET_RESERVE_PROOF,
+  {
+    orig.all = false;
+    orig.account_index = 1;
+    orig.amount = 5000000000ULL;
+    orig.message = "reserve proof";
+  },
+  {
+    ASSERT_FALSE(restored.all);
+    ASSERT_EQ(restored.account_index, 1u);
+    ASSERT_EQ(restored.amount, 5000000000ULL);
+    ASSERT_EQ(restored.message, "reserve proof");
+  }
+)
+
+// --- COMMAND_RPC_GET_TRANSFER_BY_TXID ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_transfer_by_txid_request,
+  COMMAND_RPC_GET_TRANSFER_BY_TXID,
+  {
+    orig.txid = "some_txid_hex";
+    orig.account_index = 2;
+  },
+  {
+    ASSERT_EQ(restored.txid, "some_txid_hex");
+    ASSERT_EQ(restored.account_index, 2u);
+  }
+)
+
+// --- transfer_destination ---
+
+TEST(WalletRpcSerialization, transfer_destination_roundtrip)
+{
+  tools::wallet_rpc::transfer_destination orig;
+  orig.amount = 987654321;
+  orig.address = "4...destination_addr";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::transfer_destination restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.amount, 987654321u);
+  ASSERT_EQ(restored.address, "4...destination_addr");
+}
+
+// --- transfer_entry ---
+
+TEST(WalletRpcSerialization, transfer_entry_roundtrip)
+{
+  tools::wallet_rpc::transfer_entry orig;
+  orig.txid = "txid_hex_value";
+  orig.payment_id = "pid_hex";
+  orig.height = 500000;
+  orig.timestamp = 1700000000;
+  orig.amount = 1000000000000ULL;
+  orig.fee = 20000000;
+  orig.note = "test note";
+  orig.type = "in";
+  orig.unlock_time = 0;
+  orig.locked = false;
+  orig.double_spend_seen = false;
+  orig.confirmations = 100;
+  orig.suggested_confirmations_threshold = 10;
+  orig.address = "4...addr";
+
+  tools::wallet_rpc::transfer_destination dest;
+  dest.amount = 1000000000000ULL;
+  dest.address = "4...dest";
+  orig.destinations.push_back(dest);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::transfer_entry restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.txid, "txid_hex_value");
+  ASSERT_EQ(restored.payment_id, "pid_hex");
+  ASSERT_EQ(restored.height, 500000u);
+  ASSERT_EQ(restored.timestamp, 1700000000u);
+  ASSERT_EQ(restored.amount, 1000000000000ULL);
+  ASSERT_EQ(restored.fee, 20000000u);
+  ASSERT_EQ(restored.note, "test note");
+  ASSERT_EQ(restored.type, "in");
+  ASSERT_FALSE(restored.locked);
+  ASSERT_FALSE(restored.double_spend_seen);
+  ASSERT_EQ(restored.confirmations, 100u);
+  ASSERT_EQ(restored.suggested_confirmations_threshold, 10u);
+  ASSERT_EQ(restored.destinations.size(), 1u);
+}
+
+// --- payment_details ---
+
+TEST(WalletRpcSerialization, payment_details_roundtrip)
+{
+  tools::wallet_rpc::payment_details orig;
+  orig.payment_id = "pid";
+  orig.tx_hash = "tx_hash_hex";
+  orig.amount = 500000000;
+  orig.block_height = 300000;
+  orig.unlock_time = 10;
+  orig.locked = true;
+  orig.address = "4...addr";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::payment_details restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.payment_id, "pid");
+  ASSERT_EQ(restored.tx_hash, "tx_hash_hex");
+  ASSERT_EQ(restored.amount, 500000000u);
+  ASSERT_EQ(restored.block_height, 300000u);
+  ASSERT_EQ(restored.unlock_time, 10u);
+  ASSERT_TRUE(restored.locked);
+}
+
+// --- single_transfer_response ---
+
+TEST(WalletRpcSerialization, single_transfer_response_roundtrip)
+{
+  tools::wallet_rpc::single_transfer_response orig;
+  orig.tx_hash = "abc123";
+  orig.tx_key = "key456";
+  orig.amount = 123456789;
+  orig.fee = 100000;
+  orig.weight = 5000;
+  orig.tx_blob = "blob_hex";
+  orig.tx_metadata = "meta_hex";
+  orig.multisig_txset = "ms_txset";
+  orig.unsigned_txset = "us_txset";
+  orig.spent_key_images.key_images.push_back("ki_1");
+  orig.spent_key_images.key_images.push_back("ki_2");
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::single_transfer_response restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.tx_hash, "abc123");
+  ASSERT_EQ(restored.tx_key, "key456");
+  ASSERT_EQ(restored.amount, 123456789u);
+  ASSERT_EQ(restored.fee, 100000u);
+  ASSERT_EQ(restored.weight, 5000u);
+  ASSERT_EQ(restored.tx_blob, "blob_hex");
+  ASSERT_EQ(restored.tx_metadata, "meta_hex");
+  ASSERT_EQ(restored.multisig_txset, "ms_txset");
+  ASSERT_EQ(restored.unsigned_txset, "us_txset");
+  ASSERT_EQ(restored.spent_key_images.key_images.size(), 2u);
+}
+
+// --- split_transfer_response ---
+
+TEST(WalletRpcSerialization, split_transfer_response_roundtrip)
+{
+  tools::wallet_rpc::split_transfer_response orig;
+  orig.tx_hash_list.push_back("hash1");
+  orig.tx_hash_list.push_back("hash2");
+  orig.tx_key_list.push_back("key1");
+  orig.tx_key_list.push_back("key2");
+  orig.amount_list.push_back(100);
+  orig.amount_list.push_back(200);
+  orig.fee_list.push_back(10);
+  orig.fee_list.push_back(20);
+  orig.weight_list.push_back(1000);
+  orig.weight_list.push_back(2000);
+  orig.tx_blob_list.push_back("blob1");
+  orig.tx_blob_list.push_back("blob2");
+  orig.tx_metadata_list.push_back("meta1");
+  orig.tx_metadata_list.push_back("meta2");
+  orig.multisig_txset = "";
+  orig.unsigned_txset = "";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::split_transfer_response restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.tx_hash_list.size(), 2u);
+  ASSERT_EQ(restored.tx_key_list.size(), 2u);
+  ASSERT_EQ(restored.amount_list.size(), 2u);
+  ASSERT_EQ(restored.fee_list.size(), 2u);
+  ASSERT_EQ(restored.weight_list.size(), 2u);
+}
+
+// --- key_image_list ---
+
+TEST(WalletRpcSerialization, key_image_list_roundtrip)
+{
+  tools::wallet_rpc::key_image_list orig;
+  orig.key_images.push_back("ki_a");
+  orig.key_images.push_back("ki_b");
+  orig.key_images.push_back("ki_c");
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+
+  tools::wallet_rpc::key_image_list restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.key_images.size(), 3u);
+  auto it = restored.key_images.begin();
+  ASSERT_EQ(*it++, "ki_a");
+  ASSERT_EQ(*it++, "ki_b");
+  ASSERT_EQ(*it, "ki_c");
+}
+
+// --- amounts_list ---
+
+TEST(WalletRpcSerialization, amounts_list_roundtrip)
+{
+  tools::wallet_rpc::amounts_list orig;
+  orig.amounts.push_back(100);
+  orig.amounts.push_back(200);
+  orig.amounts.push_back(300);
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+
+  tools::wallet_rpc::amounts_list restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.amounts.size(), 3u);
+  auto it = restored.amounts.begin();
+  ASSERT_EQ(*it++, 100u);
+  ASSERT_EQ(*it++, 200u);
+  ASSERT_EQ(*it, 300u);
+}
+
+// --- uri_spec ---
+
+TEST(WalletRpcSerialization, uri_spec_roundtrip)
+{
+  tools::wallet_rpc::uri_spec orig;
+  orig.address = "4...monero_addr";
+  orig.payment_id = "0011223344556677";
+  orig.amount = 1000000000000ULL;
+  orig.tx_description = "test payment";
+  orig.recipient_name = "Alice";
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+
+  tools::wallet_rpc::uri_spec restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.address, "4...monero_addr");
+  ASSERT_EQ(restored.payment_id, "0011223344556677");
+  ASSERT_EQ(restored.amount, 1000000000000ULL);
+  ASSERT_EQ(restored.tx_description, "test payment");
+  ASSERT_EQ(restored.recipient_name, "Alice");
+}
+
+// --- COMMAND_RPC_SWEEP_ALL ---
+
+WALLET_RPC_ROUNDTRIP_TEST(sweep_all_request,
+  COMMAND_RPC_SWEEP_ALL,
+  {
+    orig.address = "4...sweep_target";
+    orig.account_index = 0;
+    orig.subaddr_indices.insert(0);
+    orig.priority = 2;
+    orig.ring_size = 16;
+    orig.outputs = 1;
+    orig.unlock_time = 0;
+    orig.payment_id = "";
+    orig.get_tx_keys = true;
+    orig.below_amount = 0;
+    orig.do_not_relay = false;
+    orig.get_tx_hex = false;
+    orig.get_tx_metadata = false;
+  },
+  {
+    ASSERT_EQ(restored.address, "4...sweep_target");
+    ASSERT_EQ(restored.account_index, 0u);
+    ASSERT_EQ(restored.priority, 2u);
+    ASSERT_EQ(restored.ring_size, 16u);
+    ASSERT_TRUE(restored.get_tx_keys);
+  }
+)
+
+// --- COMMAND_RPC_SWEEP_SINGLE ---
+
+WALLET_RPC_ROUNDTRIP_TEST(sweep_single_request,
+  COMMAND_RPC_SWEEP_SINGLE,
+  {
+    orig.address = "4...sweep_single_target";
+    orig.priority = 1;
+    orig.ring_size = 16;
+    orig.outputs = 1;
+    orig.unlock_time = 0;
+    orig.payment_id = "";
+    orig.get_tx_key = true;
+    orig.key_image = "ki_for_sweep";
+    orig.do_not_relay = true;
+    orig.get_tx_hex = true;
+    orig.get_tx_metadata = false;
+  },
+  {
+    ASSERT_EQ(restored.address, "4...sweep_single_target");
+    ASSERT_EQ(restored.key_image, "ki_for_sweep");
+    ASSERT_TRUE(restored.get_tx_key);
+    ASSERT_TRUE(restored.do_not_relay);
+    ASSERT_TRUE(restored.get_tx_hex);
+  }
+)
+
+// --- COMMAND_RPC_RELAY_TX ---
+
+WALLET_RPC_ROUNDTRIP_TEST(relay_tx_request,
+  COMMAND_RPC_RELAY_TX,
+  {
+    orig.hex = "cafebabe0102";
+  },
+  {
+    ASSERT_EQ(restored.hex, "cafebabe0102");
+  }
+)
+
+// --- COMMAND_RPC_GET_LANGUAGES ---
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(get_languages_response,
+  COMMAND_RPC_GET_LANGUAGES,
+  {
+    orig.languages.push_back("English");
+    orig.languages.push_back("Spanish");
+    orig.languages.push_back("Japanese");
+    orig.languages_local.push_back("English");
+    orig.languages_local.push_back("Espanol");
+    orig.languages_local.push_back("Japanese");
+  },
+  {
+    ASSERT_EQ(restored.languages.size(), 3u);
+    ASSERT_EQ(restored.languages[0], "English");
+    ASSERT_EQ(restored.languages[1], "Spanish");
+    ASSERT_EQ(restored.languages[2], "Japanese");
+  }
+)
+
+// --- COMMAND_RPC_AUTO_REFRESH ---
+
+WALLET_RPC_ROUNDTRIP_TEST(auto_refresh_request,
+  COMMAND_RPC_AUTO_REFRESH,
+  {
+    orig.enable = true;
+    orig.period = 30;
+  },
+  {
+    ASSERT_TRUE(restored.enable);
+    ASSERT_EQ(restored.period, 30u);
+  }
+)
+
+// --- COMMAND_RPC_REFRESH ---
+
+WALLET_RPC_ROUNDTRIP_TEST(refresh_request,
+  COMMAND_RPC_REFRESH,
+  {
+    orig.start_height = 100000;
+  },
+  {
+    ASSERT_EQ(restored.start_height, 100000u);
+  }
+)
+
+WALLET_RPC_RESPONSE_ROUNDTRIP_TEST(refresh_response,
+  COMMAND_RPC_REFRESH,
+  {
+    orig.blocks_fetched = 500;
+    orig.received_money = true;
+  },
+  {
+    ASSERT_EQ(restored.blocks_fetched, 500u);
+    ASSERT_TRUE(restored.received_money);
+  }
+)
+
+// --- COMMAND_RPC_START_MINING ---
+
+WALLET_RPC_ROUNDTRIP_TEST(start_mining_request,
+  COMMAND_RPC_START_MINING,
+  {
+    orig.threads_count = 4;
+    orig.do_background_mining = true;
+    orig.ignore_battery = false;
+  },
+  {
+    ASSERT_EQ(restored.threads_count, 4u);
+    ASSERT_TRUE(restored.do_background_mining);
+    ASSERT_FALSE(restored.ignore_battery);
+  }
+)
+
+// --- COMMAND_RPC_GET_ADDRESS_INDEX ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_address_index_request,
+  COMMAND_RPC_GET_ADDRESS_INDEX,
+  {
+    orig.address = "4...query_address";
+  },
+  {
+    ASSERT_EQ(restored.address, "4...query_address");
+  }
+)
+
+// --- COMMAND_RPC_CREATE_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(create_address_request,
+  COMMAND_RPC_CREATE_ADDRESS,
+  {
+    orig.account_index = 1;
+    orig.label = "new address";
+    orig.count = 3;
+  },
+  {
+    ASSERT_EQ(restored.account_index, 1u);
+    ASSERT_EQ(restored.label, "new address");
+    ASSERT_EQ(restored.count, 3u);
+  }
+)
+
+// --- COMMAND_RPC_LABEL_ADDRESS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(label_address_request,
+  COMMAND_RPC_LABEL_ADDRESS,
+  {
+    orig.index.major = 0;
+    orig.index.minor = 3;
+    orig.label = "labeled";
+  },
+  {
+    ASSERT_EQ(restored.index.major, 0u);
+    ASSERT_EQ(restored.index.minor, 3u);
+    ASSERT_EQ(restored.label, "labeled");
+  }
+)
+
+// --- COMMAND_RPC_GET_ACCOUNTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(get_accounts_request,
+  COMMAND_RPC_GET_ACCOUNTS,
+  {
+    orig.tag = "my_tag";
+    orig.strict_balances = true;
+  },
+  {
+    ASSERT_EQ(restored.tag, "my_tag");
+    ASSERT_TRUE(restored.strict_balances);
+  }
+)
+
+// --- COMMAND_RPC_CREATE_ACCOUNT ---
+
+WALLET_RPC_ROUNDTRIP_TEST(create_account_request,
+  COMMAND_RPC_CREATE_ACCOUNT,
+  {
+    orig.label = "new account";
+  },
+  {
+    ASSERT_EQ(restored.label, "new account");
+  }
+)
+
+// --- COMMAND_RPC_LABEL_ACCOUNT ---
+
+WALLET_RPC_ROUNDTRIP_TEST(label_account_request,
+  COMMAND_RPC_LABEL_ACCOUNT,
+  {
+    orig.account_index = 2;
+    orig.label = "savings";
+  },
+  {
+    ASSERT_EQ(restored.account_index, 2u);
+    ASSERT_EQ(restored.label, "savings");
+  }
+)
+
+// --- COMMAND_RPC_TAG_ACCOUNTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(tag_accounts_request,
+  COMMAND_RPC_TAG_ACCOUNTS,
+  {
+    orig.tag = "work";
+    orig.accounts.insert(0);
+    orig.accounts.insert(1);
+  },
+  {
+    ASSERT_EQ(restored.tag, "work");
+    ASSERT_EQ(restored.accounts.size(), 2u);
+    ASSERT_TRUE(restored.accounts.count(0));
+    ASSERT_TRUE(restored.accounts.count(1));
+  }
+)
+
+// --- COMMAND_RPC_UNTAG_ACCOUNTS ---
+
+WALLET_RPC_ROUNDTRIP_TEST(untag_accounts_request,
+  COMMAND_RPC_UNTAG_ACCOUNTS,
+  {
+    orig.accounts.insert(2);
+    orig.accounts.insert(3);
+  },
+  {
+    ASSERT_EQ(restored.accounts.size(), 2u);
+    ASSERT_TRUE(restored.accounts.count(2));
+    ASSERT_TRUE(restored.accounts.count(3));
+  }
+)
+
+// --- COMMAND_RPC_SET_ACCOUNT_TAG_DESCRIPTION ---
+
+WALLET_RPC_ROUNDTRIP_TEST(set_account_tag_description_request,
+  COMMAND_RPC_SET_ACCOUNT_TAG_DESCRIPTION,
+  {
+    orig.tag = "personal";
+    orig.description = "Personal accounts";
+  },
+  {
+    ASSERT_EQ(restored.tag, "personal");
+    ASSERT_EQ(restored.description, "Personal accounts");
+  }
+)
+
+// --- transfer_details (RPC version) ---
+
+TEST(WalletRpcSerialization, rpc_transfer_details_roundtrip)
+{
+  tools::wallet_rpc::transfer_details orig;
+  orig.amount = 999;
+  orig.spent = true;
+  orig.global_index = 12345;
+  orig.tx_hash = "tx_hash_value";
+  orig.subaddr_index.major = 0;
+  orig.subaddr_index.minor = 2;
+  orig.key_image = "ki_value";
+  orig.pubkey = "pub_value";
+  orig.block_height = 400000;
+  orig.frozen = true;
+  orig.unlocked = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(orig, json));
+
+  tools::wallet_rpc::transfer_details restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.amount, 999u);
+  ASSERT_TRUE(restored.spent);
+  ASSERT_EQ(restored.global_index, 12345u);
+  ASSERT_EQ(restored.tx_hash, "tx_hash_value");
+  ASSERT_EQ(restored.subaddr_index.major, 0u);
+  ASSERT_EQ(restored.subaddr_index.minor, 2u);
+  ASSERT_EQ(restored.key_image, "ki_value");
+  ASSERT_EQ(restored.pubkey, "pub_value");
+  ASSERT_EQ(restored.block_height, 400000u);
+  ASSERT_TRUE(restored.frozen);
+  ASSERT_FALSE(restored.unlocked);
+}
+
+// ===========================================================================
+// File persistence tests for description
+// ===========================================================================
+
+TEST_F(Wallet2FileTest, store_description_roundtrip_via_file)
+{
+  const std::string wallet_path = (m_temp_dir / "desc_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.set_description("Persistent description test");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_EQ(w.get_description(), "Persistent description test");
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_auto_refresh_persists)
+{
+  const std::string wallet_path = (m_temp_dir / "ar_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.auto_refresh(false);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_FALSE(w.auto_refresh());
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_refresh_height_persists)
+{
+  const std::string wallet_path = (m_temp_dir / "rh_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.set_refresh_from_block_height(777777);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_EQ(w.get_refresh_from_block_height(), 777777u);
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_seed_language_persists)
+{
+  const std::string wallet_path = (m_temp_dir / "sl_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.set_seed_language("Spanish");
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_EQ(w.get_seed_language(), "Spanish");
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_default_priority_persists)
+{
+  const std::string wallet_path = (m_temp_dir / "dp_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.set_default_priority(tools::fee_priority::Normal);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_EQ(w.get_default_priority(), tools::fee_priority::Normal);
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_confirm_settings_persist)
+{
+  const std::string wallet_path = (m_temp_dir / "cs_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.always_confirm_transfers(true);
+    w.confirm_backlog(true);
+    w.set_confirm_backlog_threshold(42);
+    w.confirm_export_overwrite(true);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_TRUE(w.always_confirm_transfers());
+    ASSERT_TRUE(w.confirm_backlog());
+    ASSERT_EQ(w.get_confirm_backlog_threshold(), 42u);
+    ASSERT_TRUE(w.confirm_export_overwrite());
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_min_output_settings_persist)
+{
+  const std::string wallet_path = (m_temp_dir / "mo_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.set_min_output_count(5);
+    w.set_min_output_value(100000);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_EQ(w.get_min_output_count(), 5u);
+    ASSERT_EQ(w.get_min_output_value(), 100000u);
+  }
+}
+
+TEST_F(Wallet2FileTest, rewrite_segregation_settings_persist)
+{
+  const std::string wallet_path = (m_temp_dir / "seg_wallet").string();
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    crypto::secret_key recovery_key;
+    w.generate(wallet_path, "pwd", recovery_key, true, false);
+    w.segregate_pre_fork_outputs(true);
+    w.key_reuse_mitigation2(true);
+    w.segregation_height(1546000);
+    w.rewrite(wallet_path, "pwd");
+    w.store();
+  }
+
+  {
+    tools::wallet2 w;
+    w.init("", boost::none, "", 0, true, epee::net_utils::ssl_support_t::e_ssl_support_disabled);
+    w.set_subaddress_lookahead(1, 1);
+    w.load(wallet_path, "pwd");
+    ASSERT_TRUE(w.segregate_pre_fork_outputs());
+    ASSERT_TRUE(w.key_reuse_mitigation2());
+    ASSERT_EQ(w.segregation_height(), 1546000u);
+  }
+}
+
+// ===========================================================================
+// RPC serialization edge-case tests
+// ===========================================================================
+
+TEST(WalletRpcSerialization, get_balance_request_defaults)
+{
+  // Test default values when creating an empty struct
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::request_t req;
+  req.account_index = 0;
+  req.all_accounts = false;
+  req.strict = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.account_index, 0u);
+  ASSERT_FALSE(restored.all_accounts);
+  ASSERT_FALSE(restored.strict);
+  ASSERT_TRUE(restored.address_indices.empty());
+}
+
+TEST(WalletRpcSerialization, get_transfers_request_max_height_default)
+{
+  // max_height has a non-trivial default (CRYPTONOTE_MAX_BLOCK_NUMBER)
+  tools::wallet_rpc::COMMAND_RPC_GET_TRANSFERS::request_t req;
+  req.in = true;
+  req.out = false;
+  req.pending = false;
+  req.failed = false;
+  req.pool = false;
+  req.filter_by_height = false;
+  req.min_height = 0;
+  // Deliberately do not set max_height to exercise the default
+  req.account_index = 0;
+  req.all_accounts = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+  ASSERT_FALSE(json.empty());
+
+  tools::wallet_rpc::COMMAND_RPC_GET_TRANSFERS::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_TRUE(restored.in);
+  ASSERT_FALSE(restored.out);
+}
+
+TEST(WalletRpcSerialization, transfer_request_empty_destinations)
+{
+  tools::wallet_rpc::COMMAND_RPC_TRANSFER::request_t req;
+  req.account_index = 0;
+  req.priority = 0;
+  req.ring_size = 16;
+  req.unlock_time = 0;
+  req.get_tx_key = false;
+  req.do_not_relay = false;
+  req.get_tx_hex = false;
+  req.get_tx_metadata = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  tools::wallet_rpc::COMMAND_RPC_TRANSFER::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_TRUE(restored.destinations.empty());
+}
+
+TEST(WalletRpcSerialization, transfer_request_multiple_destinations)
+{
+  tools::wallet_rpc::COMMAND_RPC_TRANSFER::request_t req;
+  for (int i = 0; i < 10; ++i) {
+    tools::wallet_rpc::transfer_destination dest;
+    dest.amount = (i + 1) * 1000000;
+    dest.address = "addr_" + std::to_string(i);
+    req.destinations.push_back(dest);
+  }
+  req.account_index = 0;
+  req.priority = 1;
+  req.ring_size = 16;
+  req.unlock_time = 0;
+  req.get_tx_key = true;
+  req.do_not_relay = false;
+  req.get_tx_hex = false;
+  req.get_tx_metadata = false;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(req, json));
+
+  tools::wallet_rpc::COMMAND_RPC_TRANSFER::request_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.destinations.size(), 10u);
+  auto it = restored.destinations.begin();
+  for (int i = 0; i < 10; ++i, ++it) {
+    ASSERT_EQ(it->amount, (uint64_t)(i + 1) * 1000000);
+    ASSERT_EQ(it->address, "addr_" + std::to_string(i));
+  }
+}
+
+TEST(WalletRpcSerialization, balance_response_empty_per_subaddress)
+{
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::response_t resp;
+  resp.balance = 0;
+  resp.unlocked_balance = 0;
+  resp.multisig_import_needed = false;
+  resp.blocks_to_unlock = 0;
+  resp.time_to_unlock = 0;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(resp, json));
+
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.balance, 0u);
+  ASSERT_TRUE(restored.per_subaddress.empty());
+}
+
+TEST(WalletRpcSerialization, balance_response_large_values)
+{
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::response_t resp;
+  resp.balance = 18446744073709551615ULL;  // max uint64
+  resp.unlocked_balance = 18446744073709551614ULL;
+  resp.multisig_import_needed = false;
+  resp.blocks_to_unlock = 0;
+  resp.time_to_unlock = 0;
+
+  std::string json;
+  ASSERT_TRUE(epee::serialization::store_t_to_json(resp, json));
+
+  tools::wallet_rpc::COMMAND_RPC_GET_BALANCE::response_t restored;
+  ASSERT_TRUE(epee::serialization::load_t_from_json(restored, json));
+  ASSERT_EQ(restored.balance, 18446744073709551615ULL);
+  ASSERT_EQ(restored.unlocked_balance, 18446744073709551614ULL);
+}

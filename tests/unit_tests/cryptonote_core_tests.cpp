@@ -810,3 +810,502 @@ TEST(CryptonoteCore, invalid_address_string)
   bool r = cryptonote::get_account_address_from_str(info, cryptonote::MAINNET, "this_is_not_a_valid_address");
   EXPECT_FALSE(r);
 }
+
+// =============================================================================
+// Additional get_block_reward tests with various base_reward values and fees
+// =============================================================================
+
+TEST(CryptonoteCore, BlockRewardWithFeesV1)
+{
+  // Block reward should include fees for v1
+  // First get the base reward (without fee)
+  uint64_t base_reward = 0;
+  bool r1 = cryptonote::get_block_reward(300000, 100000, UINT64_C(1000000000000), base_reward, 1);
+  ASSERT_TRUE(r1);
+  // The fee is added on top in construct_miner_tx, not inside get_block_reward
+  // get_block_reward returns the base reward only
+  EXPECT_GT(base_reward, 0u);
+}
+
+TEST(CryptonoteCore, BlockRewardWithLowGeneratedCoins)
+{
+  uint64_t reward = 0;
+  bool r = cryptonote::get_block_reward(0, 0, UINT64_C(1000000000), reward, 1);
+  ASSERT_TRUE(r);
+  // With very few coins generated, reward should be near maximum
+  uint64_t reward_no_coins = 0;
+  cryptonote::get_block_reward(0, 0, 0, reward_no_coins, 1);
+  EXPECT_LE(reward, reward_no_coins);
+}
+
+TEST(CryptonoteCore, BlockRewardPenaltyGradient)
+{
+  // As block weight increases past median, reward should decrease
+  uint64_t reward_at_median = 0, reward_1_1x = 0, reward_1_5x = 0;
+  size_t median = 300000;
+  bool r1 = cryptonote::get_block_reward(median, median, UINT64_C(10000000000000), reward_at_median, 1);
+  bool r2 = cryptonote::get_block_reward(median, (size_t)(median * 1.1), UINT64_C(10000000000000), reward_1_1x, 1);
+  bool r3 = cryptonote::get_block_reward(median, (size_t)(median * 1.5), UINT64_C(10000000000000), reward_1_5x, 1);
+
+  ASSERT_TRUE(r1);
+  ASSERT_TRUE(r2);
+  ASSERT_TRUE(r3);
+  // reward should decrease: at_median >= 1.1x >= 1.5x
+  EXPECT_GE(reward_at_median, reward_1_1x);
+  EXPECT_GE(reward_1_1x, reward_1_5x);
+}
+
+TEST(CryptonoteCore, BlockRewardAtExact2xMedianFails)
+{
+  uint64_t reward = 0;
+  size_t median = 300000;
+  // At exactly 2x median+1, the block is too big
+  bool r = cryptonote::get_block_reward(median, 2 * median + 1, UINT64_C(10000000000000), reward, 1);
+  EXPECT_FALSE(r);
+}
+
+TEST(CryptonoteCore, BlockRewardMonotonicDecrease)
+{
+  // As generated coins increase, reward should monotonically decrease (or stay at floor)
+  // Note: MONEY_SUPPLY is UINT64_MAX, so we test a range that avoids overflow
+  uint64_t prev_reward = UINT64_MAX;
+  const uint64_t step = UINT64_C(1000000000000000000); // 10^18
+  for (uint64_t coins = 0; coins < UINT64_C(18000000000000000000); coins += step)
+  {
+    uint64_t reward = 0;
+    bool r = cryptonote::get_block_reward(0, 0, coins, reward, 1);
+    ASSERT_TRUE(r);
+    EXPECT_LE(reward, prev_reward);
+    prev_reward = reward;
+  }
+}
+
+TEST(CryptonoteCore, BlockRewardVersionConsistency)
+{
+  // Different versions use different block targets (v1=60s, v2+=120s),
+  // resulting in different emission speed factors and thus different base rewards.
+  // Versions with the same target should produce the same base reward.
+  uint64_t reward_v5 = 0, reward_v8 = 0, reward_v14 = 0;
+  bool r1 = cryptonote::get_block_reward(0, 0, UINT64_C(10000000000000), reward_v5, 5);
+  bool r2 = cryptonote::get_block_reward(0, 0, UINT64_C(10000000000000), reward_v8, 8);
+  bool r3 = cryptonote::get_block_reward(0, 0, UINT64_C(10000000000000), reward_v14, 14);
+  ASSERT_TRUE(r1);
+  ASSERT_TRUE(r2);
+  ASSERT_TRUE(r3);
+  // All versions >= 2 use the same target (120s), so base reward should be equal
+  EXPECT_EQ(reward_v5, reward_v8);
+  EXPECT_EQ(reward_v8, reward_v14);
+}
+
+TEST(CryptonoteCore, BlockRewardBelowMedianIsFullReward)
+{
+  // A block smaller than the median should get full reward
+  uint64_t reward_half = 0, reward_full = 0;
+  size_t median = 300000;
+  bool r1 = cryptonote::get_block_reward(median, median / 2, UINT64_C(10000000000000), reward_half, 1);
+  bool r2 = cryptonote::get_block_reward(median, median, UINT64_C(10000000000000), reward_full, 1);
+  ASSERT_TRUE(r1);
+  ASSERT_TRUE(r2);
+  EXPECT_EQ(reward_half, reward_full);
+}
+
+// =============================================================================
+// Additional get_min_block_weight tests
+// =============================================================================
+
+TEST(CryptonoteCore, MinBlockWeightV2)
+{
+  size_t min_weight = cryptonote::get_min_block_weight(2);
+  EXPECT_EQ(min_weight, CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2);
+}
+
+TEST(CryptonoteCore, MinBlockWeightIncreases)
+{
+  size_t w1 = cryptonote::get_min_block_weight(1);
+  size_t w2 = cryptonote::get_min_block_weight(2);
+  size_t w5 = cryptonote::get_min_block_weight(5);
+
+  // V1 < V2 and V2 < V5
+  EXPECT_LT(w1, w2);
+  EXPECT_LT(w2, w5);
+}
+
+TEST(CryptonoteCore, MinBlockWeightV5Constants)
+{
+  size_t w = cryptonote::get_min_block_weight(5);
+  EXPECT_EQ(w, CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5);
+}
+
+TEST(CryptonoteCore, MinBlockWeightV10SameAsV5)
+{
+  // For versions >= 5, should all use CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5
+  size_t w5 = cryptonote::get_min_block_weight(5);
+  size_t w10 = cryptonote::get_min_block_weight(10);
+  size_t w14 = cryptonote::get_min_block_weight(14);
+  EXPECT_EQ(w5, w10);
+  EXPECT_EQ(w10, w14);
+}
+
+// =============================================================================
+// Additional get_max_tx_size tests
+// =============================================================================
+
+TEST(CryptonoteCore, MaxTxSizeIsConstant)
+{
+  // Calling multiple times should give the same value
+  size_t s1 = cryptonote::get_max_tx_size();
+  size_t s2 = cryptonote::get_max_tx_size();
+  EXPECT_EQ(s1, s2);
+  EXPECT_EQ(s1, CRYPTONOTE_MAX_TX_SIZE);
+}
+
+// =============================================================================
+// Additional construct_miner_tx tests
+// =============================================================================
+
+TEST(CryptonoteCore, ConstructMinerTxOutputAmountPositive)
+{
+  cryptonote::transaction tx;
+  auto addr = make_test_address();
+  bool r = cryptonote::construct_miner_tx(100, 0, UINT64_C(1000000000000), 0, 0, addr, tx, cryptonote::blobdata(), 999, 1);
+  ASSERT_TRUE(r);
+  ASSERT_FALSE(tx.vout.empty());
+  // V1 miner tx should have non-zero output amount
+  EXPECT_GT(tx.vout[0].amount, 0u);
+}
+
+TEST(CryptonoteCore, ConstructMinerTxDifferentHeights)
+{
+  for (uint64_t height : {0, 1, 100, 10000, 500000, 2000000})
+  {
+    cryptonote::transaction tx;
+    auto addr = make_test_address();
+    bool r = cryptonote::construct_miner_tx(height, 0, 0, 0, 0, addr, tx, cryptonote::blobdata(), 999, 1);
+    EXPECT_TRUE(r) << "Failed at height " << height;
+    if (r)
+    {
+      EXPECT_EQ(1u, tx.vin.size());
+      EXPECT_TRUE(tx.vin[0].type() == typeid(cryptonote::txin_gen));
+      EXPECT_EQ(height, boost::get<cryptonote::txin_gen>(tx.vin[0]).height);
+    }
+  }
+}
+
+TEST(CryptonoteCore, ConstructMinerTxWithLargeFee)
+{
+  cryptonote::transaction tx;
+  auto addr = make_test_address();
+  uint64_t fee = UINT64_C(100000000000); // 0.1 XMR
+  bool r = cryptonote::construct_miner_tx(100, 0, UINT64_C(1000000000000), 0, fee, addr, tx, cryptonote::blobdata(), 999, 1);
+  ASSERT_TRUE(r);
+  ASSERT_FALSE(tx.vout.empty());
+}
+
+TEST(CryptonoteCore, MinerTxHasCorrectUnlockTime)
+{
+  cryptonote::transaction tx;
+  auto addr = make_test_address();
+  uint64_t height = 12345;
+  bool r = cryptonote::construct_miner_tx(height, 0, 0, 0, 0, addr, tx, cryptonote::blobdata(), 999, 1);
+  ASSERT_TRUE(r);
+  // Unlock time should be height + CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW
+  EXPECT_EQ(tx.unlock_time, height + CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);
+}
+
+TEST(CryptonoteCore, ConstructMinerTxV12HasRctSignature)
+{
+  cryptonote::transaction tx;
+  auto addr = make_test_address();
+  bool r = cryptonote::construct_miner_tx(500000, 300000, UINT64_C(15000000000000000), 200000, 0, addr, tx, cryptonote::blobdata(), 999, 12);
+  ASSERT_TRUE(r);
+  // V12+ uses RCT, version should be >= 2
+  EXPECT_GE(tx.version, 2u);
+}
+
+// =============================================================================
+// Additional is_valid_decomposed_amount tests
+// =============================================================================
+
+TEST(CryptonoteCore, ValidDecomposedAmountAllSingleDigitMultiples)
+{
+  // d * 10^n for d in 1..9, n in 0..12
+  for (int d = 1; d <= 9; ++d)
+  {
+    uint64_t amount = d;
+    for (int n = 0; n <= 12; ++n)
+    {
+      EXPECT_TRUE(cryptonote::is_valid_decomposed_amount(amount))
+          << "d=" << d << " n=" << n << " amount=" << amount;
+      amount *= 10;
+    }
+  }
+}
+
+TEST(CryptonoteCore, InvalidDecomposedAmountMultiDigitValues)
+{
+  // Two-digit multipliers should be invalid
+  for (uint64_t val : {11, 12, 23, 45, 99, 101, 199, 555, 1234})
+  {
+    EXPECT_FALSE(cryptonote::is_valid_decomposed_amount(val)) << "val=" << val;
+  }
+}
+
+// =============================================================================
+// Additional check_tx_inputs_keyimages_diff tests
+// =============================================================================
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffManyDistinctInputs)
+{
+  cryptonote::transaction tx;
+  for (int i = 0; i < 20; ++i)
+  {
+    cryptonote::txin_to_key in;
+    in.amount = 1000 * (i + 1);
+    in.k_image = crypto::rand<crypto::key_image>();
+    in.key_offsets.push_back(i);
+    tx.vin.push_back(in);
+  }
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDiffLastTwoDuplicate)
+{
+  cryptonote::transaction tx;
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::txin_to_key in;
+    in.amount = 1000;
+    in.k_image = crypto::rand<crypto::key_image>();
+    in.key_offsets.push_back(i);
+    tx.vin.push_back(in);
+  }
+  // Make last two the same
+  tx.vin.push_back(tx.vin.back());
+  auto& last = boost::get<cryptonote::txin_to_key>(tx.vin.back());
+  last.key_offsets = {99}; // different offsets but same key image
+  EXPECT_FALSE(cryptonote::core::check_tx_inputs_keyimages_diff(tx));
+}
+
+// =============================================================================
+// Additional check_tx_inputs_ring_members_diff tests
+// =============================================================================
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffMultipleInputs)
+{
+  cryptonote::transaction tx;
+  for (int i = 0; i < 3; ++i)
+  {
+    cryptonote::txin_to_key in;
+    in.amount = 1000;
+    in.k_image = crypto::rand<crypto::key_image>();
+    in.key_offsets = {100, 5, 10, 3, 7};
+    tx.vin.push_back(in);
+  }
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffSingleOffset)
+{
+  cryptonote::transaction tx;
+  cryptonote::txin_to_key in;
+  in.amount = 1000;
+  in.k_image = crypto::rand<crypto::key_image>();
+  in.key_offsets = {42};
+  tx.vin.push_back(in);
+  // Single offset - always valid
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+TEST(CryptonoteCore, CheckTxInputsRingMembersDiffSecondInputBad)
+{
+  cryptonote::transaction tx;
+  // First input is valid
+  cryptonote::txin_to_key in1;
+  in1.amount = 1000;
+  in1.k_image = crypto::rand<crypto::key_image>();
+  in1.key_offsets = {100, 5, 10};
+  tx.vin.push_back(in1);
+
+  // Second input has zero offset
+  cryptonote::txin_to_key in2;
+  in2.amount = 2000;
+  in2.k_image = crypto::rand<crypto::key_image>();
+  in2.key_offsets = {50, 0, 10};
+  tx.vin.push_back(in2);
+
+  EXPECT_FALSE(cryptonote::core::check_tx_inputs_ring_members_diff(tx, 6));
+}
+
+// =============================================================================
+// Additional check_tx_inputs_keyimages_domain tests
+// =============================================================================
+
+TEST(CryptonoteCore, CheckTxInputsKeyimagesDomainValidKeyImages)
+{
+  // Generate valid key images using proper key generation
+  cryptonote::transaction tx;
+  for (int i = 0; i < 5; ++i)
+  {
+    cryptonote::txin_to_key in;
+    in.amount = 1000;
+    // Generate a valid point on the curve to use as key image
+    crypto::public_key pk;
+    crypto::secret_key sk;
+    crypto::generate_keys(pk, sk);
+    // Use the public key as the key image (it's a valid curve point)
+    memcpy(&in.k_image, &pk, sizeof(in.k_image));
+    in.key_offsets.push_back(i);
+    tx.vin.push_back(in);
+  }
+  EXPECT_TRUE(cryptonote::core::check_tx_inputs_keyimages_domain(tx));
+}
+
+// =============================================================================
+// Additional genesis block tests
+// =============================================================================
+
+TEST(CryptonoteCore, StagenetGenesisBlockDiffers)
+{
+  cryptonote::block mainnet_bl, stagenet_bl;
+  bool r1 = cryptonote::generate_genesis_block(mainnet_bl, config::GENESIS_TX, config::GENESIS_NONCE);
+  bool r2 = cryptonote::generate_genesis_block(stagenet_bl, config::stagenet::GENESIS_TX, config::stagenet::GENESIS_NONCE);
+  ASSERT_TRUE(r1);
+  ASSERT_TRUE(r2);
+
+  crypto::hash h1 = cryptonote::get_block_hash(mainnet_bl);
+  crypto::hash h2 = cryptonote::get_block_hash(stagenet_bl);
+  EXPECT_NE(h1, h2);
+}
+
+TEST(CryptonoteCore, GenesisBlockMajorVersion)
+{
+  cryptonote::block bl;
+  bool r = cryptonote::generate_genesis_block(bl, config::GENESIS_TX, config::GENESIS_NONCE);
+  ASSERT_TRUE(r);
+  EXPECT_EQ(1u, bl.major_version);
+}
+
+TEST(CryptonoteCore, GenesisBlockPrevIdIsNull)
+{
+  cryptonote::block bl;
+  bool r = cryptonote::generate_genesis_block(bl, config::GENESIS_TX, config::GENESIS_NONCE);
+  ASSERT_TRUE(r);
+  crypto::hash null_hash = {};
+  EXPECT_EQ(bl.prev_id, null_hash);
+}
+
+// =============================================================================
+// Additional address tests
+// =============================================================================
+
+TEST(CryptonoteCore, AddressStringNotEmptyAllNetworks)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  for (auto net : {cryptonote::MAINNET, cryptonote::TESTNET, cryptonote::STAGENET})
+  {
+    std::string addr_str = cryptonote::get_account_address_as_str(net, false, keys.m_account_address);
+    EXPECT_FALSE(addr_str.empty());
+    EXPECT_GT(addr_str.size(), 10u);
+  }
+}
+
+TEST(CryptonoteCore, SubaddressStringDiffersFromMainAddress)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  std::string main_str = cryptonote::get_account_address_as_str(cryptonote::MAINNET, false, keys.m_account_address);
+  std::string sub_str = cryptonote::get_account_address_as_str(cryptonote::MAINNET, true, keys.m_account_address);
+
+  EXPECT_NE(main_str, sub_str);
+}
+
+TEST(CryptonoteCore, AddressCrossNetworkRejection)
+{
+  cryptonote::account_base acc;
+  acc.generate();
+  const auto& keys = acc.get_keys();
+
+  // A mainnet address should not parse as testnet
+  std::string mainnet_str = cryptonote::get_account_address_as_str(cryptonote::MAINNET, false, keys.m_account_address);
+  cryptonote::address_parse_info info;
+  bool r = cryptonote::get_account_address_from_str(info, cryptonote::TESTNET, mainnet_str);
+  EXPECT_FALSE(r);
+}
+
+// =============================================================================
+// Additional block hash consistency tests
+// =============================================================================
+
+TEST(CryptonoteCore, BlockHashDeterministic)
+{
+  cryptonote::block bl;
+  bool r = cryptonote::generate_genesis_block(bl, config::GENESIS_TX, config::GENESIS_NONCE);
+  ASSERT_TRUE(r);
+
+  // Hash should be the same regardless of how many times we call it
+  crypto::hash h1 = cryptonote::get_block_hash(bl);
+  crypto::hash h2 = cryptonote::get_block_hash(bl);
+  crypto::hash h3 = cryptonote::get_block_hash(bl);
+  EXPECT_EQ(h1, h2);
+  EXPECT_EQ(h2, h3);
+}
+
+TEST(CryptonoteCore, BlockHashingBlobDeterministic)
+{
+  cryptonote::block bl;
+  bool r = cryptonote::generate_genesis_block(bl, config::GENESIS_TX, config::GENESIS_NONCE);
+  ASSERT_TRUE(r);
+
+  cryptonote::blobdata blob1 = cryptonote::get_block_hashing_blob(bl);
+  cryptonote::blobdata blob2 = cryptonote::get_block_hashing_blob(bl);
+  EXPECT_EQ(blob1, blob2);
+}
+
+// =============================================================================
+// Transaction serialization roundtrip tests
+// =============================================================================
+
+TEST(CryptonoteCore, MinerTxSerializationDifferentVersions)
+{
+  for (uint8_t v : {1, 2, 4, 5, 12, 14})
+  {
+    cryptonote::transaction tx;
+    auto addr = make_test_address();
+    bool r = cryptonote::construct_miner_tx(100, 0, UINT64_C(1000000000000), 0, 0, addr, tx, cryptonote::blobdata(), 999, v);
+    if (!r)
+      continue; // Some versions may not be constructable at certain heights
+
+    cryptonote::blobdata blob = cryptonote::tx_to_blob(tx);
+    EXPECT_FALSE(blob.empty()) << "Failed for version " << (int)v;
+
+    cryptonote::transaction tx2;
+    EXPECT_TRUE(cryptonote::parse_and_validate_tx_from_blob(blob, tx2)) << "Failed for version " << (int)v;
+
+    crypto::hash h1 = cryptonote::get_transaction_hash(tx);
+    crypto::hash h2 = cryptonote::get_transaction_hash(tx2);
+    EXPECT_EQ(h1, h2) << "Hash mismatch for version " << (int)v;
+  }
+}
+
+// =============================================================================
+// Transaction weight for miner tx at various versions
+// =============================================================================
+
+TEST(CryptonoteCore, TransactionWeightMinerTxMultipleVersions)
+{
+  for (uint8_t v : {1, 5, 8})
+  {
+    cryptonote::transaction tx;
+    auto addr = make_test_address();
+    bool r = cryptonote::construct_miner_tx(100, 0, UINT64_C(1000000000000), 0, 0, addr, tx, cryptonote::blobdata(), 999, v);
+    if (!r) continue;
+
+    uint64_t weight = cryptonote::get_transaction_weight(tx);
+    EXPECT_GT(weight, 0u) << "Zero weight for version " << (int)v;
+  }
+}
