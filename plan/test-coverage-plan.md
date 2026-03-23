@@ -134,7 +134,9 @@ make coverage   # generates HTML report
 | `46e43893a` | 251 | Session 9: ringct ops (111), tx_extra/format_utils (51), mnemonics (17), combinator (8), varint (11), daemon messages (19), serialization (17), epee serialization (17) |
 | `329b0b7e7` | 286 | Session 9: wallet2 URI/tags (38), RPC roundtrips (52), crypto (35), base58 (32), net/P2P (112), account (17) |
 | `1411b343c` | 335 | Session 9: ringct sigs (70), blockchain (43), tx_pool (52), block_queue (51), hardfork (15), wipeable_string (27), string_tools (39), epee_utils (38) |
-| **Total** | **~5157+** | |
+| `9855c0f20` | 315 | Session 10: format_utils (55), cryptonote_core (35), wallet2 RPC (173), LMDB fixes+new (37+137 fixed), pruning (15) |
+| `e0136c5dc` | 258 | Session 10: LMDB txpool/alt-blocks (28), blockchain queries (35), epee ByteSlice/Stream (71), net (65), util (51), threadpool (8) |
+| **Total** | **~5730+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
@@ -184,5 +186,5 @@ make coverage   # generates HTML report
 1. **Anonymous namespaces**: Several testable helpers in `rpc_command_executor.cpp` and `simplewallet.cpp` are hidden in anonymous namespaces. Refactoring them into named namespaces is a prerequisite for Phase 6.
 2. **Device testing**: `device_ledger` has private `hw::io::device_io_hid` member (not injectable). Tests limited to helper classes (ABPkeys, Keymap, HMACmap) via `#ifdef WITH_DEVICE_LEDGER`.
 3. **Trezor**: Requires `WITH_DEVICE_TREZOR`, protobuf, libusb — heavy external deps, skipped for unit tests.
-4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage: **31.0% lines** (24477/78956), **34.1% functions** (6548/19230) with 4157+ tests running.
+4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage: **34.6% lines** (27289/78964), **35.5% functions** (6845/19270), **10.1% branches** with 5148+ tests running.
 5. **Hanging tests**: `multisig.*`, `long_term_block_weight*`, `DNSResolver*`, `download*`, `boosted_tcp_server*`, `test_epee_connection*`, `positive_test_connection*`, `test_levin_protocol*`, `http_server*`, `tx_verification_utils.ver_input_proofs_rings`, `levin_notify*`, `net_ssl*`, `socks*`, `cryptonote_protocol_handler*`, `network_throttle*`, and `Wallet2FileTest.keys_file_lock_unlock` hang or crash during execution and must be excluded from coverage runs.
