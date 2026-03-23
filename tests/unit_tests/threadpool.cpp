@@ -28,6 +28,8 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <atomic>
+#include <mutex>
+#include <vector>
 #include "gtest/gtest.h"
 #include "misc_language.h"
 #include "common/threadpool.h"
@@ -176,4 +178,130 @@ TEST(threadpool, test_and_set)
   // Multiple failures
   ASSERT_FALSE(check_test_and_set(N, [](std::size_t i) -> bool { return i > 0; }));
   ASSERT_FALSE(check_test_and_set(N, [](std::size_t i) -> bool { return true; }));
+}
+
+TEST(threadpool, single_task_return_value)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests());
+  tools::threadpool::waiter waiter(*tpool);
+
+  int result = 0;
+  tpool->submit(&waiter, [&result](){ result = 42; });
+  waiter.wait();
+  ASSERT_EQ(result, 42);
+}
+
+TEST(threadpool, multiple_tasks_accumulate)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(4));
+  tools::threadpool::waiter waiter(*tpool);
+
+  std::atomic<int> sum(0);
+  for (int i = 1; i <= 100; ++i)
+  {
+    tpool->submit(&waiter, [&sum, i](){ sum += i; });
+  }
+  waiter.wait();
+  ASSERT_EQ(sum.load(), 5050);
+}
+
+TEST(threadpool, tasks_with_shared_mutex)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(4));
+  tools::threadpool::waiter waiter(*tpool);
+
+  std::mutex mtx;
+  std::vector<int> results;
+
+  for (int i = 0; i < 50; ++i)
+  {
+    tpool->submit(&waiter, [&mtx, &results, i](){
+      std::lock_guard<std::mutex> lock(mtx);
+      results.push_back(i);
+    });
+  }
+  waiter.wait();
+  ASSERT_EQ(results.size(), 50u);
+}
+
+TEST(threadpool, two_threads)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(2));
+  tools::threadpool::waiter waiter(*tpool);
+
+  std::atomic<unsigned int> counter(0);
+  for (size_t n = 0; n < 1000; ++n)
+  {
+    tpool->submit(&waiter, [&counter](){++counter;});
+  }
+  waiter.wait();
+  ASSERT_EQ(counter.load(), 1000u);
+}
+
+TEST(threadpool, sequential_waits)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(2));
+  tools::threadpool::waiter waiter(*tpool);
+
+  std::atomic<int> value(0);
+
+  // First batch
+  tpool->submit(&waiter, [&value](){ value = 1; });
+  waiter.wait();
+  ASSERT_EQ(value.load(), 1);
+
+  // Second batch
+  tpool->submit(&waiter, [&value](){ value = 2; });
+  waiter.wait();
+  ASSERT_EQ(value.load(), 2);
+
+  // Third batch
+  tpool->submit(&waiter, [&value](){ value = 3; });
+  waiter.wait();
+  ASSERT_EQ(value.load(), 3);
+}
+
+TEST(threadpool, empty_task)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests());
+  tools::threadpool::waiter waiter(*tpool);
+
+  tpool->submit(&waiter, [](){});
+  waiter.wait();
+  // Should not crash
+}
+
+TEST(threadpool, large_number_tasks_one_thread)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(1));
+  tools::threadpool::waiter waiter(*tpool);
+
+  std::atomic<unsigned int> counter(0);
+  for (size_t n = 0; n < 10000; ++n)
+  {
+    tpool->submit(&waiter, [&counter](){++counter;});
+  }
+  waiter.wait();
+  ASSERT_EQ(counter.load(), 10000u);
+}
+
+TEST(threadpool, multiple_waiters)
+{
+  std::shared_ptr<tools::threadpool> tpool(tools::threadpool::getNewForUnitTests(4));
+
+  std::atomic<int> val1(0), val2(0);
+
+  {
+    tools::threadpool::waiter waiter1(*tpool);
+    tpool->submit(&waiter1, [&val1](){ val1 = 10; });
+    waiter1.wait();
+  }
+  ASSERT_EQ(val1.load(), 10);
+
+  {
+    tools::threadpool::waiter waiter2(*tpool);
+    tpool->submit(&waiter2, [&val2](){ val2 = 20; });
+    waiter2.wait();
+  }
+  ASSERT_EQ(val2.load(), 20);
 }

@@ -3637,4 +3637,864 @@ TEST_F(LMDBTestWithBlocks, GetHashesRangePartial)
   close_db();
 }
 
+// ===========================================================================
+// ---- is_read_only / database info ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, IsReadOnlyReturnsFalse)
+{
+  open_db();
+  // Access via base class to avoid private access
+  BlockchainDB* base = &m_db;
+  EXPECT_FALSE(base->is_read_only());
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetDatabaseSizeNonZeroAfterBlocks)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Access via base class pointer to get around private access
+  BlockchainDB* base = &m_db;
+  uint64_t size = base->get_database_size();
+  EXPECT_GT(size, 0u);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetIndexingBaseIsZero)
+{
+  open_db();
+  EXPECT_EQ(0u, m_db.get_indexing_base());
+  close_db();
+}
+
+// ===========================================================================
+// ---- TxPool relay method variants ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, TxPoolRelayMethodStem)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xA1, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 300;
+  meta.fee = 60;
+  meta.set_relay_method(relay_method::stem);
+
+  m_db.add_txpool_tx(txid, "stem_blob", meta);
+  m_db.block_wtxn_stop();
+
+  // Stem tx should be in 'all' category
+  EXPECT_TRUE(m_db.txpool_has_tx(txid, relay_category::all));
+  // Stem tx should not be in 'broadcasted' category
+  EXPECT_FALSE(m_db.txpool_has_tx(txid, relay_category::broadcasted));
+  // Stem tx should be in 'relayable' category
+  EXPECT_TRUE(m_db.txpool_has_tx(txid, relay_category::relayable));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolRelayMethodNone)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xA2, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 200;
+  meta.fee = 40;
+  meta.set_relay_method(relay_method::none);
+
+  m_db.add_txpool_tx(txid, "none_blob", meta);
+  m_db.block_wtxn_stop();
+
+  // 'none' relay method tx should be in 'all'
+  EXPECT_TRUE(m_db.txpool_has_tx(txid, relay_category::all));
+  // 'none' tx should not be broadcasted
+  EXPECT_FALSE(m_db.txpool_has_tx(txid, relay_category::broadcasted));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolMixedRelayCategories)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  // Add fluff tx
+  crypto::hash txid_fluff;
+  memset(&txid_fluff, 0xB1, sizeof(txid_fluff));
+  txpool_tx_meta_t meta_fluff;
+  memset(&meta_fluff, 0, sizeof(meta_fluff));
+  meta_fluff.set_relay_method(relay_method::fluff);
+  m_db.add_txpool_tx(txid_fluff, "fluff", meta_fluff);
+
+  // Add stem tx
+  crypto::hash txid_stem;
+  memset(&txid_stem, 0xB2, sizeof(txid_stem));
+  txpool_tx_meta_t meta_stem;
+  memset(&meta_stem, 0, sizeof(meta_stem));
+  meta_stem.set_relay_method(relay_method::stem);
+  m_db.add_txpool_tx(txid_stem, "stem", meta_stem);
+
+  // Add local tx
+  crypto::hash txid_local;
+  memset(&txid_local, 0xB3, sizeof(txid_local));
+  txpool_tx_meta_t meta_local;
+  memset(&meta_local, 0, sizeof(meta_local));
+  meta_local.set_relay_method(relay_method::local);
+  m_db.add_txpool_tx(txid_local, "local", meta_local);
+
+  // Add 'none' tx
+  crypto::hash txid_none;
+  memset(&txid_none, 0xB4, sizeof(txid_none));
+  txpool_tx_meta_t meta_none;
+  memset(&meta_none, 0, sizeof(meta_none));
+  meta_none.set_relay_method(relay_method::none);
+  m_db.add_txpool_tx(txid_none, "none", meta_none);
+
+  m_db.block_wtxn_stop();
+
+  // All category should see all 4
+  EXPECT_EQ(4u, m_db.get_txpool_tx_count(relay_category::all));
+  // Broadcasted: only fluff
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count(relay_category::broadcasted));
+  // Relayable: everything except 'none' (fluff + stem + local = 3)
+  EXPECT_EQ(3u, m_db.get_txpool_tx_count(relay_category::relayable));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolGetBlobDirectReturnFiltered)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xC1, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.set_relay_method(relay_method::local);
+
+  m_db.add_txpool_tx(txid, "local_blob_data", meta);
+  m_db.block_wtxn_stop();
+
+  // Direct return overload: should work for 'all'
+  blobdata bd = m_db.get_txpool_tx_blob(txid, relay_category::all);
+  EXPECT_EQ("local_blob_data", bd);
+
+  // Should throw for 'broadcasted' since it's a local tx
+  EXPECT_ANY_THROW(m_db.get_txpool_tx_blob(txid, relay_category::broadcasted));
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolUpdateRelayMethod)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xC2, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 500;
+  meta.fee = 100;
+  meta.set_relay_method(relay_method::stem);
+
+  m_db.add_txpool_tx(txid, "stem_tx", meta);
+
+  // Initially: broadcasted should not see it
+  EXPECT_EQ(0u, m_db.get_txpool_tx_count(relay_category::broadcasted));
+
+  // Update to fluff
+  meta.set_relay_method(relay_method::fluff);
+  m_db.update_txpool_tx(txid, meta);
+
+  m_db.block_wtxn_stop();
+
+  // Now broadcasted should see it
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count(relay_category::broadcasted));
+
+  // Verify meta update persisted
+  txpool_tx_meta_t retrieved;
+  EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, retrieved));
+  EXPECT_EQ(500u, retrieved.weight);
+  EXPECT_EQ(100u, retrieved.fee);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllTxPoolTxesCategoryFiltering)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  // Add 2 fluff, 1 local
+  for (int i = 0; i < 2; ++i)
+  {
+    crypto::hash txid;
+    memset(&txid, 0xD0 + i, sizeof(txid));
+    txpool_tx_meta_t meta;
+    memset(&meta, 0, sizeof(meta));
+    meta.set_relay_method(relay_method::fluff);
+    m_db.add_txpool_tx(txid, "fluff_" + std::to_string(i), meta);
+  }
+  {
+    crypto::hash txid;
+    memset(&txid, 0xD5, sizeof(txid));
+    txpool_tx_meta_t meta;
+    memset(&meta, 0, sizeof(meta));
+    meta.set_relay_method(relay_method::local);
+    m_db.add_txpool_tx(txid, "local_0", meta);
+  }
+
+  m_db.block_wtxn_stop();
+
+  // Iterate broadcasted only
+  int count = 0;
+  bool result = m_db.for_all_txpool_txes([&count](const crypto::hash&, const txpool_tx_meta_t&, const blobdata_ref*) {
+    ++count;
+    return true;
+  }, false, relay_category::broadcasted);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(2, count);
+
+  // Iterate all
+  count = 0;
+  result = m_db.for_all_txpool_txes([&count](const crypto::hash&, const txpool_tx_meta_t&, const blobdata_ref*) {
+    ++count;
+    return true;
+  }, false, relay_category::all);
+  EXPECT_TRUE(result);
+  EXPECT_EQ(3, count);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Alt block overwrite/replace ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, AddAltBlockOverwrite)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash blkid;
+  memset(&blkid, 0xE1, sizeof(blkid));
+
+  alt_block_data_t data;
+  memset(&data, 0, sizeof(data));
+  data.height = 10;
+  data.cumulative_weight = 100;
+
+  m_db.add_alt_block(blkid, data, "original_blob");
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+
+  // Overwrite with new data
+  data.height = 20;
+  data.cumulative_weight = 200;
+  m_db.add_alt_block(blkid, data, "updated_blob");
+
+  // Count should still be 1 (overwritten, not duplicated)
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+
+  // Verify updated data
+  alt_block_data_t retrieved_data;
+  blobdata retrieved_blob;
+  EXPECT_TRUE(m_db.get_alt_block(blkid, &retrieved_data, &retrieved_blob));
+  EXPECT_EQ(20u, retrieved_data.height);
+  EXPECT_EQ(200u, retrieved_data.cumulative_weight);
+  EXPECT_EQ("updated_blob", retrieved_blob);
+
+  m_db.block_wtxn_stop();
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, ForAllAltBlocksVerifyData)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  std::set<uint64_t> expected_heights;
+  for (int i = 0; i < 4; ++i)
+  {
+    crypto::hash blkid;
+    memset(&blkid, 0xE0 + i, sizeof(blkid));
+    alt_block_data_t data;
+    memset(&data, 0, sizeof(data));
+    data.height = 100 + i;
+    expected_heights.insert(100 + i);
+    m_db.add_alt_block(blkid, data, "altblob_" + std::to_string(i));
+  }
+
+  m_db.block_wtxn_stop();
+
+  // Verify all heights are present in iteration
+  std::set<uint64_t> found_heights;
+  m_db.for_all_alt_blocks([&found_heights](const crypto::hash&, const alt_block_data_t& data, const blobdata_ref*) {
+    found_heights.insert(data.height);
+    return true;
+  }, false);
+
+  EXPECT_EQ(expected_heights, found_heights);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Output distribution with height ranges ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, OutputDistributionFullRange)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Get distribution for all amounts across the full height range
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      std::vector<uint64_t> dist;
+      uint64_t base = 0;
+      bool result = m_db.get_output_distribution(out.amount, 0, 1, dist, base);
+      if (result)
+      {
+        // Distribution should have entries for the height range
+        EXPECT_GE(dist.size(), 1u);
+        // Distribution should be non-decreasing
+        for (size_t i = 1; i < dist.size(); ++i)
+          EXPECT_GE(dist[i], dist[i - 1]);
+      }
+      break;
+    }
+  }
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, OutputDistributionSingleHeight)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 0)
+    {
+      std::vector<uint64_t> dist;
+      uint64_t base = 0;
+      bool result = m_db.get_output_distribution(out.amount, 0, 0, dist, base);
+      EXPECT_TRUE(result);
+      // Single height should give exactly one entry
+      EXPECT_EQ(1u, dist.size());
+      break;
+    }
+  }
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- get_output_key for multiple outputs from multiple blocks ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetOutputKeyMultipleBlocks)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // After adding both blocks, check outputs exist from both heights
+  bool found_height_0 = false;
+  bool found_height_1 = false;
+
+  // Collect all amounts from both blocks' miner txs
+  std::set<uint64_t> all_amounts;
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+    all_amounts.insert(out.amount);
+  for (const auto& out : m_blocks[1].first.miner_tx.vout)
+    all_amounts.insert(out.amount);
+
+  for (uint64_t amount : all_amounts)
+  {
+    uint64_t count = m_db.get_num_outputs(amount);
+    for (uint64_t i = 0; i < count; ++i)
+    {
+      output_data_t odata = m_db.get_output_key(amount, i, false);
+      if (odata.height == 0)
+        found_height_0 = true;
+      if (odata.height == 1)
+        found_height_1 = true;
+    }
+  }
+
+  EXPECT_TRUE(found_height_0);
+  EXPECT_TRUE(found_height_1);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetOutputKeyMultipleOutputsSameAmount)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Find an amount that exists in both blocks
+  for (const auto& out0 : m_blocks[0].first.miner_tx.vout)
+  {
+    for (const auto& out1 : m_blocks[1].first.miner_tx.vout)
+    {
+      if (out0.amount == out1.amount)
+      {
+        uint64_t count = m_db.get_num_outputs(out0.amount);
+        EXPECT_GE(count, 2u);
+        if (count >= 2)
+        {
+          output_data_t odata0 = m_db.get_output_key(out0.amount, 0, false);
+          output_data_t odata1 = m_db.get_output_key(out0.amount, 1, false);
+          // They should be from different heights
+          EXPECT_NE(odata0.height, odata1.height);
+        }
+        goto done_multi_amount;
+      }
+    }
+  }
+  done_multi_amount:
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- get_block_hash_from_height ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetBlockHashFromHeightMultipleBlocks)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  crypto::hash h0 = m_db.get_block_hash_from_height(0);
+  crypto::hash h1 = m_db.get_block_hash_from_height(1);
+
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[0].first)), pod_to_hex(h0));
+  EXPECT_EQ(pod_to_hex(get_block_hash(m_blocks[1].first)), pod_to_hex(h1));
+
+  // Also verify consistency with top_block_hash
+  uint64_t returned_height = 0;
+  crypto::hash top = m_db.top_block_hash(&returned_height);
+  EXPECT_EQ(pod_to_hex(h1), pod_to_hex(top));
+  EXPECT_EQ(1u, returned_height);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, GetBlockHashFromInvalidHeightThrows)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  EXPECT_ANY_THROW(m_db.get_block_hash_from_height(999));
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- get_block_already_generated_coins ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetBlockAlreadyGeneratedCoinsConsistency)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  uint64_t coins0 = m_db.get_block_already_generated_coins(0);
+  uint64_t coins1 = m_db.get_block_already_generated_coins(1);
+
+  // The values should match what we set in the test data
+  EXPECT_EQ(t_coins[0], coins0);
+  EXPECT_EQ(t_coins[1], coins1);
+  // Cumulative coins should be non-decreasing
+  EXPECT_LE(coins0, coins1);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- for_all_outputs by amount with early stop ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, ForAllOutputsByAmountEarlyStop)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Find an amount with multiple outputs
+  for (const auto& out : m_blocks[0].first.miner_tx.vout)
+  {
+    uint64_t count = m_db.get_num_outputs(out.amount);
+    if (count > 1)
+    {
+      int found = 0;
+      bool result = m_db.for_all_outputs(out.amount, [&found](uint64_t) {
+        ++found;
+        return false; // stop after first
+      });
+      EXPECT_FALSE(result);
+      EXPECT_EQ(1, found);
+      break;
+    }
+  }
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- get_block_cumulative_rct_outputs for single block ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetBlockCumulativeRctOutputsSingleBlock)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  std::vector<uint64_t> heights = {0};
+  std::vector<uint64_t> rct_outs = m_db.get_block_cumulative_rct_outputs(heights);
+  ASSERT_EQ(1u, rct_outs.size());
+  // v1 blocks have no rct outputs
+  EXPECT_EQ(0u, rct_outs[0]);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- TxPool receive_time and metadata fields ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, TxPoolMetadataReceiveTime)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xF1, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 1500;
+  meta.fee = 300;
+  meta.receive_time = 1234567890;
+  meta.last_relayed_time = 1234567900;
+  meta.max_used_block_height = 10;
+  meta.double_spend_seen = false;
+  // set_relay_method zeroes kept_by_block, so call it first
+  meta.set_relay_method(relay_method::fluff);
+  meta.kept_by_block = true;
+
+  m_db.add_txpool_tx(txid, "meta_test_blob", meta);
+  m_db.block_wtxn_stop();
+
+  txpool_tx_meta_t retrieved;
+  EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, retrieved));
+  EXPECT_EQ(1500u, retrieved.weight);
+  EXPECT_EQ(300u, retrieved.fee);
+  EXPECT_EQ(1234567890u, retrieved.receive_time);
+  EXPECT_EQ(1234567900u, retrieved.last_relayed_time);
+  EXPECT_EQ(10u, retrieved.max_used_block_height);
+  EXPECT_TRUE(retrieved.kept_by_block);
+  EXPECT_FALSE(retrieved.do_not_relay);
+  EXPECT_FALSE(retrieved.double_spend_seen);
+
+  close_db();
+}
+
+TEST_F(LMDBTestWithBlocks, TxPoolUpdateMetadataFlags)
+{
+  open_db();
+  m_db.block_wtxn_start();
+
+  crypto::hash txid;
+  memset(&txid, 0xF2, sizeof(txid));
+
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 800;
+  meta.fee = 50;
+  meta.do_not_relay = false;
+  meta.double_spend_seen = false;
+  meta.set_relay_method(relay_method::fluff);
+
+  m_db.add_txpool_tx(txid, "flag_test", meta);
+
+  // Update flags
+  meta.do_not_relay = true;
+  meta.double_spend_seen = true;
+  m_db.update_txpool_tx(txid, meta);
+
+  m_db.block_wtxn_stop();
+
+  txpool_tx_meta_t retrieved;
+  EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, retrieved));
+  EXPECT_TRUE(retrieved.do_not_relay);
+  EXPECT_TRUE(retrieved.double_spend_seen);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Combined TxPool + alt blocks + blocks persistence ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, CombinedPersistenceAllDataTypes)
+{
+  open_db();
+
+  // Add main chain blocks
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Add txpool entry
+  m_db.block_wtxn_start();
+  crypto::hash txid;
+  memset(&txid, 0xF3, sizeof(txid));
+  txpool_tx_meta_t meta;
+  memset(&meta, 0, sizeof(meta));
+  meta.weight = 400;
+  meta.fee = 80;
+  meta.set_relay_method(relay_method::fluff);
+  m_db.add_txpool_tx(txid, "combined_test_blob", meta);
+
+  // Add alt block
+  crypto::hash alt_blkid;
+  memset(&alt_blkid, 0xF4, sizeof(alt_blkid));
+  alt_block_data_t alt_data;
+  memset(&alt_data, 0, sizeof(alt_data));
+  alt_data.height = 99;
+  alt_data.cumulative_weight = 333;
+  m_db.add_alt_block(alt_blkid, alt_data, "combined_alt_blob");
+
+  m_db.block_wtxn_stop();
+
+  // Verify all data is present
+  EXPECT_EQ(2u, m_db.height());
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count());
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+
+  close_db();
+
+  // Reopen and verify persistence
+  open_db();
+  EXPECT_EQ(2u, m_db.height());
+  EXPECT_EQ(1u, m_db.get_txpool_tx_count());
+  EXPECT_EQ(1u, m_db.get_alt_block_count());
+
+  // Verify detailed data
+  txpool_tx_meta_t retrieved_meta;
+  EXPECT_TRUE(m_db.get_txpool_tx_meta(txid, retrieved_meta));
+  EXPECT_EQ(400u, retrieved_meta.weight);
+
+  alt_block_data_t retrieved_alt;
+  blobdata retrieved_alt_blob;
+  EXPECT_TRUE(m_db.get_alt_block(alt_blkid, &retrieved_alt, &retrieved_alt_blob));
+  EXPECT_EQ(99u, retrieved_alt.height);
+  EXPECT_EQ("combined_alt_blob", retrieved_alt_blob);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- get_block_weights consistency ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetBlockWeightsConsistency)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Get individual weights
+  uint64_t w0 = m_db.get_block_weight(0);
+  uint64_t w1 = m_db.get_block_weight(1);
+
+  // Get weights in batch
+  std::vector<uint64_t> weights = m_db.get_block_weights(0, 2);
+  ASSERT_EQ(2u, weights.size());
+  EXPECT_EQ(w0, weights[0]);
+  EXPECT_EQ(w1, weights[1]);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Block timestamp consistency ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, GetBlockTimestampConsistency)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  uint64_t ts0 = m_db.get_block_timestamp(0);
+  uint64_t ts1 = m_db.get_block_timestamp(1);
+
+  // Timestamps should match the block data
+  EXPECT_EQ(m_blocks[0].first.timestamp, ts0);
+  EXPECT_EQ(m_blocks[1].first.timestamp, ts1);
+
+  // Top block timestamp should match block 1
+  EXPECT_EQ(ts1, m_db.get_top_block_timestamp());
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Output count consistency across blocks ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, OutputCountGrowsWithBlocks)
+{
+  open_db();
+
+  // Count outputs after block 0
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+  }
+
+  int total_outputs_0 = 0;
+  m_db.for_all_outputs([&total_outputs_0](uint64_t, const crypto::hash&, uint64_t, size_t) {
+    ++total_outputs_0;
+    return true;
+  });
+  EXPECT_GT(total_outputs_0, 0);
+
+  // Count outputs after block 1
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_1();
+  }
+
+  int total_outputs_1 = 0;
+  m_db.for_all_outputs([&total_outputs_1](uint64_t, const crypto::hash&, uint64_t, size_t) {
+    ++total_outputs_1;
+    return true;
+  });
+
+  // Block 1 should add at least its miner tx outputs
+  EXPECT_GT(total_outputs_1, total_outputs_0);
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Histogram with min_count filtering ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, OutputHistogramWithMinCount)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  // Get histogram with no filter
+  auto hist_all = m_db.get_output_histogram({}, false, 0, 0);
+  EXPECT_FALSE(hist_all.empty());
+
+  // Get histogram requiring min_count of 1000 (should be empty for our small chain)
+  auto hist_high = m_db.get_output_histogram({}, false, 0, 1000);
+  EXPECT_TRUE(hist_high.empty());
+
+  close_db();
+}
+
+// ===========================================================================
+// ---- Block cumulative difficulty after block operations ----
+// ===========================================================================
+
+TEST_F(LMDBTestWithBlocks, CumulativeDifficultyGrowsWithBlocks)
+{
+  open_db();
+  {
+    db_wtxn_guard guard(&m_db);
+    add_block_0();
+    add_block_1();
+  }
+
+  difficulty_type cd0 = m_db.get_block_cumulative_difficulty(0);
+  difficulty_type cd1 = m_db.get_block_cumulative_difficulty(1);
+
+  // Cumulative difficulty should be non-decreasing
+  EXPECT_LE(cd0, cd1);
+  // Both should match what was passed via add_block (cumulative difficulties)
+  EXPECT_EQ(t_diffs[0], cd0);
+  EXPECT_EQ(t_diffs[1], cd1);
+
+  close_db();
+}
+
 } // anonymous namespace

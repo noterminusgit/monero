@@ -2219,3 +2219,788 @@ TEST(HexLocale, MixedCaseHex)
   ASSERT_EQ(result.size(), 4u);
   EXPECT_EQ(result[0], 0xDE);
 }
+
+// ---- ByteSlice additional coverage ----
+
+TEST(ByteSlice, NullptrConstruction)
+{
+  const epee::byte_slice slice{nullptr};
+  EXPECT_TRUE(slice.empty());
+  EXPECT_EQ(0u, slice.size());
+  EXPECT_EQ(nullptr, slice.data());
+}
+
+TEST(ByteSlice, ScatterGatherMultipleSources)
+{
+  const std::uint8_t part1[] = {0xAA, 0xBB};
+  const std::uint8_t part2[] = {0xCC, 0xDD, 0xEE};
+  const std::uint8_t part3[] = {0xFF};
+
+  const epee::byte_slice slice{
+    epee::span<const std::uint8_t>{part1, 2},
+    epee::span<const std::uint8_t>{part2, 3},
+    epee::span<const std::uint8_t>{part3, 1}
+  };
+
+  ASSERT_EQ(6u, slice.size());
+  EXPECT_FALSE(slice.empty());
+  EXPECT_EQ(0xAA, slice.data()[0]);
+  EXPECT_EQ(0xBB, slice.data()[1]);
+  EXPECT_EQ(0xCC, slice.data()[2]);
+  EXPECT_EQ(0xDD, slice.data()[3]);
+  EXPECT_EQ(0xEE, slice.data()[4]);
+  EXPECT_EQ(0xFF, slice.data()[5]);
+}
+
+TEST(ByteSlice, ScatterGatherEmptySources)
+{
+  const epee::byte_slice slice{
+    epee::span<const std::uint8_t>{},
+    epee::span<const std::uint8_t>{}
+  };
+
+  EXPECT_TRUE(slice.empty());
+  EXPECT_EQ(0u, slice.size());
+}
+
+TEST(ByteSlice, ScatterGatherSingleSource)
+{
+  const std::uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
+  const epee::byte_slice slice{epee::span<const std::uint8_t>{data, 4}};
+
+  ASSERT_EQ(4u, slice.size());
+  EXPECT_EQ(0x01, slice.data()[0]);
+  EXPECT_EQ(0x04, slice.data()[3]);
+}
+
+TEST(ByteSlice, FromByteStream)
+{
+  epee::byte_stream stream;
+  const std::uint8_t data[] = {0xDE, 0xAD, 0xBE, 0xEF};
+  stream.write(data, sizeof(data));
+
+  const epee::byte_slice slice{std::move(stream)};
+  ASSERT_EQ(4u, slice.size());
+  EXPECT_EQ(0xDE, slice.data()[0]);
+  EXPECT_EQ(0xEF, slice.data()[3]);
+  EXPECT_EQ(0u, stream.size());
+}
+
+TEST(ByteSlice, FromEmptyByteStream)
+{
+  epee::byte_stream stream;
+  const epee::byte_slice slice{std::move(stream)};
+  EXPECT_TRUE(slice.empty());
+  EXPECT_EQ(0u, slice.size());
+}
+
+TEST(ByteSlice, GetSliceErrors)
+{
+  const std::uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+  const epee::byte_slice slice{epee::span<const std::uint8_t>{data, 5}};
+
+  // end < begin should throw
+  EXPECT_THROW(slice.get_slice(3, 1), std::out_of_range);
+
+  // end > size should throw
+  EXPECT_THROW(slice.get_slice(0, 6), std::out_of_range);
+
+  // begin == end should return empty
+  auto empty = slice.get_slice(2, 2);
+  EXPECT_TRUE(empty.empty());
+
+  // Valid get_slice
+  auto sub = slice.get_slice(1, 4);
+  ASSERT_EQ(3u, sub.size());
+  EXPECT_EQ(0x02, sub.data()[0]);
+  EXPECT_EQ(0x04, sub.data()[2]);
+}
+
+TEST(ByteSlice, GetSliceFullRange)
+{
+  const std::uint8_t data[] = {0x10, 0x20, 0x30};
+  const epee::byte_slice slice{epee::span<const std::uint8_t>{data, 3}};
+
+  auto full = slice.get_slice(0, 3);
+  ASSERT_EQ(3u, full.size());
+  EXPECT_EQ(slice.data(), full.data());
+}
+
+TEST(ByteSlice, TakeBuffer)
+{
+  std::string content = "take_buffer_test";
+  epee::byte_slice slice{std::move(content)};
+
+  EXPECT_FALSE(slice.empty());
+  auto buf = slice.take_buffer();
+  EXPECT_TRUE(slice.empty());
+  EXPECT_EQ(0u, slice.size());
+  EXPECT_NE(nullptr, buf.get());
+}
+
+TEST(ByteSlice, MoveAssignmentSelfCheck)
+{
+  std::string content = "move test data";
+  epee::byte_slice slice{std::move(content)};
+  EXPECT_FALSE(slice.empty());
+
+  // Move to new slice
+  epee::byte_slice slice2;
+  slice2 = std::move(slice);
+  EXPECT_TRUE(slice.empty());
+  EXPECT_FALSE(slice2.empty());
+}
+
+TEST(ByteSlice, CloneAfterRemovePrefix)
+{
+  const std::uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+  epee::byte_slice slice{epee::span<const std::uint8_t>{data, 5}};
+
+  slice.remove_prefix(2);
+  ASSERT_EQ(3u, slice.size());
+
+  auto cloned = slice.clone();
+  ASSERT_EQ(3u, cloned.size());
+  EXPECT_EQ(slice.data(), cloned.data());
+  EXPECT_EQ(0x03, cloned.data()[0]);
+}
+
+TEST(ByteSlice, IteratorUsage)
+{
+  const std::uint8_t data[] = {0x0A, 0x0B, 0x0C};
+  const epee::byte_slice slice{epee::span<const std::uint8_t>{data, 3}};
+
+  std::vector<std::uint8_t> collected(slice.begin(), slice.end());
+  ASSERT_EQ(3u, collected.size());
+  EXPECT_EQ(0x0A, collected[0]);
+  EXPECT_EQ(0x0B, collected[1]);
+  EXPECT_EQ(0x0C, collected[2]);
+
+  // const_iterator
+  std::vector<std::uint8_t> collected2(slice.cbegin(), slice.cend());
+  EXPECT_EQ(collected, collected2);
+}
+
+TEST(ByteSlice, RemovePrefixZero)
+{
+  const std::uint8_t data[] = {0x01, 0x02};
+  epee::byte_slice slice{epee::span<const std::uint8_t>{data, 2}};
+
+  EXPECT_EQ(0u, slice.remove_prefix(0));
+  EXPECT_EQ(2u, slice.size());
+  EXPECT_FALSE(slice.empty());
+}
+
+TEST(ByteSlice, RemovePrefixExact)
+{
+  const std::uint8_t data[] = {0x01, 0x02, 0x03};
+  epee::byte_slice slice{epee::span<const std::uint8_t>{data, 3}};
+
+  EXPECT_EQ(3u, slice.remove_prefix(3));
+  EXPECT_TRUE(slice.empty());
+  EXPECT_EQ(0u, slice.size());
+}
+
+TEST(ByteSlice, TakeSliceExact)
+{
+  const std::uint8_t data[] = {0x01, 0x02, 0x03};
+  epee::byte_slice slice{epee::span<const std::uint8_t>{data, 3}};
+
+  auto taken = slice.take_slice(3);
+  EXPECT_TRUE(slice.empty());
+  ASSERT_EQ(3u, taken.size());
+  EXPECT_EQ(0x01, taken.data()[0]);
+}
+
+TEST(ByteSlice, TakeSliceBeyondSize)
+{
+  const std::uint8_t data[] = {0x01, 0x02};
+  epee::byte_slice slice{epee::span<const std::uint8_t>{data, 2}};
+
+  auto taken = slice.take_slice(100);
+  EXPECT_TRUE(slice.empty());
+  ASSERT_EQ(2u, taken.size());
+}
+
+TEST(ByteSlice, LargeVector)
+{
+  std::vector<std::uint8_t> big(10000);
+  for (std::size_t i = 0; i < big.size(); ++i)
+    big[i] = static_cast<std::uint8_t>(i & 0xFF);
+
+  const epee::byte_slice slice{std::move(big)};
+  ASSERT_EQ(10000u, slice.size());
+  EXPECT_EQ(0x00, slice.data()[0]);
+  EXPECT_EQ(0x0F, slice.data()[15]);
+  EXPECT_EQ(static_cast<std::uint8_t>(9999 & 0xFF), slice.data()[9999]);
+}
+
+// ---- ByteStream additional coverage ----
+
+TEST(ByteStream, WriteCharOverload)
+{
+  epee::byte_stream stream;
+  const char text[] = "Hello, World!";
+  stream.write(text, sizeof(text) - 1); // exclude null terminator
+
+  ASSERT_EQ(13u, stream.size());
+  EXPECT_EQ('H', static_cast<char>(stream.data()[0]));
+  EXPECT_EQ('!', static_cast<char>(stream.data()[12]));
+}
+
+TEST(ByteStream, WriteSpanOverloads)
+{
+  epee::byte_stream stream;
+
+  const std::uint8_t data[] = {0x01, 0x02, 0x03};
+  stream.write(epee::span<const std::uint8_t>{data, 3});
+  EXPECT_EQ(3u, stream.size());
+
+  const char text[] = "ab";
+  stream.write(epee::span<const char>{text, 2});
+  EXPECT_EQ(5u, stream.size());
+  EXPECT_EQ('a', static_cast<char>(stream.data()[3]));
+}
+
+TEST(ByteStream, PushBack)
+{
+  epee::byte_stream stream;
+  stream.push_back(0x42);
+  stream.push_back(0x43);
+
+  ASSERT_EQ(2u, stream.size());
+  EXPECT_EQ(0x42, stream.data()[0]);
+  EXPECT_EQ(0x43, stream.data()[1]);
+}
+
+TEST(ByteStream, PutCapital)
+{
+  epee::byte_stream stream;
+  stream.Put(0xAA);
+  stream.Put(0xBB);
+
+  ASSERT_EQ(2u, stream.size());
+  EXPECT_EQ(0xAA, stream.data()[0]);
+  EXPECT_EQ(0xBB, stream.data()[1]);
+}
+
+TEST(ByteStream, Flush)
+{
+  epee::byte_stream stream;
+  stream.put(0x01);
+  stream.Flush(); // no-op, should not crash
+  EXPECT_EQ(1u, stream.size());
+}
+
+TEST(ByteStream, PutNZero)
+{
+  epee::byte_stream stream;
+  stream.put_n(0xFF, 0);
+  EXPECT_EQ(0u, stream.size());
+}
+
+TEST(ByteStream, ReserveMultiple)
+{
+  epee::byte_stream stream;
+  stream.reserve(10);
+  EXPECT_LE(10u, stream.capacity());
+  stream.reserve(100);
+  EXPECT_LE(100u, stream.capacity());
+  stream.reserve(50); // smaller than current capacity
+  EXPECT_EQ(0u, stream.size());
+}
+
+TEST(ByteStream, ClearRetainsCapacity)
+{
+  epee::byte_stream stream;
+  stream.put_n(0xAA, 100);
+  EXPECT_EQ(100u, stream.size());
+  const auto cap = stream.capacity();
+
+  stream.clear();
+  EXPECT_EQ(0u, stream.size());
+  EXPECT_EQ(cap, stream.capacity());
+  EXPECT_NE(nullptr, stream.data());
+}
+
+TEST(ByteStream, PutUnsafeAfterReserve)
+{
+  epee::byte_stream stream;
+  stream.reserve(5);
+
+  stream.put_unsafe(0x10);
+  stream.put_unsafe(0x20);
+  stream.put_unsafe(0x30);
+
+  EXPECT_EQ(3u, stream.size());
+  EXPECT_EQ(0x10, stream.data()[0]);
+  EXPECT_EQ(0x30, stream.data()[2]);
+}
+
+TEST(ByteStream, FreeFunctionPutReserveAndPutUnsafe)
+{
+  epee::byte_stream stream;
+
+  epee::PutReserve(stream, 10);
+  EXPECT_LE(10u, stream.available());
+
+  epee::PutUnsafe(stream, 0xDD);
+  EXPECT_EQ(1u, stream.size());
+  EXPECT_EQ(0xDD, stream.data()[0]);
+}
+
+TEST(ByteStream, FreeFunctionPutN)
+{
+  epee::byte_stream stream;
+  epee::PutN(stream, 0x77, 5);
+
+  ASSERT_EQ(5u, stream.size());
+  for (std::size_t i = 0; i < 5; ++i)
+    EXPECT_EQ(0x77, stream.data()[i]);
+}
+
+TEST(ByteStream, LargeWrite)
+{
+  epee::byte_stream stream;
+  std::vector<std::uint8_t> data(8192);
+  for (std::size_t i = 0; i < data.size(); ++i)
+    data[i] = static_cast<std::uint8_t>(i & 0xFF);
+
+  stream.write(data.data(), data.size());
+  EXPECT_EQ(8192u, stream.size());
+  EXPECT_EQ(data[0], stream.data()[0]);
+  EXPECT_EQ(data[8191], stream.data()[8191]);
+}
+
+TEST(ByteStream, MoveAfterWrite)
+{
+  epee::byte_stream stream;
+  stream.write(reinterpret_cast<const std::uint8_t*>("test"), 4);
+
+  epee::byte_stream moved{std::move(stream)};
+  EXPECT_EQ(4u, moved.size());
+  EXPECT_EQ(0u, stream.size());
+  EXPECT_EQ(nullptr, stream.data());
+  EXPECT_EQ('t', static_cast<char>(moved.data()[0]));
+}
+
+TEST(ByteStream, MoveAssignAfterWrite)
+{
+  epee::byte_stream stream;
+  stream.write(reinterpret_cast<const std::uint8_t*>("hello"), 5);
+
+  epee::byte_stream other;
+  other = std::move(stream);
+  EXPECT_EQ(5u, other.size());
+  EXPECT_EQ(0u, stream.size());
+  EXPECT_EQ(nullptr, stream.data());
+}
+
+TEST(ByteStream, TellpAdvancesWithWrite)
+{
+  epee::byte_stream stream;
+  stream.reserve(100);
+  auto start = stream.tellp();
+  stream.put(0x01);
+  EXPECT_EQ(start + 1, stream.tellp());
+  stream.write(reinterpret_cast<const std::uint8_t*>("abc"), 3);
+  EXPECT_EQ(start + 4, stream.tellp());
+}
+
+TEST(ByteStream, ToByteSliceConversion)
+{
+  epee::byte_stream stream;
+  stream.write(reinterpret_cast<const std::uint8_t*>("slice"), 5);
+
+  epee::byte_slice slice{std::move(stream)};
+  EXPECT_EQ(5u, slice.size());
+  EXPECT_EQ('s', static_cast<char>(slice.data()[0]));
+  EXPECT_EQ('e', static_cast<char>(slice.data()[4]));
+}
+
+// ---- ByteBuffer additional coverage ----
+
+TEST(ByteBuffer, ResizeNull)
+{
+  epee::byte_buffer buf{nullptr};
+  auto result = epee::byte_buffer_resize(std::move(buf), 100);
+  EXPECT_NE(nullptr, result.get());
+}
+
+TEST(ByteBuffer, ResizeExisting)
+{
+  auto buf = epee::byte_buffer_resize(epee::byte_buffer{nullptr}, 50);
+  ASSERT_NE(nullptr, buf.get());
+  std::memset(buf.get(), 0xAA, 50);
+
+  auto resized = epee::byte_buffer_resize(std::move(buf), 100);
+  ASSERT_NE(nullptr, resized.get());
+  // Original data should be preserved
+  EXPECT_EQ(0xAA, resized.get()[0]);
+  EXPECT_EQ(0xAA, resized.get()[49]);
+}
+
+TEST(ByteBuffer, IncreaseBasic)
+{
+  auto buf = epee::byte_buffer_resize(epee::byte_buffer{nullptr}, 10);
+  ASSERT_NE(nullptr, buf.get());
+
+  auto increased = epee::byte_buffer_increase(std::move(buf), 10, 20);
+  ASSERT_NE(nullptr, increased.get());
+}
+
+// ---- net_buffer additional coverage ----
+
+TEST(net_buffer, append_and_span)
+{
+  epee::net_utils::buffer buf;
+  const std::uint8_t data[] = {0x01, 0x02, 0x03, 0x04, 0x05};
+
+  buf.append(data, sizeof(data));
+  EXPECT_EQ(5u, buf.size());
+
+  auto sp = buf.span(3);
+  EXPECT_EQ(3u, sp.size());
+  EXPECT_EQ(0x01, sp.data()[0]);
+  EXPECT_EQ(0x03, sp.data()[2]);
+}
+
+TEST(net_buffer, carve)
+{
+  epee::net_utils::buffer buf;
+  const std::uint8_t data[] = {0x10, 0x20, 0x30, 0x40};
+
+  buf.append(data, sizeof(data));
+  EXPECT_EQ(4u, buf.size());
+
+  auto carved = buf.carve(2);
+  EXPECT_EQ(2u, carved.size());
+  EXPECT_EQ(0x10, carved.data()[0]);
+  EXPECT_EQ(0x20, carved.data()[1]);
+  EXPECT_EQ(2u, buf.size());
+}
+
+TEST(net_buffer, erase_partial)
+{
+  epee::net_utils::buffer buf;
+  const std::uint8_t data[] = {0xAA, 0xBB, 0xCC, 0xDD};
+
+  buf.append(data, sizeof(data));
+  EXPECT_EQ(4u, buf.size());
+
+  buf.erase(2);
+  EXPECT_EQ(2u, buf.size());
+
+  auto sp = buf.span(2);
+  EXPECT_EQ(0xCC, sp.data()[0]);
+  EXPECT_EQ(0xDD, sp.data()[1]);
+}
+
+TEST(net_buffer, erase_all)
+{
+  epee::net_utils::buffer buf;
+  const std::uint8_t data[] = {0x01, 0x02, 0x03};
+
+  buf.append(data, sizeof(data));
+  buf.erase(3);
+  EXPECT_EQ(0u, buf.size());
+}
+
+TEST(net_buffer, append_multiple)
+{
+  epee::net_utils::buffer buf;
+  const std::uint8_t d1[] = {0x01, 0x02};
+  const std::uint8_t d2[] = {0x03, 0x04, 0x05};
+
+  buf.append(d1, sizeof(d1));
+  buf.append(d2, sizeof(d2));
+  EXPECT_EQ(5u, buf.size());
+
+  auto sp = buf.span(5);
+  EXPECT_EQ(0x01, sp.data()[0]);
+  EXPECT_EQ(0x05, sp.data()[4]);
+}
+
+TEST(net_buffer, empty_initial)
+{
+  epee::net_utils::buffer buf;
+  EXPECT_EQ(0u, buf.size());
+}
+
+TEST(net_buffer, reserve_initial)
+{
+  epee::net_utils::buffer buf(100);
+  EXPECT_EQ(0u, buf.size());
+}
+
+// ---- StringTools additional coverage ----
+
+TEST(StringTools, ParsePeerFromString)
+{
+  uint32_t ip = 0;
+  uint16_t port = 0;
+
+  EXPECT_TRUE(epee::string_tools::parse_peer_from_string(ip, port, "1.2.3.4:8080"));
+  EXPECT_NE(0u, ip);
+  EXPECT_EQ(8080u, port);
+}
+
+TEST(StringTools, ParsePeerNoPort)
+{
+  uint32_t ip = 0;
+  uint16_t port = 0;
+
+  EXPECT_TRUE(epee::string_tools::parse_peer_from_string(ip, port, "10.0.0.1"));
+  EXPECT_NE(0u, ip);
+  EXPECT_EQ(0u, port);
+}
+
+TEST(StringTools, ParsePeerInvalidIP)
+{
+  uint32_t ip = 0;
+  uint16_t port = 0;
+
+  EXPECT_FALSE(epee::string_tools::parse_peer_from_string(ip, port, "not_an_ip:1234"));
+}
+
+TEST(StringTools, NumToStringFast)
+{
+  EXPECT_EQ("0", epee::string_tools::num_to_string_fast(0));
+  EXPECT_EQ("123", epee::string_tools::num_to_string_fast(123));
+  EXPECT_EQ("-1", epee::string_tools::num_to_string_fast(-1));
+  EXPECT_EQ("-999", epee::string_tools::num_to_string_fast(-999));
+}
+
+TEST(StringTools, CompareNoCase)
+{
+  // compare_no_case returns FALSE if strings are equal (case-insensitive)
+  EXPECT_FALSE(epee::string_tools::compare_no_case("Hello", "hello"));
+  EXPECT_FALSE(epee::string_tools::compare_no_case("ABC", "abc"));
+  EXPECT_TRUE(epee::string_tools::compare_no_case("abc", "def"));
+  EXPECT_FALSE(epee::string_tools::compare_no_case("", ""));
+}
+
+TEST(StringTools, TrimString)
+{
+  std::string s = "  hello  ";
+  epee::string_tools::trim(s);
+  EXPECT_EQ("hello", s);
+
+  EXPECT_EQ("world", epee::string_tools::trim("  world  "));
+  EXPECT_EQ("", epee::string_tools::trim("   "));
+  EXPECT_EQ("x", epee::string_tools::trim("x"));
+}
+
+TEST(StringTools, PadString)
+{
+  EXPECT_EQ("hello     ", epee::string_tools::pad_string("hello", 10));
+  EXPECT_EQ("     hello", epee::string_tools::pad_string("hello", 10, ' ', true));
+  EXPECT_EQ("hello", epee::string_tools::pad_string("hello", 3)); // no truncation
+  EXPECT_EQ("00042", epee::string_tools::pad_string("42", 5, '0', true));
+  EXPECT_EQ("42000", epee::string_tools::pad_string("42", 5, '0', false));
+}
+
+TEST(StringTools, ToStringHex)
+{
+  EXPECT_EQ("ff", epee::string_tools::to_string_hex(0xff));
+  EXPECT_EQ("0", epee::string_tools::to_string_hex(0));
+  EXPECT_EQ("1a", epee::string_tools::to_string_hex(0x1a));
+}
+
+TEST(StringTools, GetExtensionVaried)
+{
+  EXPECT_EQ("txt", epee::string_tools::get_extension("file.txt"));
+  EXPECT_EQ("gz", epee::string_tools::get_extension("archive.tar.gz"));
+  EXPECT_EQ("", epee::string_tools::get_extension("noext"));
+  EXPECT_EQ("", epee::string_tools::get_extension(""));
+  EXPECT_EQ("h", epee::string_tools::get_extension("dir/file.h"));
+}
+
+TEST(StringTools, CutOffExtensionVaried)
+{
+  EXPECT_EQ("file", epee::string_tools::cut_off_extension("file.txt"));
+  EXPECT_EQ("archive.tar", epee::string_tools::cut_off_extension("archive.tar.gz"));
+  EXPECT_EQ("noext", epee::string_tools::cut_off_extension("noext"));
+}
+
+TEST(StringTools, SetModuleNameAndFolder)
+{
+  epee::string_tools::set_module_name_and_folder("/some/path/to/binary");
+  EXPECT_EQ("binary", epee::string_tools::get_current_module_name());
+  EXPECT_EQ("/some/path/to", epee::string_tools::get_current_module_folder());
+}
+
+TEST(StringTools, GetIpStringLoopback)
+{
+  // 127.0.0.1 in network byte order
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "127.0.0.1"));
+  std::string result = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("127.0.0.1", result);
+}
+
+TEST(StringTools, GetIpStringRoundtrip)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.100"));
+  std::string result = epee::string_tools::get_ip_string_from_int32(ip);
+  EXPECT_EQ("192.168.1.100", result);
+}
+
+TEST(StringTools, GetIpInt32Invalid)
+{
+  uint32_t ip = 0;
+  EXPECT_FALSE(epee::string_tools::get_ip_int32_from_string(ip, "999.999.999.999"));
+  EXPECT_FALSE(epee::string_tools::get_ip_int32_from_string(ip, "not_an_ip"));
+}
+
+// ---- parsing additional coverage ----
+
+TEST(parsing, isspace_extended)
+{
+  // Test various whitespace characters
+  EXPECT_TRUE(epee::misc_utils::parse::isspace(' '));
+  EXPECT_TRUE(epee::misc_utils::parse::isspace('\t'));
+  EXPECT_TRUE(epee::misc_utils::parse::isspace('\n'));
+  EXPECT_TRUE(epee::misc_utils::parse::isspace('\r'));
+  EXPECT_FALSE(epee::misc_utils::parse::isspace('a'));
+  EXPECT_FALSE(epee::misc_utils::parse::isspace('0'));
+  EXPECT_FALSE(epee::misc_utils::parse::isspace('\0'));
+}
+
+TEST(parsing, isdigit_extended)
+{
+  for (char c = '0'; c <= '9'; ++c)
+    EXPECT_TRUE(epee::misc_utils::parse::isdigit(c));
+
+  EXPECT_FALSE(epee::misc_utils::parse::isdigit('a'));
+  EXPECT_FALSE(epee::misc_utils::parse::isdigit(' '));
+  EXPECT_FALSE(epee::misc_utils::parse::isdigit('-'));
+}
+
+// ---- NetUtils additional coverage ----
+
+TEST(NetUtils, IPv4PrivateRanges10)
+{
+  // 10.x.x.x range
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "10.0.0.1"));
+  EXPECT_TRUE(epee::net_utils::is_ip_local(ip));
+}
+
+TEST(NetUtils, IPv4PrivateRanges172)
+{
+  // 172.16.x.x through 172.31.x.x
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "172.16.0.1"));
+  EXPECT_TRUE(epee::net_utils::is_ip_local(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "172.31.255.255"));
+  EXPECT_TRUE(epee::net_utils::is_ip_local(ip));
+
+  // 172.32.x.x should NOT be local
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "172.32.0.1"));
+  EXPECT_FALSE(epee::net_utils::is_ip_local(ip));
+}
+
+TEST(NetUtils, IPv4PrivateRanges192)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.1"));
+  EXPECT_TRUE(epee::net_utils::is_ip_local(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "192.168.255.255"));
+  EXPECT_TRUE(epee::net_utils::is_ip_local(ip));
+}
+
+TEST(NetUtils, IPv4NotLocal)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "8.8.8.8"));
+  EXPECT_FALSE(epee::net_utils::is_ip_local(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "1.1.1.1"));
+  EXPECT_FALSE(epee::net_utils::is_ip_local(ip));
+}
+
+TEST(NetUtils, IPv4Loopback)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "127.0.0.1"));
+  EXPECT_TRUE(epee::net_utils::is_ip_loopback(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "127.255.255.255"));
+  EXPECT_TRUE(epee::net_utils::is_ip_loopback(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "127.0.0.0"));
+  EXPECT_TRUE(epee::net_utils::is_ip_loopback(ip));
+}
+
+TEST(NetUtils, IPv4NotLoopback)
+{
+  uint32_t ip = 0;
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "128.0.0.1"));
+  EXPECT_FALSE(epee::net_utils::is_ip_loopback(ip));
+
+  ASSERT_TRUE(epee::string_tools::get_ip_int32_from_string(ip, "192.168.1.1"));
+  EXPECT_FALSE(epee::net_utils::is_ip_loopback(ip));
+}
+
+TEST(NetUtils, IPv4NetworkAddressComparison)
+{
+  const auto addr1 = epee::net_utils::ipv4_network_address{0x01020304, 8080};
+  const auto addr2 = epee::net_utils::ipv4_network_address{0x01020304, 8080};
+  const auto addr3 = epee::net_utils::ipv4_network_address{0x01020304, 9090};
+  const auto addr4 = epee::net_utils::ipv4_network_address{0x05060708, 8080};
+
+  EXPECT_TRUE(addr1.equal(addr2));
+  EXPECT_FALSE(addr1.equal(addr3));
+  EXPECT_FALSE(addr1.equal(addr4));
+  EXPECT_TRUE(addr1.less(addr4));
+}
+
+TEST(NetUtils, IPv4NetworkAddressHostStr)
+{
+  const auto addr = epee::net_utils::ipv4_network_address{0, 1234};
+  EXPECT_FALSE(addr.host_str().empty());
+  EXPECT_FALSE(addr.str().empty());
+}
+
+TEST(NetUtils, NetworkAddressEmpty)
+{
+  epee::net_utils::network_address addr;
+  EXPECT_EQ(epee::net_utils::address_type::invalid, addr.get_type_id());
+  // Default-constructed address has a non-empty placeholder str
+  EXPECT_FALSE(addr.str().empty());
+}
+
+// ---- hex conversion edge cases ----
+
+TEST(ToHex, LargeBuffer)
+{
+  std::vector<std::uint8_t> data(256);
+  for (int i = 0; i < 256; ++i)
+    data[i] = static_cast<std::uint8_t>(i);
+
+  std::string hex = epee::to_hex::string({data.data(), data.size()});
+  EXPECT_EQ(512u, hex.size());
+  EXPECT_EQ("00", hex.substr(0, 2));
+  EXPECT_EQ("ff", hex.substr(510, 2));
+}
+
+TEST(FromHex, UppercaseInput)
+{
+  std::string result;
+  ASSERT_TRUE(epee::from_hex::to_string(result, "DEADBEEF"));
+  ASSERT_EQ(4u, result.size());
+  EXPECT_EQ(static_cast<uint8_t>(result[0]), 0xDE);
+  EXPECT_EQ(static_cast<uint8_t>(result[3]), 0xEF);
+}
+
+TEST(FromHex, MixedCaseInput)
+{
+  std::string result;
+  ASSERT_TRUE(epee::from_hex::to_string(result, "DeAdBeEf"));
+  ASSERT_EQ(4u, result.size());
+  EXPECT_EQ(static_cast<uint8_t>(result[0]), 0xDE);
+}

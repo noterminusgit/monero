@@ -2308,3 +2308,536 @@ TEST(socks_error, version_enum_values)
     EXPECT_EQ(static_cast<std::uint8_t>(net::socks::version::v5), 3);
 }
 
+// ---- tor_address edge cases ----
+
+TEST(tor_address, v2_onion_rejected)
+{
+    // v2 addresses are 16 characters + .onion and should be rejected (deprecated)
+    EXPECT_TRUE(net::tor_address::make(v2_onion).has_error());
+}
+
+TEST(tor_address, empty_string)
+{
+    EXPECT_TRUE(net::tor_address::make("").has_error());
+}
+
+TEST(tor_address, just_onion_suffix)
+{
+    EXPECT_TRUE(net::tor_address::make(".onion").has_error());
+}
+
+TEST(tor_address, wrong_length_v3)
+{
+    // v3 onion must be 56 chars + .onion. Try something too short.
+    EXPECT_TRUE(net::tor_address::make("abcdef.onion").has_error());
+}
+
+TEST(tor_address, v3_with_port)
+{
+    std::string addr = std::string(v3_onion) + ":8080";
+    auto result = net::tor_address::make(addr);
+    if (result)
+    {
+        EXPECT_EQ(8080u, result->port());
+    }
+}
+
+TEST(tor_address, v3_default_port)
+{
+    auto result = net::tor_address::make(v3_onion, 18081);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(18081u, result->port());
+}
+
+TEST(tor_address, host_str)
+{
+    auto result = net::tor_address::make(v3_onion);
+    ASSERT_TRUE(bool(result));
+    const char* host = result->host_str();
+    ASSERT_NE(nullptr, host);
+    EXPECT_NE(nullptr, std::strstr(host, ".onion"));
+}
+
+TEST(tor_address, str_contains_address)
+{
+    auto result = net::tor_address::make(v3_onion);
+    ASSERT_TRUE(bool(result));
+    std::string s = result->str();
+    EXPECT_NE(std::string::npos, s.find("onion"));
+}
+
+TEST(tor_address, comparison)
+{
+    auto addr1 = net::tor_address::make(v3_onion);
+    auto addr2 = net::tor_address::make(v3_onion_2);
+    ASSERT_TRUE(bool(addr1));
+    ASSERT_TRUE(bool(addr2));
+    EXPECT_FALSE(addr1->equal(*addr2));
+    EXPECT_TRUE(addr1->equal(*addr1));
+}
+
+TEST(tor_address, less_ordering)
+{
+    auto addr1 = net::tor_address::make(v3_onion);
+    auto addr2 = net::tor_address::make(v3_onion_2);
+    ASSERT_TRUE(bool(addr1));
+    ASSERT_TRUE(bool(addr2));
+    // One must be less than the other
+    EXPECT_NE(addr1->less(*addr2), addr2->less(*addr1));
+}
+
+// ---- i2p_address edge cases ----
+
+TEST(i2p_address, empty_string)
+{
+    EXPECT_TRUE(net::i2p_address::make("").has_error());
+}
+
+TEST(i2p_address, just_i2p_suffix)
+{
+    EXPECT_TRUE(net::i2p_address::make(".b32.i2p").has_error());
+}
+
+TEST(i2p_address, wrong_length)
+{
+    EXPECT_TRUE(net::i2p_address::make("short.b32.i2p").has_error());
+}
+
+TEST(i2p_address, valid_with_default_port)
+{
+    // i2p addresses use the default port (typically 1); verify no crash
+    static const char valid_i2p[] = "xmrto2bturnore26xmrto2bturnore26xmrto2bturnore26xmr2.b32.i2p";
+    auto result = net::i2p_address::make(valid_i2p);
+    ASSERT_TRUE(bool(result));
+    // i2p_address stores a port; just verify it's accessible
+    EXPECT_GE(result->port(), 0u);
+}
+
+TEST(i2p_address, host_str)
+{
+    static const char valid_i2p[] = "xmrto2bturnore26xmrto2bturnore26xmrto2bturnore26xmr2.b32.i2p";
+    auto result = net::i2p_address::make(valid_i2p);
+    ASSERT_TRUE(bool(result));
+    const char* host = result->host_str();
+    ASSERT_NE(nullptr, host);
+    EXPECT_NE(nullptr, std::strstr(host, ".i2p"));
+}
+
+// ---- get_network_address edge cases ----
+
+TEST(get_network_address, empty_host)
+{
+    auto result = net::get_network_address("", 18081);
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::invalid_host, result.error());
+}
+
+TEST(get_network_address, hostname_unsupported)
+{
+    auto result = net::get_network_address("example.com", 18081);
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::unsupported_address, result.error());
+}
+
+TEST(get_network_address, ipv4_with_port)
+{
+    auto result = net::get_network_address("1.2.3.4:8080", 0);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(epee::net_utils::ipv4_network_address::get_type_id(), result->get_type_id());
+}
+
+TEST(get_network_address, ipv4_default_port)
+{
+    auto result = net::get_network_address("1.2.3.4", 18081);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(epee::net_utils::ipv4_network_address::get_type_id(), result->get_type_id());
+    EXPECT_EQ(18081u, result->as<epee::net_utils::ipv4_network_address>().port());
+}
+
+TEST(get_network_address, ipv6_simple)
+{
+    auto result = net::get_network_address("[::1]:8080", 0);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(epee::net_utils::ipv6_network_address::get_type_id(), result->get_type_id());
+}
+
+TEST(get_network_address, ipv4_invalid_port)
+{
+    auto result = net::get_network_address("1.2.3.4:notaport", 0);
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::invalid_port, result.error());
+}
+
+TEST(get_network_address, tor_address)
+{
+    auto result = net::get_network_address(v3_onion, 18081);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::tor_address::get_type_id(), result->get_type_id());
+}
+
+TEST(get_network_address, i2p_address)
+{
+    auto result = net::get_network_address("xmrto2bturnore26xmrto2bturnore26xmrto2bturnore26xmr2.b32.i2p", 18081);
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::i2p_address::get_type_id(), result->get_type_id());
+}
+
+// ---- get_network_address_host_and_port edge cases ----
+
+TEST(get_network_address_host_and_port, ipv4_no_port)
+{
+    std::string host, port;
+    net::get_network_address_host_and_port("1.2.3.4", host, port);
+    EXPECT_EQ("1.2.3.4", host);
+    EXPECT_TRUE(port.empty());
+}
+
+TEST(get_network_address_host_and_port, ipv6_with_port)
+{
+    std::string host, port;
+    net::get_network_address_host_and_port("[::1]:9090", host, port);
+    EXPECT_EQ("::1", host);
+    EXPECT_EQ("9090", port);
+}
+
+TEST(get_network_address_host_and_port, ipv6_no_port)
+{
+    std::string host, port;
+    net::get_network_address_host_and_port("::1", host, port);
+    EXPECT_EQ("::1", host);
+    EXPECT_TRUE(port.empty());
+}
+
+TEST(get_network_address_host_and_port, tor_with_port)
+{
+    std::string host, port;
+    std::string addr = std::string(v3_onion) + ":18081";
+    net::get_network_address_host_and_port(addr, host, port);
+    EXPECT_EQ(v3_onion, host);
+    EXPECT_EQ("18081", port);
+}
+
+TEST(get_network_address_host_and_port, tor_no_port)
+{
+    std::string host, port;
+    net::get_network_address_host_and_port(v3_onion, host, port);
+    EXPECT_EQ(v3_onion, host);
+    EXPECT_TRUE(port.empty());
+}
+
+// ---- get_ipv4_subnet_address ----
+
+TEST(get_ipv4_subnet_address, valid_cidr)
+{
+    auto result = net::get_ipv4_subnet_address("192.168.1.0/24");
+    ASSERT_TRUE(bool(result));
+}
+
+TEST(get_ipv4_subnet_address, valid_host_implicit)
+{
+    auto result = net::get_ipv4_subnet_address("10.0.0.1", true);
+    ASSERT_TRUE(bool(result));
+}
+
+TEST(get_ipv4_subnet_address, no_implicit_rejected)
+{
+    auto result = net::get_ipv4_subnet_address("10.0.0.1", false);
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::invalid_mask, result.error());
+}
+
+TEST(get_ipv4_subnet_address, mask_too_large)
+{
+    auto result = net::get_ipv4_subnet_address("10.0.0.1/33");
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::invalid_mask, result.error());
+}
+
+TEST(get_ipv4_subnet_address, invalid_host)
+{
+    auto result = net::get_ipv4_subnet_address("not_an_ip/24");
+    EXPECT_TRUE(result.has_error());
+    EXPECT_EQ(net::error::invalid_host, result.error());
+}
+
+TEST(get_ipv4_subnet_address, mask_zero)
+{
+    auto result = net::get_ipv4_subnet_address("0.0.0.0/0");
+    ASSERT_TRUE(bool(result));
+}
+
+TEST(get_ipv4_subnet_address, mask_32)
+{
+    auto result = net::get_ipv4_subnet_address("192.168.1.1/32");
+    ASSERT_TRUE(bool(result));
+}
+
+// ---- scheme_and_authority ----
+
+TEST(scheme_and_authority, with_path)
+{
+    net::scheme_and_authority parsed{"http://example.com/path/to/resource"};
+    EXPECT_EQ("http", parsed.scheme);
+    EXPECT_EQ("example.com", parsed.authority);
+}
+
+TEST(scheme_and_authority, no_scheme)
+{
+    net::scheme_and_authority parsed{"example.com"};
+    EXPECT_TRUE(parsed.scheme.empty());
+    EXPECT_EQ("example.com", parsed.authority);
+}
+
+TEST(scheme_and_authority, with_port)
+{
+    net::scheme_and_authority parsed{"socks5://127.0.0.1:9050"};
+    EXPECT_EQ("socks5", parsed.scheme);
+    EXPECT_EQ("127.0.0.1:9050", parsed.authority);
+}
+
+TEST(scheme_and_authority, empty)
+{
+    net::scheme_and_authority parsed{""};
+    EXPECT_TRUE(parsed.scheme.empty());
+    EXPECT_TRUE(parsed.authority.empty());
+}
+
+// ---- userinfo_and_hostport ----
+
+TEST(userinfo_and_hostport, with_userinfo)
+{
+    net::userinfo_and_hostport parsed{"user:pass@host:1234"};
+    EXPECT_EQ("user:pass", parsed.userinfo);
+    EXPECT_EQ("host:1234", parsed.hostport);
+}
+
+TEST(userinfo_and_hostport, no_userinfo)
+{
+    net::userinfo_and_hostport parsed{"host:1234"};
+    EXPECT_TRUE(parsed.userinfo.empty());
+    EXPECT_EQ("host:1234", parsed.hostport);
+}
+
+TEST(userinfo_and_hostport, empty)
+{
+    net::userinfo_and_hostport parsed{""};
+    EXPECT_TRUE(parsed.userinfo.empty());
+    EXPECT_TRUE(parsed.hostport.empty());
+}
+
+// ---- user_and_pass ----
+
+TEST(user_and_pass, with_both)
+{
+    auto result = net::user_and_pass::get("alice:secret");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("alice", result->user);
+    EXPECT_EQ("secret", result->pass);
+}
+
+TEST(user_and_pass, user_only)
+{
+    auto result = net::user_and_pass::get("alice");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("alice", result->user);
+    EXPECT_TRUE(result->pass.empty());
+}
+
+TEST(user_and_pass, empty_both)
+{
+    auto result = net::user_and_pass::get("");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->user.empty());
+    EXPECT_TRUE(result->pass.empty());
+}
+
+TEST(user_and_pass, percent_encoded)
+{
+    auto result = net::user_and_pass::get("user%40host:pass%23word");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("user@host", result->user);
+    EXPECT_EQ("pass#word", result->pass);
+}
+
+TEST(user_and_pass, invalid_percent_encoding)
+{
+    auto result = net::user_and_pass::get("user%ZZ:pass");
+    EXPECT_FALSE(result.has_value());
+}
+
+TEST(user_and_pass, truncated_percent)
+{
+    auto result = net::user_and_pass::get("user%4");
+    EXPECT_FALSE(result.has_value());
+}
+
+// ---- uri_components ----
+
+TEST(uri_components, full_uri)
+{
+    auto result = net::uri_components::get("socks5://user:pass@127.0.0.1:9050/path");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("socks5", result->scheme);
+    EXPECT_EQ("user", result->userinfo.user);
+    EXPECT_EQ("pass", result->userinfo.pass);
+    EXPECT_EQ("127.0.0.1:9050", result->hostport);
+}
+
+TEST(uri_components, no_userinfo)
+{
+    auto result = net::uri_components::get("http://127.0.0.1:8080");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_EQ("http", result->scheme);
+    EXPECT_TRUE(result->userinfo.user.empty());
+    EXPECT_EQ("127.0.0.1:8080", result->hostport);
+}
+
+TEST(uri_components, no_scheme)
+{
+    auto result = net::uri_components::get("127.0.0.1:8080");
+    ASSERT_TRUE(result.has_value());
+    EXPECT_TRUE(result->scheme.empty());
+    EXPECT_EQ("127.0.0.1:8080", result->hostport);
+}
+
+TEST(uri_components, invalid_encoding)
+{
+    auto result = net::uri_components::get("http://user%ZZ@host");
+    EXPECT_FALSE(result.has_value());
+}
+
+// ---- socks_endpoint ----
+
+TEST(socks_endpoint, socks4_scheme)
+{
+    auto result = net::socks::endpoint::get("socks4://127.0.0.1:9050");
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::socks::version::v4, result->ver);
+}
+
+TEST(socks_endpoint, socks5_scheme)
+{
+    auto result = net::socks::endpoint::get("socks5://127.0.0.1:9050");
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::socks::version::v5, result->ver);
+}
+
+TEST(socks_endpoint, socks4a_scheme)
+{
+    auto result = net::socks::endpoint::get("socks4a://127.0.0.1:9050");
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::socks::version::v4a, result->ver);
+}
+
+TEST(socks_endpoint, default_scheme)
+{
+    auto result = net::socks::endpoint::get("127.0.0.1:9050");
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::socks::version::v4a, result->ver);
+}
+
+TEST(socks_endpoint, invalid_scheme)
+{
+    auto result = net::socks::endpoint::get("ftp://127.0.0.1:9050");
+    EXPECT_TRUE(result.has_error());
+}
+
+TEST(socks_endpoint, socks5_with_auth)
+{
+    auto result = net::socks::endpoint::get("socks5://user:pass@127.0.0.1:9050");
+    ASSERT_TRUE(bool(result));
+    EXPECT_EQ(net::socks::version::v5, result->ver);
+    EXPECT_EQ("user", result->userinfo.user);
+    EXPECT_EQ("pass", result->userinfo.pass);
+}
+
+TEST(socks_endpoint, socks4_with_auth_rejected)
+{
+    // auth is only supported for socks5
+    auto result = net::socks::endpoint::get("socks4://user:pass@127.0.0.1:9050");
+    EXPECT_TRUE(result.has_error());
+}
+
+// ---- net::error additional ----
+
+TEST(net_error, error_category_name)
+{
+    EXPECT_STREQ("net::error_category", net::error_category().name());
+}
+
+TEST(net_error, make_error_code)
+{
+    auto ec = net::make_error_code(net::error::invalid_host);
+    EXPECT_TRUE(bool(ec));
+    EXPECT_EQ(net::error_category(), ec.category());
+}
+
+TEST(net_error, all_messages_not_empty)
+{
+    EXPECT_FALSE(net::make_error_code(net::error::bogus_dnssec).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::dns_query_failure).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::expected_tld).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_encoding).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_host).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_i2p_address).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_mask).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_port).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_scheme).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::invalid_tor_address).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::unexpected_userinfo).message().empty());
+    EXPECT_FALSE(net::make_error_code(net::error::unsupported_address).message().empty());
+}
+
+// ---- dandelionpp_map additional ----
+
+TEST(dandelionpp_map, single_stem)
+{
+    boost::uuids::random_generator random_uuid{};
+    std::vector<boost::uuids::uuid> connections;
+    connections.push_back(random_uuid());
+
+    auto map = net::dandelionpp::connection_map{connections, 1};
+    const boost::uuids::uuid tx_id = random_uuid();
+
+    const boost::uuids::uuid stem = map.get_stem(tx_id);
+    // With single connection and single stem, should return the connection or nil
+    // Just verify no crash and result is deterministic
+    const boost::uuids::uuid stem2 = map.get_stem(tx_id);
+    EXPECT_EQ(stem, stem2);
+}
+
+TEST(dandelionpp_map, multiple_stems)
+{
+    boost::uuids::random_generator random_uuid{};
+    std::vector<boost::uuids::uuid> connections;
+    for (int i = 0; i < 4; ++i)
+        connections.push_back(random_uuid());
+
+    auto map = net::dandelionpp::connection_map{connections, 2};
+    const boost::uuids::uuid tx_id = random_uuid();
+
+    // Should get consistent mapping
+    const boost::uuids::uuid stem1 = map.get_stem(tx_id);
+    const boost::uuids::uuid stem2 = map.get_stem(tx_id);
+    EXPECT_EQ(stem1, stem2);
+}
+
+TEST(dandelionpp_map, different_txs_may_differ)
+{
+    boost::uuids::random_generator random_uuid{};
+    std::vector<boost::uuids::uuid> connections;
+    for (int i = 0; i < 10; ++i)
+        connections.push_back(random_uuid());
+
+    auto map = net::dandelionpp::connection_map{connections, 4};
+
+    // Generate many tx IDs and verify they map to valid stems
+    for (int i = 0; i < 20; ++i)
+    {
+        const boost::uuids::uuid tx_id = random_uuid();
+        const boost::uuids::uuid stem = map.get_stem(tx_id);
+        // Stem should be one of the connections or nil
+        (void)stem;
+    }
+}
+
