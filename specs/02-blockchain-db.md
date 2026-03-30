@@ -517,6 +517,46 @@ The `prune_worker` function operates in three modes:
 - **Windows**: Disables NTFS compression on the DB directory and data file to prevent corruption.
 - **HDD detection**: Warns if the blockchain is on a rotating disk.
 
+## LMDB Thread Safety and Shutdown Constraints
+
+Source: `db_lmdb.cpp:1637`, `mdb_txn_safe`, LMDB documentation.
+
+### Read Transaction Thread Safety
+
+- **Multiple concurrent readers:** LMDB supports any number of concurrent read transactions across different threads. Each thread gets its own `mdb_threadinfo` via `boost::thread_specific_ptr`.
+- **Read transaction reuse:** The writer thread can reuse the write transaction for reads via `block_rtxn_start()`, allowing it to see its own uncommitted writes.
+- **Cursor management:** Each thread's read transaction has its own set of cursors (`mdb_txn_cursors`), lazily opened via the `RCURSOR()` macro.
+
+### Write Transaction Thread Safety
+
+- **Single writer:** LMDB allows only one write transaction at a time. All write operations in Monero go through a single writer thread.
+- **Batch transactions:** During batch operations (e.g., block import), a single write transaction spans multiple blocks. `m_write_batch_txn` holds the batch transaction.
+- **Creation gate:** `mdb_txn_safe::creation_gate` (an `std::atomic_flag`) serializes transaction creation to prevent races during resize operations.
+
+### Shutdown Sequence
+
+The LMDB `close()` operation (`mdb_env_close`) is **NOT thread-safe** — all read transactions must be finished before closing the environment. The FIXME at db_lmdb.cpp:1637 notes this explicitly.
+
+**Race window during daemon shutdown:**
+1. Background sync threads (wallet refresh, block verification) may hold active read transactions.
+2. The daemon's `deinit()` signals threads to stop via `m_run = false` and similar flags.
+3. There is a timing window where `mdb_env_close()` could be called while a read transaction is still active.
+
+**Mitigation strategy in Monero:**
+- `blockchain.cpp::deinit()` calls `m_db->close()` after stopping the blockchain sync loop.
+- `mdb_txn_safe` provides static methods:
+  - `prevent_new_txns()`: Sets the creation gate to block new transaction creation.
+  - `wait_no_active_txns()`: Busy-waits until `num_active_txns` reaches 0.
+  - `allow_new_txns()`: Clears the creation gate.
+- During resize (`do_resize()`), the same prevent/wait/allow sequence is used to ensure no transactions are active when the map size changes.
+
+### Active Transaction Counting
+
+`mdb_txn_safe` maintains a global `static std::atomic<uint64_t> num_active_txns` counter:
+- Incremented in the constructor when a new transaction is created.
+- Decremented in the destructor when a transaction completes (commit or abort).
+- Used by `wait_no_active_txns()` to ensure safe shutdown and resize operations.
+
 ## Known Issues
 
 The following TODO/FIXME/HACK/XXX comments are present in the source:

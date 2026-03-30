@@ -3206,3 +3206,318 @@ TEST(BlockchainStaticTest, get_block_reward_very_small_block)
   ASSERT_TRUE(result);
   ASSERT_GT(reward, 0u);
 }
+
+// ============================================================================
+// Bug #13 regression: checkpoint on alternative chain
+// Tests verify checkpoint interaction with alternative block logic.
+// A checkpoint on an alt chain triggers forced reorganization.
+// The underlying checkpoint checking logic (check_block, is_a_checkpoint flag)
+// is verified here through the BlockchainTest fixture's checkpoints object.
+// ============================================================================
+
+TEST_F(BlockchainTest, checkpoints_object_accessible)
+{
+  // The Blockchain object contains a checkpoints member used for
+  // check_block and is_alternative_block_allowed decisions.
+  // Verify the blockchain initializes with checkpoints available.
+  uint64_t height = m_blockchain.get_current_blockchain_height();
+  ASSERT_GE(height, 1u);
+}
+
+TEST_F(BlockchainTest, checkpoint_alt_block_policy_via_blockchain)
+{
+  // The Blockchain's handle_alternative_block uses checkpoints.check_block()
+  // to set is_a_checkpoint, which triggers reorganization if true.
+  // Test the checkpoint checking logic directly.
+  cryptonote::checkpoints cp;
+
+  // Simulate adding a checkpoint
+  crypto::hash checkpoint_hash;
+  memset(&checkpoint_hash, 0xAA, sizeof(checkpoint_hash));
+  std::string hash_hex = epee::string_tools::pod_to_hex(checkpoint_hash);
+  ASSERT_TRUE(cp.add_checkpoint(10, hash_hex));
+
+  // check_block at checkpoint height with matching hash -> is_a_checkpoint = true
+  bool is_checkpoint = false;
+  ASSERT_TRUE(cp.check_block(10, checkpoint_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+
+  // check_block at checkpoint height with wrong hash -> returns false (fails check)
+  crypto::hash wrong_hash;
+  memset(&wrong_hash, 0xBB, sizeof(wrong_hash));
+  is_checkpoint = false;
+  ASSERT_FALSE(cp.check_block(10, wrong_hash, is_checkpoint));
+
+  // check_block at non-checkpoint height -> is_a_checkpoint = false, returns true
+  is_checkpoint = true;
+  ASSERT_TRUE(cp.check_block(5, wrong_hash, is_checkpoint));
+  ASSERT_FALSE(is_checkpoint);
+}
+
+TEST_F(BlockchainTest, checkpoint_triggers_reorg_flag)
+{
+  // This test verifies the logic path: when is_a_checkpoint is true on an
+  // alt chain block, the code calls switch_to_alternative_blockchain.
+  // We verify the checkpoint detection part: check_block correctly
+  // identifies checkpointed blocks.
+  cryptonote::checkpoints cp;
+  crypto::hash blk_hash;
+  memset(&blk_hash, 0xCC, sizeof(blk_hash));
+  ASSERT_TRUE(cp.add_checkpoint(42, epee::string_tools::pod_to_hex(blk_hash)));
+
+  // Block at height 42 matching checkpoint hash IS a checkpoint
+  bool is_checkpoint = false;
+  ASSERT_TRUE(cp.check_block(42, blk_hash, is_checkpoint));
+  ASSERT_TRUE(is_checkpoint);
+
+  // If is_checkpoint is true and the block is on an alt chain,
+  // handle_alternative_block would call switch_to_alternative_blockchain.
+  // The alt block policy should allow blocks above the checkpoint.
+  ASSERT_FALSE(cp.is_alternative_block_allowed(42, 42));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(42, 43));
+}
+
+TEST_F(BlockchainTest, checkpoint_alt_chain_multiple_checkpoints)
+{
+  // Multiple checkpoints: verify that a checkpoint appearing on an alt chain
+  // at any checkpoint height would be detected correctly.
+  cryptonote::checkpoints cp;
+  crypto::hash h1, h2, h3;
+  memset(&h1, 0x11, sizeof(h1));
+  memset(&h2, 0x22, sizeof(h2));
+  memset(&h3, 0x33, sizeof(h3));
+
+  ASSERT_TRUE(cp.add_checkpoint(100, epee::string_tools::pod_to_hex(h1)));
+  ASSERT_TRUE(cp.add_checkpoint(200, epee::string_tools::pod_to_hex(h2)));
+  ASSERT_TRUE(cp.add_checkpoint(300, epee::string_tools::pod_to_hex(h3)));
+
+  // Each checkpoint hash at its height should be detected
+  bool is_cp = false;
+  ASSERT_TRUE(cp.check_block(100, h1, is_cp));
+  ASSERT_TRUE(is_cp);
+  is_cp = false;
+  ASSERT_TRUE(cp.check_block(200, h2, is_cp));
+  ASSERT_TRUE(is_cp);
+  is_cp = false;
+  ASSERT_TRUE(cp.check_block(300, h3, is_cp));
+  ASSERT_TRUE(is_cp);
+
+  // Wrong hash at checkpoint heights should fail
+  ASSERT_FALSE(cp.check_block(100, h2, is_cp));
+  ASSERT_FALSE(cp.check_block(200, h3, is_cp));
+  ASSERT_FALSE(cp.check_block(300, h1, is_cp));
+}
+
+TEST_F(BlockchainTest, alt_block_allowed_cross_reference)
+{
+  // Cross-reference test: verify is_alternative_block_allowed behavior
+  // matches the checkpoint policy used in handle_alternative_block.
+  // After a checkpoint, only blocks above it should be allowed.
+  cryptonote::checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(50, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(100, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // Blockchain at height 75 (between checkpoints 50 and 100):
+  // highest cp <= 75 is 50, so blocks above 50 allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(75, 50));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(75, 51));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(75, 75));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(75, 100));
+
+  // Blockchain at height 150 (past all checkpoints):
+  // highest cp <= 150 is 100
+  ASSERT_FALSE(cp.is_alternative_block_allowed(150, 100));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(150, 101));
+}
+
+// ===== Regression test for Bug #8: zero difficulty handling =====
+// get_difficulty_for_next_block() can return 0 on overflow or empty state.
+// The block validation code must handle this gracefully (return false) rather
+// than crashing. We verify that calling get_difficulty_for_next_block on a
+// minimal blockchain returns a value, and that the CHECK_AND_ASSERT_MES
+// pattern properly handles a zero difficulty_type.
+
+TEST_F(BlockchainTest, difficulty_for_next_block_returns_nonzero_on_init)
+{
+  // On a freshly initialized FAKECHAIN with 1 block, difficulty should be
+  // computable and non-zero (it returns the starting difficulty).
+  cryptonote::difficulty_type diff = m_blockchain.get_difficulty_for_next_block();
+  ASSERT_GT(diff, 0u) << "Difficulty should not be zero on a valid blockchain";
+}
+
+TEST(BlockchainStaticTest, zero_difficulty_type_is_falsy)
+{
+  // Verify that a zero difficulty_type evaluates as false in boolean context,
+  // which is the condition CHECK_AND_ASSERT_MES relies on for the zero-check.
+  cryptonote::difficulty_type zero_diff = 0;
+  ASSERT_FALSE(zero_diff) << "Zero difficulty must evaluate as false for CHECK_AND_ASSERT_MES";
+
+  cryptonote::difficulty_type nonzero_diff = 1;
+  ASSERT_TRUE(nonzero_diff) << "Non-zero difficulty must evaluate as true";
+}
+
+// =============================================================================
+// Blockchain reorg scenario / state query tests
+// =============================================================================
+
+// Test 7: blockchain_reorg_detection
+// Verify that get_current_blockchain_height returns 1 after init with TestDB,
+// and that the height is consistent across repeated calls.
+TEST_F(BlockchainTest, blockchain_reorg_detection_height_consistent)
+{
+  uint64_t h1 = m_blockchain.get_current_blockchain_height();
+  uint64_t h2 = m_blockchain.get_current_blockchain_height();
+  ASSERT_EQ(h1, h2) << "Height should be consistent across repeated calls";
+  ASSERT_EQ(h1, 1u) << "Initial blockchain height should be 1 (genesis block)";
+
+  // The DB also reports height 1
+  ASSERT_EQ(m_blockchain.get_db().height(), h1);
+}
+
+// Test 8: blockchain_get_block_id_by_height — genesis block
+// Verify block hash retrieval for genesis block returns a valid hash.
+TEST_F(BlockchainTest, blockchain_get_block_id_genesis_valid)
+{
+  crypto::hash genesis_id = m_blockchain.get_block_id_by_height(0);
+  // The genesis block hash should be deterministic; on FAKECHAIN with TestDB
+  // it depends on the genesis block content. Verify it's retrievable.
+  (void)genesis_id;
+
+  // Retrieving the same height twice should give the same hash
+  crypto::hash genesis_id2 = m_blockchain.get_block_id_by_height(0);
+  ASSERT_EQ(genesis_id, genesis_id2) << "Same height should always produce same block ID";
+}
+
+// Test 9: blockchain_difficulty_at_genesis
+// Verify the difficulty returned for the genesis block.
+TEST_F(BlockchainTest, blockchain_difficulty_at_genesis_value)
+{
+  // block_difficulty(0) returns the difficulty stored in the DB.
+  // BaseTestDB returns 0 for block_difficulty.
+  cryptonote::difficulty_type d = m_blockchain.block_difficulty(0);
+  ASSERT_EQ(d, 0u) << "BaseTestDB should return 0 for block_difficulty at genesis";
+
+  // get_difficulty_for_next_block() should return a positive value on a valid chain
+  cryptonote::difficulty_type next_diff = m_blockchain.get_difficulty_for_next_block();
+  ASSERT_GT(next_diff, 0u) << "Next block difficulty should be positive";
+}
+
+// Test 10: blockchain_have_block_nonexistent
+// Test that have_block returns false for random/non-existent hashes.
+TEST_F(BlockchainTest, blockchain_have_block_multiple_random)
+{
+  // Test with several random hashes
+  for (int i = 0; i < 10; ++i)
+  {
+    crypto::hash h = crypto::rand<crypto::hash>();
+    ASSERT_FALSE(m_blockchain.have_block(h))
+      << "Random hash should not exist in blockchain (iteration " << i << ")";
+  }
+}
+
+// Test: have_block with null hash
+TEST_F(BlockchainTest, blockchain_have_block_null_hash)
+{
+  // null_hash is not a valid block hash in the chain
+  ASSERT_FALSE(m_blockchain.have_block(crypto::null_hash));
+}
+
+// Test 11: blockchain_tail_id
+// Verify get_tail_id returns a hash and height for genesis.
+TEST_F(BlockchainTest, blockchain_tail_id_with_height)
+{
+  uint64_t height = UINT64_MAX;
+  crypto::hash tail = m_blockchain.get_tail_id(height);
+
+  // Height should be set to 0 (the tail of a single-block chain is the genesis)
+  // Note: TestDB may return 0 for height. The important thing is no crash
+  // and height is set to a reasonable value.
+  ASSERT_LE(height, 1u) << "Tail height should be 0 or at most 1";
+
+  // Calling again gives same result
+  uint64_t height2 = UINT64_MAX;
+  crypto::hash tail2 = m_blockchain.get_tail_id(height2);
+  ASSERT_EQ(tail, tail2);
+  ASSERT_EQ(height, height2);
+}
+
+// Test: tail_id without height parameter
+TEST_F(BlockchainTest, blockchain_tail_id_no_height_param)
+{
+  crypto::hash tail = m_blockchain.get_tail_id();
+
+  // Should return same hash as the version with height
+  uint64_t height = 0;
+  crypto::hash tail_with_height = m_blockchain.get_tail_id(height);
+  ASSERT_EQ(tail, tail_with_height);
+}
+
+// =============================================================================
+// Additional blockchain state query tests for Rust port coverage
+// =============================================================================
+
+// Test: height matches DB height
+TEST_F(BlockchainTest, blockchain_height_matches_db)
+{
+  ASSERT_EQ(m_blockchain.get_current_blockchain_height(), m_blockchain.get_db().height());
+}
+
+// Test: have_tx returns false for random hash
+TEST_F(BlockchainTest, blockchain_have_tx_multiple_random)
+{
+  for (int i = 0; i < 10; ++i)
+  {
+    crypto::hash h = crypto::rand<crypto::hash>();
+    ASSERT_FALSE(m_blockchain.have_tx(h));
+  }
+}
+
+// Test: get_total_transactions consistent with empty TestDB
+TEST_F(BlockchainTest, blockchain_total_transactions_empty_db)
+{
+  size_t total = m_blockchain.get_total_transactions();
+  // TestDB returns 0 for tx_count
+  ASSERT_EQ(total, 0u);
+}
+
+// Test: blockchain pruning seed is 0 for unpruned chain
+TEST_F(BlockchainTest, blockchain_unpruned_seed_is_zero)
+{
+  ASSERT_EQ(m_blockchain.get_blockchain_pruning_seed(), 0u);
+}
+
+// Test: V16 fixture has correct hard fork version
+TEST_F(BlockchainTestV16, blockchain_v16_hard_fork_version)
+{
+  uint8_t version = m_blockchain.get_ideal_hard_fork_version();
+  ASSERT_EQ(version, 16u);
+
+  uint8_t current = m_blockchain.get_current_hard_fork_version();
+  ASSERT_EQ(current, 16u);
+}
+
+// Test: V16 difficulty target should be DIFFICULTY_TARGET_V2 (120 seconds)
+TEST_F(BlockchainTestV16, blockchain_v16_difficulty_target)
+{
+  uint64_t target = m_blockchain.get_difficulty_target();
+  ASSERT_EQ(target, DIFFICULTY_TARGET_V2);
+}
+
+// Test: get_short_chain_history returns consistent results
+TEST_F(BlockchainTest, blockchain_short_chain_history_consistent)
+{
+  std::list<crypto::hash> ids1, ids2;
+  uint64_t h1 = 0, h2 = 0;
+  ASSERT_TRUE(m_blockchain.get_short_chain_history(ids1, h1));
+  ASSERT_TRUE(m_blockchain.get_short_chain_history(ids2, h2));
+  ASSERT_EQ(ids1.size(), ids2.size());
+  ASSERT_EQ(h1, h2);
+
+  // The lists should contain the same hashes in the same order
+  auto it1 = ids1.begin();
+  auto it2 = ids2.begin();
+  for (; it1 != ids1.end(); ++it1, ++it2)
+  {
+    ASSERT_EQ(*it1, *it2);
+  }
+}

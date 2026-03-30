@@ -130,6 +130,7 @@ namespace test
     {
       auto tdb = new TrackingTestDB();
       db = tdb;
+      tdb->open("");  // Mark DB as open for Blockchain::init check
       // Blockchain::init takes ownership of the DB pointer
       cryptonote::network_type net =
         (nettype == "testnet") ? cryptonote::TESTNET :

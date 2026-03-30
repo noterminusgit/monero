@@ -866,3 +866,657 @@ TEST(Crypto, ec_scalar_sizes)
   ASSERT_EQ(sizeof(crypto::hash), 32u);
   ASSERT_EQ(sizeof(crypto::hash8), 8u);
 }
+
+// ===== cn_slow_hash variant tests =====
+
+TEST(Crypto, cn_slow_hash_variant0_deterministic)
+{
+  const char data[] = "test input for cn_slow_hash";
+  crypto::hash h1, h2;
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h1, 0);
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h2, 0);
+  ASSERT_EQ(h1, h2);
+  ASSERT_NE(h1, crypto::null_hash);
+}
+
+TEST(Crypto, cn_slow_hash_variant1_deterministic)
+{
+  // Variant 1 requires at least 43 bytes of input
+  const char data[] = "This input is long enough for variant 1 testing!!";
+  static_assert(sizeof(data) - 1 >= 43, "variant 1 needs >= 43 bytes");
+  crypto::hash h1, h2;
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h1, 1);
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h2, 1);
+  ASSERT_EQ(h1, h2);
+  ASSERT_NE(h1, crypto::null_hash);
+}
+
+TEST(Crypto, cn_slow_hash_variant2_deterministic)
+{
+  // Variant 2 requires at least 43 bytes of input
+  const char data[] = "This input is long enough for variant 2 testing!!";
+  static_assert(sizeof(data) - 1 >= 43, "variant 2 needs >= 43 bytes");
+  crypto::hash h1, h2;
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h1, 2);
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h2, 2);
+  ASSERT_EQ(h1, h2);
+  ASSERT_NE(h1, crypto::null_hash);
+}
+
+TEST(Crypto, cn_slow_hash_different_variants_differ)
+{
+  // Use a long enough input for all variants
+  const char data[] = "This input is long enough for all variant testing!!!";
+  static_assert(sizeof(data) - 1 >= 43, "needs >= 43 bytes");
+  crypto::hash h0, h1, h2;
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h0, 0);
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h1, 1);
+  crypto::cn_slow_hash(data, sizeof(data) - 1, h2, 2);
+  ASSERT_NE(h0, h1);
+  ASSERT_NE(h0, h2);
+  ASSERT_NE(h1, h2);
+}
+
+TEST(Crypto, cn_slow_hash_variant0_empty_input)
+{
+  crypto::hash h;
+  crypto::cn_slow_hash("", 0, h, 0);
+  ASSERT_NE(h, crypto::null_hash);
+}
+
+TEST(Crypto, cn_slow_hash_variant0_single_byte)
+{
+  const char byte = 0x00;
+  crypto::hash h;
+  crypto::cn_slow_hash(&byte, 1, h, 0);
+  ASSERT_NE(h, crypto::null_hash);
+}
+
+// ===== tree_hash tests =====
+
+TEST(Crypto, tree_hash_single_leaf_identity)
+{
+  crypto::hash leaf;
+  crypto::cn_fast_hash("leaf0", 5, leaf);
+
+  crypto::hash root;
+  crypto::tree_hash(&leaf, 1, root);
+
+  // Single leaf: root == leaf
+  ASSERT_EQ(root, leaf);
+}
+
+TEST(Crypto, tree_hash_two_leaves)
+{
+  crypto::hash leaves[2];
+  crypto::cn_fast_hash("leaf_a", 6, leaves[0]);
+  crypto::cn_fast_hash("leaf_b", 6, leaves[1]);
+
+  crypto::hash root;
+  crypto::tree_hash(leaves, 2, root);
+
+  // Root should be the hash of the concatenation of the two leaves
+  char buffer[64];
+  memcpy(buffer, &leaves[0], 32);
+  memcpy(buffer + 32, &leaves[1], 32);
+  crypto::hash expected;
+  crypto::cn_fast_hash(buffer, 64, expected);
+
+  ASSERT_EQ(root, expected);
+}
+
+TEST(Crypto, tree_hash_three_leaves)
+{
+  crypto::hash leaves[3];
+  crypto::cn_fast_hash("three_a", 7, leaves[0]);
+  crypto::cn_fast_hash("three_b", 7, leaves[1]);
+  crypto::cn_fast_hash("three_c", 7, leaves[2]);
+
+  crypto::hash root;
+  crypto::tree_hash(leaves, 3, root);
+
+  ASSERT_NE(root, crypto::null_hash);
+  ASSERT_NE(root, leaves[0]);
+  ASSERT_NE(root, leaves[1]);
+  ASSERT_NE(root, leaves[2]);
+}
+
+TEST(Crypto, tree_hash_five_leaves)
+{
+  crypto::hash leaves[5];
+  for (int i = 0; i < 5; ++i)
+  {
+    char buf[16];
+    int len = snprintf(buf, sizeof(buf), "five_%d", i);
+    crypto::cn_fast_hash(buf, len, leaves[i]);
+  }
+
+  crypto::hash root;
+  crypto::tree_hash(leaves, 5, root);
+
+  ASSERT_NE(root, crypto::null_hash);
+
+  // Deterministic
+  crypto::hash root2;
+  crypto::tree_hash(leaves, 5, root2);
+  ASSERT_EQ(root, root2);
+}
+
+TEST(Crypto, tree_hash_eight_leaves)
+{
+  crypto::hash leaves[8];
+  for (int i = 0; i < 8; ++i)
+  {
+    char buf[16];
+    int len = snprintf(buf, sizeof(buf), "eight_%d", i);
+    crypto::cn_fast_hash(buf, len, leaves[i]);
+  }
+
+  crypto::hash root;
+  crypto::tree_hash(leaves, 8, root);
+
+  ASSERT_NE(root, crypto::null_hash);
+
+  // Different from a 5-leaf tree
+  crypto::hash leaves5[5];
+  for (int i = 0; i < 5; ++i)
+    leaves5[i] = leaves[i];
+
+  crypto::hash root5;
+  crypto::tree_hash(leaves5, 5, root5);
+  ASSERT_NE(root, root5);
+}
+
+TEST(Crypto, tree_hash_order_matters)
+{
+  crypto::hash leaves_a[3], leaves_b[3];
+  crypto::cn_fast_hash("order_x", 7, leaves_a[0]);
+  crypto::cn_fast_hash("order_y", 7, leaves_a[1]);
+  crypto::cn_fast_hash("order_z", 7, leaves_a[2]);
+
+  // Swap first two
+  leaves_b[0] = leaves_a[1];
+  leaves_b[1] = leaves_a[0];
+  leaves_b[2] = leaves_a[2];
+
+  crypto::hash root_a, root_b;
+  crypto::tree_hash(leaves_a, 3, root_a);
+  crypto::tree_hash(leaves_b, 3, root_b);
+
+  ASSERT_NE(root_a, root_b);
+}
+
+// ===== Key derivation chain tests =====
+
+TEST(Crypto, key_derivation_chain_full_roundtrip)
+{
+  crypto::public_key tx_pub;
+  crypto::secret_key tx_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+
+  crypto::public_key recv_pub;
+  crypto::secret_key recv_sec;
+  crypto::generate_keys(recv_pub, recv_sec);
+
+  // Sender computes derivation using receiver's public key
+  crypto::key_derivation derivation_sender;
+  ASSERT_TRUE(crypto::generate_key_derivation(recv_pub, tx_sec, derivation_sender));
+
+  // Receiver computes derivation using transaction public key
+  crypto::key_derivation derivation_receiver;
+  ASSERT_TRUE(crypto::generate_key_derivation(tx_pub, recv_sec, derivation_receiver));
+
+  // Both derivations must match
+  ASSERT_EQ(0, memcmp(&derivation_sender, &derivation_receiver, sizeof(derivation_sender)));
+
+  // Sender derives ephemeral public key
+  crypto::public_key eph_pub;
+  ASSERT_TRUE(crypto::derive_public_key(derivation_sender, 0, recv_pub, eph_pub));
+
+  // Receiver derives ephemeral secret key
+  crypto::secret_key eph_sec;
+  crypto::derive_secret_key(derivation_receiver, 0, recv_sec, eph_sec);
+
+  // The secret key should produce the same public key
+  crypto::public_key eph_pub_check;
+  ASSERT_TRUE(crypto::secret_key_to_public_key(eph_sec, eph_pub_check));
+  ASSERT_EQ(eph_pub, eph_pub_check);
+}
+
+TEST(Crypto, key_derivation_multiple_indices_different_keys)
+{
+  crypto::public_key pub_a, pub_b;
+  crypto::secret_key sec_a, sec_b;
+  crypto::generate_keys(pub_a, sec_a);
+  crypto::generate_keys(pub_b, sec_b);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub_b, sec_a, derivation));
+
+  // Derive at multiple indices
+  const size_t NUM_INDICES = 5;
+  crypto::public_key derived_pubs[NUM_INDICES];
+  for (size_t i = 0; i < NUM_INDICES; ++i)
+  {
+    ASSERT_TRUE(crypto::derive_public_key(derivation, i, pub_a, derived_pubs[i]));
+    ASSERT_TRUE(crypto::check_key(derived_pubs[i]));
+  }
+
+  // All derived public keys must be different
+  for (size_t i = 0; i < NUM_INDICES; ++i)
+    for (size_t j = i + 1; j < NUM_INDICES; ++j)
+      ASSERT_NE(derived_pubs[i], derived_pubs[j]);
+}
+
+TEST(Crypto, key_derivation_secret_indices_different)
+{
+  crypto::public_key pub;
+  crypto::secret_key sec;
+  crypto::generate_keys(pub, sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub, sec, derivation));
+
+  crypto::secret_key eph_sec0, eph_sec1, eph_sec2;
+  crypto::derive_secret_key(derivation, 0, sec, eph_sec0);
+  crypto::derive_secret_key(derivation, 1, sec, eph_sec1);
+  crypto::derive_secret_key(derivation, 2, sec, eph_sec2);
+
+  ASSERT_NE(eph_sec0, eph_sec1);
+  ASSERT_NE(eph_sec0, eph_sec2);
+  ASSERT_NE(eph_sec1, eph_sec2);
+}
+
+TEST(Crypto, derive_pub_from_sec_matches_direct)
+{
+  crypto::public_key recv_pub;
+  crypto::secret_key recv_sec;
+  crypto::generate_keys(recv_pub, recv_sec);
+
+  crypto::public_key tx_pub;
+  crypto::secret_key tx_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(tx_pub, recv_sec, derivation));
+
+  for (size_t idx = 0; idx < 3; ++idx)
+  {
+    // Derive public key directly
+    crypto::public_key eph_pub_direct;
+    ASSERT_TRUE(crypto::derive_public_key(derivation, idx, recv_pub, eph_pub_direct));
+
+    // Derive secret key and then compute public key from it
+    crypto::secret_key eph_sec;
+    crypto::derive_secret_key(derivation, idx, recv_sec, eph_sec);
+    crypto::public_key eph_pub_indirect;
+    ASSERT_TRUE(crypto::secret_key_to_public_key(eph_sec, eph_pub_indirect));
+
+    ASSERT_EQ(eph_pub_direct, eph_pub_indirect);
+  }
+}
+
+TEST(Crypto, key_derivation_different_keypairs_differ)
+{
+  crypto::public_key pub1, pub2, pub3;
+  crypto::secret_key sec1, sec2, sec3;
+  crypto::generate_keys(pub1, sec1);
+  crypto::generate_keys(pub2, sec2);
+  crypto::generate_keys(pub3, sec3);
+
+  crypto::key_derivation d12, d13;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub2, sec1, d12));
+  ASSERT_TRUE(crypto::generate_key_derivation(pub3, sec1, d13));
+
+  // Different target keys produce different derivations
+  ASSERT_NE(0, memcmp(&d12, &d13, sizeof(d12)));
+}
+
+TEST(Crypto, derive_subaddress_public_key_multiple_indices)
+{
+  crypto::public_key base_pub;
+  crypto::secret_key base_sec;
+  crypto::generate_keys(base_pub, base_sec);
+
+  crypto::public_key tx_pub;
+  crypto::secret_key tx_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(tx_pub, base_sec, derivation));
+
+  for (size_t idx = 0; idx < 4; ++idx)
+  {
+    crypto::public_key derived;
+    ASSERT_TRUE(crypto::derive_public_key(derivation, idx, base_pub, derived));
+
+    crypto::public_key recovered;
+    ASSERT_TRUE(crypto::derive_subaddress_public_key(derived, derivation, idx, recovered));
+    ASSERT_EQ(recovered, base_pub);
+  }
+}
+
+TEST(Crypto, key_derivation_large_index)
+{
+  crypto::public_key pub;
+  crypto::secret_key sec;
+  crypto::generate_keys(pub, sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub, sec, derivation));
+
+  // Large index should still work
+  crypto::public_key derived;
+  ASSERT_TRUE(crypto::derive_public_key(derivation, 1000000, pub, derived));
+  ASSERT_TRUE(crypto::check_key(derived));
+  ASSERT_NE(derived, pub);
+}
+
+TEST(Crypto, key_derivation_scalar_at_large_index)
+{
+  crypto::public_key pub;
+  crypto::secret_key sec;
+  crypto::generate_keys(pub, sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub, sec, derivation));
+
+  crypto::ec_scalar s0, s_large;
+  crypto::derivation_to_scalar(derivation, 0, s0);
+  crypto::derivation_to_scalar(derivation, 999999, s_large);
+
+  ASSERT_NE(0, memcmp(&s0, &s_large, sizeof(s0)));
+}
+
+TEST(Crypto, key_derivation_chain_with_view_tag)
+{
+  crypto::public_key tx_pub, recv_pub;
+  crypto::secret_key tx_sec, recv_sec;
+  crypto::generate_keys(tx_pub, tx_sec);
+  crypto::generate_keys(recv_pub, recv_sec);
+
+  crypto::key_derivation d1, d2;
+  ASSERT_TRUE(crypto::generate_key_derivation(recv_pub, tx_sec, d1));
+  ASSERT_TRUE(crypto::generate_key_derivation(tx_pub, recv_sec, d2));
+  ASSERT_EQ(0, memcmp(&d1, &d2, sizeof(d1)));
+
+  // Both sides should derive the same view tag
+  crypto::view_tag vt1, vt2;
+  crypto::derive_view_tag(d1, 0, vt1);
+  crypto::derive_view_tag(d2, 0, vt2);
+  ASSERT_EQ(vt1.data, vt2.data);
+}
+
+TEST(Crypto, derive_secret_key_deterministic)
+{
+  crypto::public_key pub;
+  crypto::secret_key sec;
+  crypto::generate_keys(pub, sec);
+
+  crypto::key_derivation derivation;
+  ASSERT_TRUE(crypto::generate_key_derivation(pub, sec, derivation));
+
+  crypto::secret_key eph_a, eph_b;
+  crypto::derive_secret_key(derivation, 42, sec, eph_a);
+  crypto::derive_secret_key(derivation, 42, sec, eph_b);
+  ASSERT_EQ(eph_a, eph_b);
+}
+
+// ===== Ring signature tests =====
+
+TEST(Crypto, ring_signature_size_1_index_0)
+{
+  crypto::public_key pub;
+  crypto::secret_key sec;
+  crypto::generate_keys(pub, sec);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pub, sec, ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring1", 5, prefix);
+
+  const crypto::public_key* pubs[] = {&pub};
+  crypto::signature sig;
+  crypto::generate_ring_signature(prefix, ki, pubs, 1, sec, 0, &sig);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pubs, 1, &sig));
+}
+
+TEST(Crypto, ring_signature_size_2_index_0)
+{
+  crypto::public_key pub1, pub2;
+  crypto::secret_key sec1, sec2;
+  crypto::generate_keys(pub1, sec1);
+  crypto::generate_keys(pub2, sec2);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pub1, sec1, ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring2idx0", 9, prefix);
+
+  const crypto::public_key* pubs[] = {&pub1, &pub2};
+  crypto::signature sigs[2];
+  crypto::generate_ring_signature(prefix, ki, pubs, 2, sec1, 0, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pubs, 2, sigs));
+}
+
+TEST(Crypto, ring_signature_size_2_index_1)
+{
+  crypto::public_key pub1, pub2;
+  crypto::secret_key sec1, sec2;
+  crypto::generate_keys(pub1, sec1);
+  crypto::generate_keys(pub2, sec2);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pub2, sec2, ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring2idx1", 9, prefix);
+
+  const crypto::public_key* pubs[] = {&pub1, &pub2};
+  crypto::signature sigs[2];
+  crypto::generate_ring_signature(prefix, ki, pubs, 2, sec2, 1, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pubs, 2, sigs));
+}
+
+TEST(Crypto, ring_signature_size_11_first_index)
+{
+  const size_t RING_SIZE = 11;
+  const size_t REAL_IDX = 0;
+
+  crypto::public_key pubs_arr[RING_SIZE];
+  crypto::secret_key secs_arr[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    crypto::generate_keys(pubs_arr[i], secs_arr[i]);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pubs_arr[REAL_IDX], secs_arr[REAL_IDX], ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring11first", 11, prefix);
+
+  const crypto::public_key* pub_ptrs[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    pub_ptrs[i] = &pubs_arr[i];
+
+  crypto::signature sigs[RING_SIZE];
+  crypto::generate_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, secs_arr[REAL_IDX], REAL_IDX, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, sigs));
+}
+
+TEST(Crypto, ring_signature_size_11_last_index)
+{
+  const size_t RING_SIZE = 11;
+  const size_t REAL_IDX = RING_SIZE - 1;
+
+  crypto::public_key pubs_arr[RING_SIZE];
+  crypto::secret_key secs_arr[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    crypto::generate_keys(pubs_arr[i], secs_arr[i]);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pubs_arr[REAL_IDX], secs_arr[REAL_IDX], ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring11last", 10, prefix);
+
+  const crypto::public_key* pub_ptrs[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    pub_ptrs[i] = &pubs_arr[i];
+
+  crypto::signature sigs[RING_SIZE];
+  crypto::generate_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, secs_arr[REAL_IDX], REAL_IDX, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, sigs));
+}
+
+TEST(Crypto, ring_signature_size_11_middle_index)
+{
+  const size_t RING_SIZE = 11;
+  const size_t REAL_IDX = 5;
+
+  crypto::public_key pubs_arr[RING_SIZE];
+  crypto::secret_key secs_arr[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    crypto::generate_keys(pubs_arr[i], secs_arr[i]);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pubs_arr[REAL_IDX], secs_arr[REAL_IDX], ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("ring11mid", 9, prefix);
+
+  const crypto::public_key* pub_ptrs[RING_SIZE];
+  for (size_t i = 0; i < RING_SIZE; ++i)
+    pub_ptrs[i] = &pubs_arr[i];
+
+  crypto::signature sigs[RING_SIZE];
+  crypto::generate_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, secs_arr[REAL_IDX], REAL_IDX, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pub_ptrs, RING_SIZE, sigs));
+}
+
+TEST(Crypto, ring_signature_wrong_key_fails)
+{
+  crypto::public_key pub1, pub2, pub_wrong;
+  crypto::secret_key sec1, sec2, sec_wrong;
+  crypto::generate_keys(pub1, sec1);
+  crypto::generate_keys(pub2, sec2);
+  crypto::generate_keys(pub_wrong, sec_wrong);
+
+  crypto::key_image ki;
+  crypto::generate_key_image(pub1, sec1, ki);
+
+  crypto::hash prefix;
+  crypto::cn_fast_hash("wrong_key_test", 14, prefix);
+
+  const crypto::public_key* pubs[] = {&pub1, &pub2};
+  crypto::signature sigs[2];
+  crypto::generate_ring_signature(prefix, ki, pubs, 2, sec1, 0, sigs);
+  ASSERT_TRUE(crypto::check_ring_signature(prefix, ki, pubs, 2, sigs));
+
+  // Substitute a wrong public key
+  const crypto::public_key* pubs_wrong[] = {&pub_wrong, &pub2};
+  ASSERT_FALSE(crypto::check_ring_signature(prefix, ki, pubs_wrong, 2, sigs));
+}
+
+// ===== Constant-time secret key sort regression tests (Bug #2) =====
+
+namespace {
+  // Constant-time less-than comparator for secret keys, matching the one
+  // used in multisig_account_kex_impl.cpp. This is duplicated here for
+  // testing purposes to verify the comparator produces correct ordering.
+  static bool ct_secret_key_less(const crypto::secret_key &key1, const crypto::secret_key &key2)
+  {
+    const unsigned char *a = reinterpret_cast<const unsigned char*>(&key1);
+    const unsigned char *b = reinterpret_cast<const unsigned char*>(&key2);
+    unsigned gt = 0;
+    unsigned lt = 0;
+    for (size_t i = 0; i < sizeof(crypto::secret_key); ++i)
+    {
+      unsigned not_done = 1u - (gt | lt);
+      unsigned ai = a[i], bi = b[i];
+      gt |= not_done & ((bi - ai) >> 8) & 1u;
+      lt |= not_done & ((ai - bi) >> 8) & 1u;
+    }
+    return lt != 0;
+  }
+}
+
+TEST(Crypto, ct_sort_matches_memcmp_sort)
+{
+  // Generate a set of random secret keys and verify that the constant-time
+  // comparator produces the same sort order as memcmp.
+  const size_t N = 20;
+  std::vector<crypto::secret_key> keys_ct(N), keys_memcmp(N);
+  for (size_t i = 0; i < N; ++i)
+  {
+    keys_ct[i] = rct::rct2sk(rct::skGen());
+    keys_memcmp[i] = keys_ct[i];
+  }
+
+  // Sort with memcmp (reference)
+  std::sort(keys_memcmp.begin(), keys_memcmp.end(),
+    [](const crypto::secret_key &a, const crypto::secret_key &b) {
+      return memcmp(&a, &b, sizeof(crypto::secret_key)) < 0;
+    });
+
+  // Sort with constant-time comparator
+  std::sort(keys_ct.begin(), keys_ct.end(), ct_secret_key_less);
+
+  // Both sorts must produce identical ordering
+  for (size_t i = 0; i < N; ++i)
+  {
+    ASSERT_EQ(0, memcmp(&keys_ct[i], &keys_memcmp[i], sizeof(crypto::secret_key)))
+      << "Mismatch at index " << i;
+  }
+}
+
+TEST(Crypto, ct_sort_identical_keys)
+{
+  // Sorting a vector of identical keys should not crash or reorder.
+  crypto::secret_key key = rct::rct2sk(rct::skGen());
+  std::vector<crypto::secret_key> keys(5, key);
+
+  std::sort(keys.begin(), keys.end(), ct_secret_key_less);
+
+  for (size_t i = 0; i < keys.size(); ++i)
+  {
+    ASSERT_EQ(0, memcmp(&keys[i], &key, sizeof(crypto::secret_key)));
+  }
+}
+
+TEST(Crypto, ct_sort_keys_differ_only_in_last_byte)
+{
+  // Two keys that differ only in the last byte (byte index 31, most significant
+  // in the big-endian interpretation used by the comparator).
+  crypto::secret_key k1, k2;
+  memset(&k1, 0xAA, sizeof(k1));
+  memset(&k2, 0xAA, sizeof(k2));
+  reinterpret_cast<unsigned char*>(&k2)[31] = 0xBB; // k2 > k1
+
+  // ct comparator should agree with memcmp
+  int cmp = memcmp(&k1, &k2, sizeof(crypto::secret_key));
+  bool ct_result = ct_secret_key_less(k1, k2);
+  ASSERT_EQ(ct_result, cmp < 0);
+
+  // Reverse comparison
+  bool ct_reverse = ct_secret_key_less(k2, k1);
+  ASSERT_EQ(ct_reverse, memcmp(&k2, &k1, sizeof(crypto::secret_key)) < 0);
+
+  // Equal keys
+  ASSERT_FALSE(ct_secret_key_less(k1, k1));
+}
+
+TEST(Crypto, ct_sort_keys_differ_only_in_first_byte)
+{
+  // Two keys that differ only in byte index 0 (least significant byte).
+  crypto::secret_key k1, k2;
+  memset(&k1, 0xCC, sizeof(k1));
+  memset(&k2, 0xCC, sizeof(k2));
+  reinterpret_cast<unsigned char*>(&k1)[0] = 0x01;
+  reinterpret_cast<unsigned char*>(&k2)[0] = 0x02;
+
+  bool ct_result = ct_secret_key_less(k1, k2);
+  int cmp = memcmp(&k1, &k2, sizeof(crypto::secret_key));
+  ASSERT_EQ(ct_result, cmp < 0);
+}

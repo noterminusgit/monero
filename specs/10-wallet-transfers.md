@@ -710,6 +710,126 @@ When `subtract_fee_from_outputs` is provided to `create_transactions_2`:
 | `wallet2_api.h` / GUI wallet interface | `PendingTransaction` wraps `pending_tx` vectors; calls `createTransaction`, `sweepAll`, etc. |
 | Multisig workflows | `sign_multisig_tx`, `export_multisig`, `import_multisig` interact with transfer construction for collaborative signing. |
 
+## Decoy Selection Algorithm (Gamma Picker)
+
+### Distribution Parameters
+
+The `gamma_picker` class (wallet2.h:90) implements decoy selection using a gamma distribution with the following parameters:
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| Shape (α) | 19.28 | `GAMMA_SHAPE`, derived from Miller et al. "An Empirical Analysis of Traceability in the Monero Blockchain" |
+| Scale (β) | 1/1.61 ≈ 0.6211 | `GAMMA_SCALE` |
+| Recent spend window | 1800 seconds (15 × 120s) | `RECENT_SPEND_WINDOW = 15 * DIFFICULTY_TARGET_V2` |
+| Recent output ratio | 50% | `RECENT_OUTPUT_RATIO = 0.5` |
+| Minimum spendable age | 10 blocks (1200 seconds) | `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` |
+
+### Selection Algorithm
+
+Source: `wallet2::get_outs()` at wallet2.cpp:9052 and `gamma_picker::pick()`.
+
+1. **Initialization:** The gamma picker receives the cumulative RCT output distribution (`rct_offsets`) from `get_output_distribution` RPC. It computes `average_output_time` as the average seconds between outputs over the most recent year of blocks.
+
+2. **Pick loop (for each decoy needed):**
+   a. Draw a random value `x` from gamma(19.28, 1/1.61) representing output age in seconds.
+   b. If `x > DEFAULT_UNLOCK_TIME` (10 blocks × 120s = 1200s): subtract the unlock time so selection starts at the first spendable output.
+   c. If `x <= DEFAULT_UNLOCK_TIME`: select uniformly from the recent spend window (last 1800 seconds of outputs).
+   d. Convert time offset to a block index using binary search in `rct_offsets`.
+   e. Pick a random output within the selected block.
+   f. If the picked output is the real output, or is not yet spendable (too young), retry from step (a).
+
+3. **Pre-RCT outputs** (non-zero amounts): Use a triangular distribution instead of gamma, with 50% of picks from recent outputs (`RECENT_OUTPUT_RATIO`).
+
+4. **Segregation fork handling:** When `m_segregate_pre_fork_outputs` or `m_key_reuse_mitigation2` is set, the pick distribution is split between pre-fork and post-fork output zones.
+
+5. **Blackball filtering:** Known-spent outputs are excluded in a first pass. If insufficient non-blackballed outputs exist, a second pass allows them.
+
+6. **Ring reuse:** If a key image has a previously stored ring (from the ring database), that ring is reused to maintain consistency across chains.
+
+7. **Output batching:** The wallet requests `(fake_outputs_count + 1) × 1.5 + 1` outputs per input from the daemon, plus extra for locked coinbase outputs.
+
+### Post-Selection Validation
+
+After `get_outs()`, `tx_sanity_check()` verifies decoys are not suspiciously concentrated. If the check fails, rings are rebuilt (up to 3 attempts).
+
+## Iterative Fee Refinement
+
+Source: `wallet2::create_transactions_2()` at wallet2.cpp:10923 and `wallet2::create_transactions_from()` at wallet2.cpp:11350.
+
+### Fee Estimation Pipeline
+
+1. **Initial estimate:** Query daemon via `get_fee_estimate` RPC → obtain base fee per byte and quantization mask.
+2. **Estimate fee:** `estimate_fee(n_inputs, mixin, n_outputs, extra_size, base_fee, quantization_mask)` → initial fee value.
+3. **Construct trial transaction:** Build the transaction with the estimated fee.
+4. **Measure actual weight:** Serialize the trial transaction → compute actual weight.
+5. **Recalculate needed fee:** `calculate_fee_from_weight(base_fee, actual_weight, quantization_mask)`.
+6. **Convergence check:** If `fee >= needed_fee - needed_fee/50` (within 2% tolerance), accept. Otherwise, reconstruct with the updated fee.
+7. **Iteration limit:** Up to 10 attempts in `create_transactions_2`; unlimited in `create_transactions_from` (loops while `needed_fee > test_ptx.fee`).
+
+### Fee Calculation Formula
+
+For per-byte fee (HF v8+):
+```
+fee = weight × base_fee
+fee = ceil(fee / quantization_mask) × quantization_mask
+```
+
+For per-KB fee (pre-HF v8):
+```
+kB = ceil(bytes / 1024)
+fee = kB × fee_per_kb
+```
+
+## Input Selection Strategy
+
+Source: `wallet2::create_transactions_2()`, `wallet2::pick_preferred_rct_inputs()` at wallet2.cpp:10216.
+
+### Preferred Input Selection
+
+1. **Single input pass:** Scan all unspent, unfrozen, RCT, unlocked outputs in the specified subaddress. If one output covers `needed_money`, use it. Respects `m_ignore_outputs_above` and `m_ignore_outputs_below`.
+2. **Two input pass:** Scan all pairs `(i, j)` where `i < j`. Track the pair with lowest "relatedness" score. Return immediately if an unrelated pair (relatedness == 0.0) is found.
+3. **Relatedness scoring** (`get_output_relatedness` at wallet2.cpp:7419):
+
+| Condition | Score |
+|-----------|-------|
+| Same transaction | 1.0 |
+| Same block height | 0.9 |
+| Adjacent blocks (±1) | 0.8 |
+| Within 10 blocks | 0.2 |
+| More than 10 blocks apart | 0.0 |
+
+### Fallback Input Selection
+
+If preferred inputs don't cover the amount:
+1. Add inputs one at a time using `pop_best_value_from()`, which minimizes relatedness to already-selected inputs.
+2. Alternate between non-dust and dust inputs.
+3. After selecting one input, `should_pick_a_second_output()` forces a second input for RCT transactions (making 2-input txs the norm, preventing 1-input txs from being fingerprintable).
+
+### Frozen/Locked Output Exclusion
+
+- **Frozen outputs** (`m_frozen == true`): Excluded from all selection.
+- **Locked outputs** (`is_transfer_unlocked()` returns false): Excluded — must be past unlock time AND at least `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` (10 blocks) old.
+- **Dust threshold:** Outputs below `calculate_fee()` for a 1-in/1-out transaction are classified as dust.
+
+## Transaction Splitting
+
+Source: `wallet2::create_transactions_2()` splitting logic.
+
+### Split Trigger
+
+A transaction is split when:
+- Estimated weight exceeds `TX_WEIGHT_TARGET = get_upper_transaction_weight_limit() × 2/3`.
+- The upper limit is `full_reward_zone / 2 - CRYPTONOTE_COINBASE_BLOB_RESERVED_SIZE` for HF v8+, or `full_reward_zone - reserved` for earlier forks.
+- Maximum outputs per transaction: `BULLETPROOF_MAX_OUTPUTS - 1 = 15` (one slot reserved for change).
+
+### Splitting Behavior
+
+1. When the weight target is reached, the current transaction is finalized.
+2. A new transaction begins accumulating remaining destinations and inputs.
+3. Each sub-transaction gets its fee calculated independently based on its own weight.
+4. The change for each sub-transaction goes to `subaddress{account, 0}`.
+5. The `subtract_fee_from_outputs` feature does NOT support splitting (throws if `dsts.size() > BULLETPROOF_MAX_OUTPUTS - 1`).
+
 ## Known Issues
 
 The following TODO/FIXME/HACK/XXX comments were found in transfer-related or closely adjacent code:

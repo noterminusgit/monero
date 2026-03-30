@@ -332,3 +332,157 @@ TEST(checkpoints, large_height)
   ASSERT_TRUE(cp.is_in_checkpoint_zone(500000));
   ASSERT_FALSE(cp.is_in_checkpoint_zone(1000001));
 }
+
+// ============================================================================
+// Bug #12 regression: is_alternative_block_allowed policy verification
+// The function allows alt blocks only above the highest checkpoint at or
+// below blockchain_height. These tests verify edge cases and consistency.
+// ============================================================================
+
+TEST(checkpoints_is_alternative_block_allowed, multiple_checkpoints_various_heights)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(10, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(50, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(100, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // Before any checkpoint: all alt blocks allowed (except height 0)
+  ASSERT_FALSE(cp.is_alternative_block_allowed(5, 0));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(5, 1));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(5, 50));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(5, 100));
+
+  // At checkpoint 10: blocks above 10 allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(10, 5));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(10, 10));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(10, 11));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(10, 50));
+
+  // Between checkpoints 10 and 50 (e.g., at 30): highest cp <= 30 is 10
+  ASSERT_FALSE(cp.is_alternative_block_allowed(30, 5));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(30, 10));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(30, 11));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(30, 30));
+
+  // At checkpoint 50: blocks above 50 allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(50, 10));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(50, 50));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(50, 51));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(50, 100));
+
+  // Beyond all checkpoints (at 200): highest cp <= 200 is 100
+  ASSERT_FALSE(cp.is_alternative_block_allowed(200, 50));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(200, 100));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(200, 101));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(200, 200));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, block_height_exactly_at_checkpoint)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(20, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // When blockchain_height >= checkpoint and block_height == checkpoint,
+  // the block should NOT be allowed (checkpoint_height < block_height is false)
+  ASSERT_FALSE(cp.is_alternative_block_allowed(20, 20));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(25, 20));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(100, 20));
+
+  // block_height one above checkpoint IS allowed
+  ASSERT_TRUE(cp.is_alternative_block_allowed(20, 21));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(25, 21));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, blockchain_height_exactly_at_checkpoint)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(15, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_TRUE(cp.add_checkpoint(30, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // blockchain_height at first checkpoint (15): highest cp <= 15 is 15
+  ASSERT_FALSE(cp.is_alternative_block_allowed(15, 10));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(15, 15));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(15, 16));
+
+  // blockchain_height at second checkpoint (30): highest cp <= 30 is 30
+  ASSERT_FALSE(cp.is_alternative_block_allowed(30, 15));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(30, 20));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(30, 30));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(30, 31));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, many_checkpoints_consistency)
+{
+  checkpoints cp;
+  // Add checkpoints every 10 heights from 10 to 100
+  for (uint64_t h = 10; h <= 100; h += 10)
+  {
+    ASSERT_TRUE(cp.add_checkpoint(h, "0000000000000000000000000000000000000000000000000000000000000000"));
+  }
+
+  // For any blockchain_height past all checkpoints, alt blocks must be
+  // above the highest checkpoint (100)
+  for (uint64_t bh = 100; bh <= 150; ++bh)
+  {
+    ASSERT_FALSE(cp.is_alternative_block_allowed(bh, 50));
+    ASSERT_FALSE(cp.is_alternative_block_allowed(bh, 100));
+    ASSERT_TRUE(cp.is_alternative_block_allowed(bh, 101));
+  }
+
+  // For blockchain_height between checkpoints 50 and 60:
+  // highest cp <= 55 is 50, so alt blocks above 50 are allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(55, 30));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(55, 50));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(55, 51));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(55, 55));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, large_height_values)
+{
+  checkpoints cp;
+  // Use large but not max values to avoid any overflow
+  uint64_t large_cp = 1000000000ULL;
+  ASSERT_TRUE(cp.add_checkpoint(large_cp, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // Below checkpoint height in blockchain: all alt blocks allowed
+  ASSERT_TRUE(cp.is_alternative_block_allowed(500000000ULL, 1));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(500000000ULL, 999999999ULL));
+
+  // At checkpoint height: only above checkpoint allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(large_cp, large_cp));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(large_cp, large_cp + 1));
+
+  // Above checkpoint: only above checkpoint allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(large_cp + 1000, large_cp));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(large_cp + 1000, large_cp + 1));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, block_height_zero_always_disallowed)
+{
+  // Block height 0 (genesis) should never be allowed as an alt block
+  checkpoints cp_empty;
+  ASSERT_FALSE(cp_empty.is_alternative_block_allowed(0, 0));
+  ASSERT_FALSE(cp_empty.is_alternative_block_allowed(100, 0));
+
+  checkpoints cp_with;
+  ASSERT_TRUE(cp_with.add_checkpoint(10, "0000000000000000000000000000000000000000000000000000000000000000"));
+  ASSERT_FALSE(cp_with.is_alternative_block_allowed(0, 0));
+  ASSERT_FALSE(cp_with.is_alternative_block_allowed(5, 0));
+  ASSERT_FALSE(cp_with.is_alternative_block_allowed(15, 0));
+}
+
+TEST(checkpoints_is_alternative_block_allowed, single_checkpoint_at_one)
+{
+  checkpoints cp;
+  ASSERT_TRUE(cp.add_checkpoint(1, "0000000000000000000000000000000000000000000000000000000000000000"));
+
+  // blockchain_height 0 (before checkpoint): all alt blocks allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(0, 0));  // height 0 always false
+  ASSERT_TRUE(cp.is_alternative_block_allowed(0, 1));
+
+  // At and after checkpoint 1: only above 1 allowed
+  ASSERT_FALSE(cp.is_alternative_block_allowed(1, 1));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(1, 2));
+  ASSERT_FALSE(cp.is_alternative_block_allowed(5, 1));
+  ASSERT_TRUE(cp.is_alternative_block_allowed(5, 2));
+}

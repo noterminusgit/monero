@@ -11,9 +11,13 @@ import time
 
 USAGE = 'usage: functional_tests_rpc.py <python> <srcdir> <builddir> [<tests-to-run> | all]'
 DEFAULT_TESTS = [
-  'address_book', 'bans', 'blockchain', 'cold_signing', 'daemon_info', 'get_output_distribution',
-  'http_digest_auth', 'integrated_address', 'k_anonymity', 'mining', 'multisig', 'p2p', 'proofs',
-  'rpc_payment', 'sign_message', 'transfer', 'txpool', 'uri', 'validate_address', 'wallet'
+  'address_book', 'background_sync_extended', 'bans', 'block_template', 'blockchain',
+  'bug_verification', 'chain_reorg', 'cold_signing', 'cold_signing_extended', 'daemon_info',
+  'daemon_state', 'get_output_distribution', 'http_digest_auth', 'integrated_address',
+  'k_anonymity', 'key_image_output_queries', 'mining', 'multisig', 'p2p', 'p2p_extended',
+  'proofs', 'pruning', 'rpc_access_control', 'rpc_error_handling', 'rpc_payment', 'sign_message',
+  'sweep_operations', 'transfer', 'tx_lifecycle', 'txpool', 'uri', 'validate_address',
+  'wallet', 'wallet_accounts', 'wallet_daemon_switching', 'zmq_events'
 ]
 try:
   python = sys.argv[1]

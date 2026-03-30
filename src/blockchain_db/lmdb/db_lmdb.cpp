@@ -1634,7 +1634,14 @@ void BlockchainLMDB::close()
   BlockchainLMDB::sync();
   m_tinfo.reset();
 
-  // FIXME: not yet thread safe!!!  Use with care.
+  // WARNING: mdb_env_close() is not thread-safe per the LMDB documentation.
+  // Callers must ensure no other threads are accessing the database environment
+  // (via transactions, cursors, or other MDB API calls) before calling close().
+  // In Monero's daemon shutdown path, the blockchain lock (m_blockchain_lock)
+  // provides some protection, but a race window exists if background threads
+  // (e.g., the block sync thread) hold open read transactions during shutdown.
+  // A proper fix would require a shutdown barrier that waits for all active
+  // LMDB transactions to complete before calling mdb_env_close().
   mdb_env_close(m_env);
   m_open = false;
 }

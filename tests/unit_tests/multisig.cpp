@@ -904,3 +904,205 @@ TEST(multisig, multisig_account_base_pubkey_matches)
   crypto::secret_key_to_public_key(base_privkey, expected_pubkey);
   EXPECT_EQ(account.get_base_pubkey(), expected_pubkey);
 }
+
+// ===== Regression tests for multisig key leak bug =====
+// When a wallet is uninitialized (make_multisig() has not been called) and
+// num_signers - threshold == 1, the booster message would leak private keys.
+// The fix adds a guard that rejects such requests.
+
+TEST(multisig, booster_uninitialized_2of2_safe)
+{
+  // 2-of-2: num_signers - threshold = 0, should be safe on uninitialized wallet
+  const unsigned int M = 2;
+  const unsigned int N = 2;
+
+  std::vector<tools::wallet2> wallets(N);
+  std::vector<std::string> initial_infos(N);
+
+  for (size_t i = 0; i < N; ++i)
+  {
+    make_wallet(i, wallets[i]);
+    wallets[i].decrypt_keys("");
+    initial_infos[i] = wallets[i].get_multisig_first_kex_msg();
+    wallets[i].encrypt_keys("");
+  }
+
+  // Wallets are uninitialized (make_multisig not called)
+  for (const auto &wallet : wallets)
+    ASSERT_FALSE(wallet.get_multisig_status().multisig_is_active);
+
+  // For 2-of-2, kex_rounds_required = 1, so rounds_complete + 1 < kex_rounds_required is false.
+  // The booster is not needed for the first round in N-of-N configs because make_multisig
+  // completes kex in one round. However, the guard itself should not throw for this config
+  // since num_signers - threshold == 0 (not == 1).
+  // We pass kex messages from the other wallet(s) excluding the booster wallet.
+  auto other_infos = initial_infos;
+  other_infos.erase(other_infos.begin()); // remove wallet[0]'s message
+
+  // num_signers - threshold == 0, so the guard should NOT trigger.
+  // Note: This may still throw for other reasons (e.g., the booster logic itself may reject
+  // configurations that don't need boosting), but it should NOT throw with the key-leak message.
+  try
+  {
+    wallets[0].get_multisig_key_exchange_booster("", other_infos, M, N);
+    // If it succeeds, the guard correctly allowed it
+  }
+  catch (const std::exception &e)
+  {
+    // If it throws, make sure it's NOT because of our key-leak guard
+    std::string err_msg(e.what());
+    EXPECT_EQ(err_msg.find("key leakage risk"), std::string::npos)
+      << "2-of-2 booster on uninitialized wallet should not trigger key-leak guard, got: " << err_msg;
+  }
+}
+
+TEST(multisig, booster_uninitialized_2of3_key_leak_blocked)
+{
+  // 2-of-3: num_signers - threshold = 1, DANGEROUS on uninitialized wallet
+  // Our guard should reject this with an exception
+  const unsigned int M = 2;
+  const unsigned int N = 3;
+
+  std::vector<tools::wallet2> wallets(N);
+  std::vector<std::string> initial_infos(N);
+
+  for (size_t i = 0; i < N; ++i)
+  {
+    make_wallet(i, wallets[i]);
+    wallets[i].decrypt_keys("");
+    initial_infos[i] = wallets[i].get_multisig_first_kex_msg();
+    wallets[i].encrypt_keys("");
+  }
+
+  // Wallets are uninitialized
+  for (const auto &wallet : wallets)
+    ASSERT_FALSE(wallet.get_multisig_status().multisig_is_active);
+
+  // Remove wallet[0]'s message to create the set of other wallets' messages
+  auto other_infos = initial_infos;
+  other_infos.erase(other_infos.begin());
+
+  // 2-of-3 on uninitialized wallet: num_signers - threshold == 1
+  // Our guard MUST throw to prevent key leakage
+  EXPECT_THROW(
+    wallets[0].get_multisig_key_exchange_booster("", other_infos, M, N),
+    std::exception
+  );
+
+  // Verify the error message mentions key leakage
+  try
+  {
+    wallets[0].get_multisig_key_exchange_booster("", other_infos, M, N);
+    FAIL() << "Expected exception for 2-of-3 booster on uninitialized wallet";
+  }
+  catch (const std::exception &e)
+  {
+    std::string err_msg(e.what());
+    EXPECT_NE(err_msg.find("key leakage risk"), std::string::npos)
+      << "Expected key-leak guard message, got: " << err_msg;
+  }
+}
+
+TEST(multisig, booster_uninitialized_3of5_safe)
+{
+  // 3-of-5: num_signers - threshold = 2, should be safe on uninitialized wallet
+  const unsigned int M = 3;
+  const unsigned int N = 5;
+
+  std::vector<tools::wallet2> wallets(N);
+  std::vector<std::string> initial_infos(N);
+
+  for (size_t i = 0; i < N; ++i)
+  {
+    make_wallet(i, wallets[i]);
+    wallets[i].decrypt_keys("");
+    initial_infos[i] = wallets[i].get_multisig_first_kex_msg();
+    wallets[i].encrypt_keys("");
+  }
+
+  // Wallets are uninitialized
+  for (const auto &wallet : wallets)
+    ASSERT_FALSE(wallet.get_multisig_status().multisig_is_active);
+
+  // Remove wallet[0]'s message
+  auto other_infos = initial_infos;
+  other_infos.erase(other_infos.begin());
+
+  // 3-of-5 on uninitialized wallet: num_signers - threshold == 2, safe
+  // The guard should NOT trigger. The booster call may succeed or throw for
+  // other reasons, but NOT due to the key-leak guard.
+  try
+  {
+    wallets[0].get_multisig_key_exchange_booster("", other_infos, M, N);
+    // Success means the guard correctly allowed it
+  }
+  catch (const std::exception &e)
+  {
+    std::string err_msg(e.what());
+    EXPECT_EQ(err_msg.find("key leakage risk"), std::string::npos)
+      << "3-of-5 booster on uninitialized wallet should not trigger key-leak guard, got: " << err_msg;
+  }
+}
+
+// ===== Regression tests for V1 KEX message rejection (Bug #3) =====
+// V1 multisig key exchange messages are rejected for security reasons.
+// Constructing a multisig_kex_msg from a string starting with the V1
+// magic prefix must throw.
+
+TEST(multisig, v1_kex_msg_rejected_MultisigV1)
+{
+  using namespace multisig;
+
+  // MULTISIG_KEX_V1_MAGIC is "MultisigV1"
+  // Craft a message that starts with this prefix followed by arbitrary data
+  std::string v1_msg = "MultisigV1" + std::string(64, 'A');
+
+  try
+  {
+    multisig_kex_msg msg{v1_msg};
+    FAIL() << "Should have thrown for V1 kex message";
+  }
+  catch (const std::exception &e)
+  {
+    std::string err(e.what());
+    EXPECT_NE(err.find("rejected for security"), std::string::npos)
+      << "Expected 'rejected for security' in error message, got: " << err;
+  }
+}
+
+TEST(multisig, v1_kex_msg_rejected_MultisigxV1)
+{
+  using namespace multisig;
+
+  // MULTISIG_KEX_MSG_V1_MAGIC is "MultisigxV1"
+  // Craft a message that starts with this prefix followed by arbitrary data
+  std::string v1x_msg = "MultisigxV1" + std::string(64, 'B');
+
+  try
+  {
+    multisig_kex_msg msg{v1x_msg};
+    FAIL() << "Should have thrown for V1 kex msg message";
+  }
+  catch (const std::exception &e)
+  {
+    std::string err(e.what());
+    EXPECT_NE(err.find("rejected for security"), std::string::npos)
+      << "Expected 'rejected for security' in error message, got: " << err;
+  }
+}
+
+TEST(multisig, v2_kex_msg_not_rejected_as_v1)
+{
+  using namespace multisig;
+
+  // A valid V2 message should NOT be rejected by the V1 check.
+  // Create a valid V2 round 1 message and ensure it parses successfully.
+  crypto::secret_key signing_sk = rct::rct2sk(rct::skGen());
+  crypto::secret_key msg_privkey = rct::rct2sk(rct::skGen());
+
+  multisig_kex_msg original(1, signing_sk, std::vector<crypto::public_key>{}, msg_privkey);
+  std::string msg_str = original.get_msg();
+
+  // Should start with "MultisigxV2R1", not trigger V1 rejection
+  EXPECT_NO_THROW(multisig_kex_msg{msg_str});
+}

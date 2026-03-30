@@ -410,6 +410,82 @@ A separate, parallel JSON serialization system using RapidJSON exists alongside 
 | `net/` | `tor_address.cpp`, `i2p_address.cpp` -- network address serialization. |
 | `checkpoints/` | `checkpoints.cpp` -- checkpoint data serialization. |
 
+## Transaction Input/Output Variant Tags (Binary)
+
+Source: `src/cryptonote_basic/cryptonote_basic.h` VARIANT_TAG definitions.
+
+### Binary Archive Tags
+
+The following `uint8_t` tag values identify transaction input and output types in the binary wire format:
+
+| Type | Tag Value | Description |
+|------|-----------|-------------|
+| `txin_gen` | `0xff` | Coinbase (miner) transaction input |
+| `txin_to_key` | `0x02` | Standard transaction input (key image + ring members) |
+| `txout_to_key` | `0x02` | Standard transaction output (pre-view-tag, HF < 16) |
+| `txout_to_tagged_key` | `0x03` | Tagged transaction output (with view tag, HF ≥ 15) |
+
+### JSON Archive Tags
+
+| Type | Tag String | Description |
+|------|------------|-------------|
+| `txin_gen` | `"gen"` | Coinbase input |
+| `txin_to_key` | `"key"` | Standard input |
+| `txout_to_key` | `"key"` | Standard output |
+| `txout_to_tagged_key` | `"tagged_key"` | Tagged output |
+
+### Important Notes
+
+- `txout_to_key` and `txin_to_key` share the same binary tag `0x02`, but they appear in different contexts (output list vs input list) so there is no ambiguity.
+- From HF v16, only `txout_to_tagged_key` (tag `0x03`) is valid for transaction outputs. The `txout_to_key` type is rejected.
+- From HF v15, outputs may be either `txout_to_key` or `txout_to_tagged_key`, but all outputs in a transaction must use the same type.
+
+## Varint Backward Compatibility
+
+Source: `wallet2.cpp`, `serialization/binary_archive.h`.
+
+### The Varint Bug
+
+Older versions of the wallet serialization code wrote certain unsigned integer fields as fixed-width values rather than variable-length integers (varints). When the serialization framework was updated to use varints for all unsigned integers in containers and pairs, a backward-compatibility mechanism was needed.
+
+### Compatibility Mechanism
+
+`binary_archive<false>::enable_varint_bug_backward_compatibility()`:
+- When enabled on a binary reader, types that were historically NOT varint-encoded (`uint16_t`) are deserialized using fixed-width reads (`do_serialize`) instead of `serialize_varint`.
+- Types that were always varint-encoded (`uint32_t`, `uint64_t`) continue to use varint.
+- This mode is ONLY used during wallet cache deserialization — it does NOT affect the wire protocol or blockchain serialization.
+
+### Scope
+
+- **Affected:** Wallet file deserialization (loading `.keys` and cache files from older wallet versions).
+- **Not affected:** Network wire protocol, block/transaction binary serialization, RPC.
+- Controlled by `binary_archive::m_varint_bug_backward_compatibility` flag, which is `false` by default.
+
+## Blob Hashing Contracts
+
+Source: `src/cryptonote_basic/cryptonote_format_utils.cpp`.
+
+### Hash Functions
+
+| Function | Input | Hash Algorithm | Purpose |
+|----------|-------|----------------|---------|
+| `get_transaction_hash(tx)` | Full serialized tx blob (prefix + signatures/RCT) | Keccak-256 | Primary transaction identifier; used in tx pool, block tx lists, key image mapping |
+| `get_transaction_prefix_hash(tx)` | Serialized `transaction_prefix` only (version, unlock_time, inputs, outputs, extra) | Keccak-256 | Signing hash — what gets signed by ring signatures |
+| `get_blob_hash(blob)` | Raw byte array | Keccak-256 | General-purpose hash of arbitrary data |
+| `get_block_hashing_blob(block)` | Block header fields + Merkle tree root of transaction hashes | Keccak-256 | PoW input — what miners hash to find valid nonces |
+| `get_block_hash(block)` | Serialized block header + Merkle root + tx count varint | Keccak-256 | Block identifier for chain storage and P2P |
+
+### Merkle Tree Construction
+
+For block hashing, transactions are Merkle-hashed:
+1. If 0 transactions: root = null_hash.
+2. If 1 transaction: root = hash of that transaction.
+3. If N > 1 transactions: Standard binary Merkle tree with Keccak-256 at each level. Tree is padded to the next power of 2 by repeating the last hash.
+
+### Prunable Hash
+
+For v2+ transactions, `get_transaction_prunable_hash(tx)` hashes only the prunable portion (RCT signatures, bulletproofs). This hash is stored separately in the `txs_prunable_hash` LMDB table to allow verification even after the prunable data has been deleted.
+
 ## Known Issues
 
 | File | Line | Comment |

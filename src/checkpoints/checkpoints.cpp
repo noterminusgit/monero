@@ -135,7 +135,10 @@ namespace cryptonote
     return check_block(height, h, ignored);
   }
   //---------------------------------------------------------------------------
-  //FIXME: is this the desired behavior?
+  // Policy: alternative blocks are allowed only above the highest checkpoint
+  // at or below the current blockchain height. This prevents deep reorgs
+  // that would undo checkpointed history, while still allowing normal
+  // chain reorganization above the most recent checkpoint.
   bool checkpoints::is_alternative_block_allowed(uint64_t blockchain_height, uint64_t block_height) const
   {
     if (0 == block_height)

@@ -214,9 +214,9 @@ namespace multisig
     // check message type
     CHECK_AND_ASSERT_THROW_MES(m_msg.size() >= MULTISIG_KEX_MSG_V2_MAGIC_1.size(), "Kex message unexpectedly small.");
     CHECK_AND_ASSERT_THROW_MES(m_msg.substr(0, MULTISIG_KEX_V1_MAGIC.size()) != MULTISIG_KEX_V1_MAGIC,
-      "V1 multisig kex messages are deprecated (unsafe).");
+      "V1 multisig kex messages are rejected for security (unsafe key exchange).");
     CHECK_AND_ASSERT_THROW_MES(m_msg.substr(0, MULTISIG_KEX_MSG_V1_MAGIC.size()) != MULTISIG_KEX_MSG_V1_MAGIC,
-      "V1 multisig kex messages are deprecated (unsafe).");
+      "V1 multisig kex messages are rejected for security (unsafe key exchange).");
 
     // deserialize the message
     std::string msg_no_magic;

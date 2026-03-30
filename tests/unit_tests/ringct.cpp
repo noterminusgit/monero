@@ -4816,3 +4816,992 @@ TEST(ringct, proveRctCLSAGSimple_ring_size_2)
     // Wrong message fails
     ASSERT_FALSE(verRctCLSAGSimple(skGen(), sig, pubs, Cout));
 }
+
+// ============================================================================
+// Additional CLSAG ring signature tests
+// ============================================================================
+
+TEST(ringct, CLSAG_ring_size_11_first_index)
+{
+    const size_t N = 11;
+    const size_t idx = 0;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_ring_size_11_last_index)
+{
+    const size_t N = 11;
+    const size_t idx = N - 1;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_ring_size_16_middle_index)
+{
+    const size_t N = 16;
+    const size_t idx = 8;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_verify_wrong_key_fails)
+{
+    const size_t N = 11;
+    const size_t idx = 5;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+
+    // Tamper with a public key in the ring
+    key dummy_sk;
+    skpkGen(dummy_sk, pubs[0].dest);
+    ASSERT_FALSE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_single_member_ring)
+{
+    const size_t N = 1;
+    const size_t idx = 0;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_wrong_Cout_fails)
+{
+    const size_t N = 11;
+    const size_t idx = 3;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+
+    // Wrong commitment offset should fail
+    key wrong_Cout = scalarmultBase(skGen());
+    ASSERT_FALSE(verRctCLSAGSimple(message, sig, pubs, wrong_Cout));
+}
+
+TEST(ringct, CLSAG_empty_ring_fails)
+{
+    ctkeyV pubs;
+    const key message = skGen();
+    key Cout = scalarmultBase(skGen());
+
+    clsag sig;
+    sig.s = keyV(0);
+    sig.c1 = zero();
+    sig.I = identity();
+    sig.D = identity();
+
+    ASSERT_FALSE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_Gen_ring_size_2_index_0)
+{
+    const size_t N = 2;
+    const size_t idx = 0;
+
+    keyV P(N), C(N), C_nonzero(N);
+    key p;
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        skpkGen(sk, P[i]);
+        key csk;
+        skpkGen(csk, C_nonzero[i]);
+    }
+
+    skpkGen(p, P[idx]);
+
+    key z = skGen();
+    key u = skGen();
+    addKeys2(C_nonzero[idx], z, u, H);
+
+    key C_offset;
+    key z2 = skGen();
+    addKeys2(C_offset, z2, u, H);
+
+    for (size_t i = 0; i < N; ++i)
+        subKeys(C[i], C_nonzero[i], C_offset);
+
+    key z_sign;
+    sc_sub(z_sign.bytes, z.bytes, z2.bytes);
+
+    key message = skGen();
+    clsag sig = CLSAG_Gen(message, P, p, C, z_sign, C_nonzero, C_offset, idx);
+
+    ctkeyV pub_keys(N);
+    for (size_t i = 0; i < N; ++i)
+    {
+        pub_keys[i].dest = P[i];
+        pub_keys[i].mask = C_nonzero[i];
+    }
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pub_keys, C_offset));
+}
+
+TEST(ringct, CLSAG_deterministic_key_image)
+{
+    const size_t N = 4;
+    const size_t idx = 2;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    // Generate two signatures with same secret keys
+    clsag sig1 = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    clsag sig2 = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+
+    // Key images must be identical (deterministic)
+    ASSERT_EQ(sig1.I, sig2.I);
+    // Both signatures should verify
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig1, pubs, Cout));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig2, pubs, Cout));
+}
+
+TEST(ringct, CLSAG_tampered_I_fails)
+{
+    const size_t N = 8;
+    const size_t idx = 4;
+    ctkeyV pubs;
+    key p, t, t2, u;
+    const key message = skGen();
+
+    for (size_t i = 0; i < N; ++i)
+    {
+        key sk;
+        ctkey tmp;
+        skpkGen(sk, tmp.dest);
+        skpkGen(sk, tmp.mask);
+        pubs.push_back(tmp);
+    }
+
+    skpkGen(p, pubs[idx].dest);
+    t = skGen();
+    u = skGen();
+    addKeys2(pubs[idx].mask, t, u, H);
+
+    key Cout;
+    t2 = skGen();
+    addKeys2(Cout, t2, u, H);
+
+    ctkey insk;
+    insk.dest = p;
+    insk.mask = t;
+
+    clsag sig = proveRctCLSAGSimple(message, pubs, insk, t2, Cout, idx, hw::get_device("default"));
+    ASSERT_TRUE(verRctCLSAGSimple(message, sig, pubs, Cout));
+
+    // Tamper with key image
+    sig.I = scalarmultBase(skGen());
+    ASSERT_FALSE(verRctCLSAGSimple(message, sig, pubs, Cout));
+}
+
+// ============================================================================
+// Additional Bulletproof / BulletproofPlus tests
+// ============================================================================
+
+TEST(ringct, bulletproof_prove_verify_four_amounts)
+{
+    std::vector<uint64_t> amounts = {100, 200, 300, 400};
+    keyV masks;
+    for (size_t i = 0; i < amounts.size(); ++i)
+        masks.push_back(skGen());
+
+    Bulletproof proof = bulletproof_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_prove_verify_eight_amounts)
+{
+    std::vector<uint64_t> amounts = {10, 20, 30, 40, 50, 60, 70, 80};
+    keyV masks;
+    for (size_t i = 0; i < amounts.size(); ++i)
+        masks.push_back(skGen());
+
+    Bulletproof proof = bulletproof_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_wrong_commitment_fails)
+{
+    std::vector<uint64_t> amounts = {5000};
+    keyV masks;
+    masks.push_back(skGen());
+
+    Bulletproof proof = bulletproof_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_VERIFY(proof));
+
+    // Replace V with a wrong commitment
+    proof.V[0] = scalarmultBase(skGen());
+    ASSERT_FALSE(bulletproof_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_roundtrip_various_amounts)
+{
+    const std::vector<uint64_t> test_amounts = {0, 1, 1000, 1000000, UINT64_MAX};
+    for (uint64_t amt : test_amounts)
+    {
+        std::vector<uint64_t> amounts = {amt};
+        keyV masks;
+        masks.push_back(skGen());
+
+        Bulletproof proof = bulletproof_PROVE(amounts, masks);
+        ASSERT_TRUE(bulletproof_VERIFY(proof));
+    }
+}
+
+TEST(ringct, bulletproof_plus_prove_verify_four_amounts)
+{
+    std::vector<uint64_t> amounts = {100, 200, 300, 400};
+    keyV masks;
+    for (size_t i = 0; i < amounts.size(); ++i)
+        masks.push_back(skGen());
+
+    BulletproofPlus proof = bulletproof_plus_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_plus_prove_verify_eight_amounts)
+{
+    std::vector<uint64_t> amounts = {10, 20, 30, 40, 50, 60, 70, 80};
+    keyV masks;
+    for (size_t i = 0; i < amounts.size(); ++i)
+        masks.push_back(skGen());
+
+    BulletproofPlus proof = bulletproof_plus_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_plus_wrong_commitment_fails)
+{
+    std::vector<uint64_t> amounts = {9999};
+    keyV masks;
+    masks.push_back(skGen());
+
+    BulletproofPlus proof = bulletproof_plus_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proof));
+
+    // Replace V with a wrong commitment
+    proof.V[0] = scalarmultBase(skGen());
+    ASSERT_FALSE(bulletproof_plus_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_plus_roundtrip_various_amounts)
+{
+    const std::vector<uint64_t> test_amounts = {0, 1, 999, 1000000, UINT64_MAX};
+    for (uint64_t amt : test_amounts)
+    {
+        std::vector<uint64_t> amounts = {amt};
+        keyV masks;
+        masks.push_back(skGen());
+
+        BulletproofPlus proof = bulletproof_plus_PROVE(amounts, masks);
+        ASSERT_TRUE(bulletproof_plus_VERIFY(proof));
+    }
+}
+
+TEST(ringct, bulletproof_batch_verify_four_proofs)
+{
+    std::vector<Bulletproof> proofs_store;
+    for (int i = 0; i < 4; ++i)
+    {
+        std::vector<uint64_t> amounts = {(uint64_t)(100 * (i + 1))};
+        keyV masks;
+        masks.push_back(skGen());
+        proofs_store.push_back(bulletproof_PROVE(amounts, masks));
+    }
+
+    std::vector<const Bulletproof*> proofs;
+    for (auto &p : proofs_store)
+        proofs.push_back(&p);
+    ASSERT_TRUE(bulletproof_VERIFY(proofs));
+}
+
+TEST(ringct, bulletproof_plus_batch_verify_four_proofs)
+{
+    std::vector<BulletproofPlus> proofs_store;
+    for (int i = 0; i < 4; ++i)
+    {
+        std::vector<uint64_t> amounts = {(uint64_t)(200 * (i + 1))};
+        keyV masks;
+        masks.push_back(skGen());
+        proofs_store.push_back(bulletproof_plus_PROVE(amounts, masks));
+    }
+
+    std::vector<const BulletproofPlus*> proofs;
+    for (auto &p : proofs_store)
+        proofs.push_back(&p);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proofs));
+}
+
+TEST(ringct, bulletproof_batch_verify_eight_proofs)
+{
+    std::vector<Bulletproof> proofs_store;
+    for (int i = 0; i < 8; ++i)
+    {
+        std::vector<uint64_t> amounts = {(uint64_t)(50 * (i + 1))};
+        keyV masks;
+        masks.push_back(skGen());
+        proofs_store.push_back(bulletproof_PROVE(amounts, masks));
+    }
+
+    std::vector<const Bulletproof*> proofs;
+    for (auto &p : proofs_store)
+        proofs.push_back(&p);
+    ASSERT_TRUE(bulletproof_VERIFY(proofs));
+}
+
+TEST(ringct, bulletproof_plus_batch_verify_eight_proofs)
+{
+    std::vector<BulletproofPlus> proofs_store;
+    for (int i = 0; i < 8; ++i)
+    {
+        std::vector<uint64_t> amounts = {(uint64_t)(50 * (i + 1))};
+        keyV masks;
+        masks.push_back(skGen());
+        proofs_store.push_back(bulletproof_plus_PROVE(amounts, masks));
+    }
+
+    std::vector<const BulletproofPlus*> proofs;
+    for (auto &p : proofs_store)
+        proofs.push_back(&p);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proofs));
+}
+
+TEST(ringct, bulletproof_and_bulletproof_plus_differ)
+{
+    // Same amount and mask should produce different proof structures
+    std::vector<uint64_t> amounts = {12345};
+    keyV masks;
+    masks.push_back(skGen());
+
+    Bulletproof bp = bulletproof_PROVE(amounts, masks);
+    // Re-generate masks for BP+ (different proof system)
+    keyV masks2;
+    masks2.push_back(skGen());
+    BulletproofPlus bpp = bulletproof_plus_PROVE(amounts, masks2);
+
+    // Both should verify independently
+    ASSERT_TRUE(bulletproof_VERIFY(bp));
+    ASSERT_TRUE(bulletproof_plus_VERIFY(bpp));
+
+    // BP has S, T1, T2 fields; BPP has A1, B fields
+    // They are different proof structures
+    ASSERT_NE(bp.V.size(), 0u);
+    ASSERT_NE(bpp.V.size(), 0u);
+}
+
+TEST(ringct, bulletproof_prove_verify_two_amounts)
+{
+    std::vector<uint64_t> amounts = {500, 1500};
+    keyV masks;
+    masks.push_back(skGen());
+    masks.push_back(skGen());
+
+    Bulletproof proof = bulletproof_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_VERIFY(proof));
+}
+
+TEST(ringct, bulletproof_plus_prove_verify_two_amounts)
+{
+    std::vector<uint64_t> amounts = {500, 1500};
+    keyV masks;
+    masks.push_back(skGen());
+    masks.push_back(skGen());
+
+    BulletproofPlus proof = bulletproof_plus_PROVE(amounts, masks);
+    ASSERT_TRUE(bulletproof_plus_VERIFY(proof));
+}
+
+// ============================================================================
+// Additional RCT simple tests
+// ============================================================================
+
+TEST(ringct, genRctSimple_single_input_single_output)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(1000);
+    tie(sctmp, pctmp) = ctskpkGen(1000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(900);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 100;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_two_inputs_one_output)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(2000);
+    tie(sctmp, pctmp) = ctskpkGen(2000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    inamounts.push_back(3000);
+    tie(sctmp, pctmp) = ctskpkGen(3000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(4500);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 500;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_one_input_two_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(10000);
+    tie(sctmp, pctmp) = ctskpkGen(10000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(6000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    outamounts.push_back(3000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 1000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_four_inputs_two_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    const xmr_amount per_input = 1000;
+    for (int i = 0; i < 4; ++i)
+    {
+        inamounts.push_back(per_input);
+        tie(sctmp, pctmp) = ctskpkGen(per_input);
+        sc.push_back(sctmp);
+        pc.push_back(pctmp);
+    }
+
+    outamounts.push_back(2000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    outamounts.push_back(1500);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 500;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_two_inputs_four_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(5000);
+    tie(sctmp, pctmp) = ctskpkGen(5000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    inamounts.push_back(5000);
+    tie(sctmp, pctmp) = ctskpkGen(5000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    for (int i = 0; i < 4; ++i)
+    {
+        outamounts.push_back(2000);
+        amount_keys.push_back(hash_to_scalar(zero()));
+        skpkGen(Sk, Pk);
+        destinations.push_back(Pk);
+    }
+
+    xmr_amount txnfee = 2000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_four_inputs_four_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        inamounts.push_back(3000);
+        tie(sctmp, pctmp) = ctskpkGen(3000);
+        sc.push_back(sctmp);
+        pc.push_back(pctmp);
+    }
+
+    for (int i = 0; i < 4; ++i)
+    {
+        outamounts.push_back(2500);
+        amount_keys.push_back(hash_to_scalar(zero()));
+        skpkGen(Sk, Pk);
+        destinations.push_back(Pk);
+    }
+
+    xmr_amount txnfee = 2000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_fee_zero)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(5000);
+    tie(sctmp, pctmp) = ctskpkGen(5000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(5000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 0;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_fee_large)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(10000);
+    tie(sctmp, pctmp) = ctskpkGen(10000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(1000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 9000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_verRctSemanticsSimple_and_NonSemantics)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(8000);
+    tie(sctmp, pctmp) = ctskpkGen(8000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    inamounts.push_back(2000);
+    tie(sctmp, pctmp) = ctskpkGen(2000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(7000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    outamounts.push_back(2500);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 500;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    // Full verification chain
+    ASSERT_TRUE(verRctSemanticsSimple(s));
+    ASSERT_TRUE(verRctNonSemanticsSimple(s));
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_BPPlus_single_input_single_output)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(5000);
+    tie(sctmp, pctmp) = ctskpkGen(5000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(4500);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 500;
+    const RCTConfig rct_config{RangeProofPaddedBulletproof, 4};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_EQ(s.type, RCTTypeBulletproofPlus);
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_BPPlus_four_inputs_two_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    for (int i = 0; i < 4; ++i)
+    {
+        inamounts.push_back(2000);
+        tie(sctmp, pctmp) = ctskpkGen(2000);
+        sc.push_back(sctmp);
+        pc.push_back(pctmp);
+    }
+
+    outamounts.push_back(5000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    outamounts.push_back(2000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 1000;
+    const RCTConfig rct_config{RangeProofPaddedBulletproof, 4};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_EQ(s.type, RCTTypeBulletproofPlus);
+    ASSERT_TRUE(verRctSemanticsSimple(s));
+    ASSERT_TRUE(verRctNonSemanticsSimple(s));
+}
+
+TEST(ringct, genRctSimple_decode_all_outputs)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk, mask;
+
+    inamounts.push_back(6000);
+    tie(sctmp, pctmp) = ctskpkGen(6000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(2000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    outamounts.push_back(3000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 1000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+
+    // Decode each output
+    xmr_amount decoded0 = decodeRctSimple(s, amount_keys[0], 0, mask, hw::get_device("default"));
+    ASSERT_EQ(decoded0, 2000u);
+
+    xmr_amount decoded1 = decodeRctSimple(s, amount_keys[1], 1, mask, hw::get_device("default"));
+    ASSERT_EQ(decoded1, 3000u);
+}
+
+TEST(ringct, genRctSimple_fee_equals_total_input)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+
+    inamounts.push_back(5000);
+    tie(sctmp, pctmp) = ctskpkGen(5000);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    // No outputs, entire input goes to fee
+    xmr_amount txnfee = 5000;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}
+
+TEST(ringct, genRctSimple_fee_one_unit)
+{
+    ctkeyV sc, pc;
+    ctkey sctmp, pctmp;
+    vector<xmr_amount> inamounts, outamounts;
+    keyV destinations, amount_keys;
+    key Sk, Pk;
+
+    inamounts.push_back(1001);
+    tie(sctmp, pctmp) = ctskpkGen(1001);
+    sc.push_back(sctmp);
+    pc.push_back(pctmp);
+
+    outamounts.push_back(1000);
+    amount_keys.push_back(hash_to_scalar(zero()));
+    skpkGen(Sk, Pk);
+    destinations.push_back(Pk);
+
+    xmr_amount txnfee = 1;
+    const RCTConfig rct_config{RangeProofBorromean, 0};
+    rctSig s = genRctSimple(zero(), sc, pc, destinations, inamounts, outamounts, amount_keys, txnfee, 2, rct_config, hw::get_device("default"));
+
+    ASSERT_TRUE(verRctSimple(s));
+}

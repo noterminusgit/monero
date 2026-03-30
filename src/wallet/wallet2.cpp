@@ -93,6 +93,7 @@ using namespace epee;
 #include "device/device_cold.hpp"
 #include "device_trezor/device_trezor.hpp"
 #include "net/socks_connect.h"
+#include "wallet/wallet_utils.h"
 
 extern "C"
 {
@@ -4099,10 +4100,21 @@ void wallet2::refresh(bool trusted_daemon, uint64_t start_height, uint64_t & blo
   uint64_t blocks_start_height;
   std::vector<cryptonote::block_complete_entry> blocks;
   std::vector<parsed_block> parsed_blocks;
-  // TODO moneromooo-monero says this about the "refreshed" variable:
-  // "I had to reorder some code to fix... a timing info leak IIRC. In turn, this undid something I had fixed before, ... a subtle race condition with the txpool.
-  // It was pretty subtle IIRC, and so I needed time to think about how to refix it after the move, and I never got to it."
-  // https://github.com/monero-project/monero/pull/6097
+  // KNOWN ISSUE: Race condition between wallet refresh and txpool.
+  // The 'refreshed' flag was reordered to fix a timing information leak
+  // (PR #6097), but this reordering re-introduced a subtle race condition
+  // with the transaction pool. The race occurs when:
+  // 1. The wallet fetches pool state on the first pull_blocks() call
+  //    (passing refreshed=true to process_pool_info_extent/update_pool_state)
+  // 2. New transactions arrive in the txpool between pool state fetch and
+  //    completion of block processing
+  // 3. These transactions may be missed or double-counted
+  // Note: The 'refreshed' variable declared here is currently unused --
+  // pull_blocks() hardcodes refreshed=true when calling pool update functions.
+  // This vestigial variable is an artifact of the original race condition fix.
+  // The original developer (moneromooo) noted the fix was subtle and deferred.
+  // Impact: Occasionally missed transactions during refresh, requiring a rescan.
+  // Risk: Low -- transactions are eventually found on subsequent refreshes.
   bool refreshed = false;
   std::shared_ptr<std::map<std::pair<uint64_t, uint64_t>, size_t>> output_tracker_cache;
   hw::device &hwdev = m_account.get_device();
@@ -6162,6 +6174,15 @@ std::string wallet2::get_multisig_key_exchange_booster(const epee::wipeable_stri
     // DANGER: If 'num_signers - threshold > 1', but this wallet's future multisig settings
     //         will be 'num_signers - threshold == 1', then the booster message WILL leak the
     //         future multisig wallet's private keys in this case where the wallet2 multisig wallet is uninitialized.
+
+    // Guard against key leakage: When the wallet is uninitialized and
+    // num_signers - threshold == 1 (e.g., 2-of-3), the booster message would
+    // contain enough information to reconstruct the wallet's private keys.
+    // In this configuration, make_multisig() must be called first to properly
+    // initialize the wallet before generating booster messages.
+    CHECK_AND_ASSERT_THROW_MES(num_signers - threshold != 1,
+      "Cannot generate booster message for uninitialized wallet with "
+      "num_signers - threshold == 1 (key leakage risk). Call make_multisig() first.");
 
     this->get_uninitialized_multisig_account(multisig_account);
   }

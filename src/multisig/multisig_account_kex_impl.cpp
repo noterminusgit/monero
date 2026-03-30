@@ -114,12 +114,29 @@ namespace multisig
   static void make_multisig_common_privkey(std::vector<crypto::secret_key> participant_base_common_privkeys,
     crypto::secret_key &common_privkey_out)
   {
-    // sort the privkeys for consistency
-    //TODO: need a constant-time operator< for sorting secret keys
+    // sort the privkeys for consistency using constant-time comparison
+    // to prevent timing side-channel leaks on secret key values
     std::sort(participant_base_common_privkeys.begin(), participant_base_common_privkeys.end(),
         [](const crypto::secret_key &key1, const crypto::secret_key &key2) -> bool
         {
-          return memcmp(&key1, &key2, sizeof(crypto::secret_key)) < 0;
+          // Constant-time less-than: always compare all bytes regardless
+          // of where the first difference is. We process from byte 0
+          // (most significant in memcmp convention) to the last byte,
+          // matching the lexicographic order of the original memcmp.
+          const unsigned char *a = reinterpret_cast<const unsigned char*>(&key1);
+          const unsigned char *b = reinterpret_cast<const unsigned char*>(&key2);
+          unsigned gt = 0; // set if a > b at the first differing byte
+          unsigned lt = 0; // set if a < b at the first differing byte
+          for (size_t i = 0; i < sizeof(crypto::secret_key); ++i)
+          {
+            // For each byte position (from first to last, matching memcmp),
+            // update gt/lt only if no difference has been found yet.
+            unsigned not_done = 1u - (gt | lt);
+            unsigned ai = a[i], bi = b[i];
+            gt |= not_done & ((bi - ai) >> 8) & 1u; // a[i] > b[i]
+            lt |= not_done & ((ai - bi) >> 8) & 1u; // a[i] < b[i]
+          }
+          return lt != 0;
         }
       );
 

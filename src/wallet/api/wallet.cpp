@@ -855,9 +855,9 @@ bool WalletImpl::setPassword(const std::string &password)
     return status() == Status_Ok;
 }
 
-const std::string& WalletImpl::getPassword() const
+std::string WalletImpl::getPassword() const
 {
-    return m_password;
+    return std::string(m_password.data(), m_password.size());
 }
 
 bool WalletImpl::setDevicePin(const std::string &pin)
@@ -1483,7 +1483,7 @@ string WalletImpl::makeMultisig(const vector<string>& info, const uint32_t thres
             throw runtime_error("Wallet is already multisig");
         }
 
-        return m_wallet->make_multisig(epee::wipeable_string(m_password), info, threshold);
+        return m_wallet->make_multisig(m_password, info, threshold);
     } catch (const exception& e) {
         LOG_ERROR("Error on making multisig wallet: " << e.what());
         setStatusError(string(tr("Failed to make multisig: ")) + e.what());
@@ -1497,7 +1497,7 @@ std::string WalletImpl::exchangeMultisigKeys(const std::vector<std::string> &inf
         clearStatus();
         checkMultisigWalletNotReady(m_wallet);
 
-        return m_wallet->exchange_multisig_keys(epee::wipeable_string(m_password), info, force_update_use_with_caution);
+        return m_wallet->exchange_multisig_keys(m_password, info, force_update_use_with_caution);
     } catch (const exception& e) {
         LOG_ERROR("Error on exchanging multisig keys: " << e.what());
         setStatusError(string(tr("Failed to exchange multisig keys: ")) + e.what());
@@ -1512,7 +1512,7 @@ std::string WalletImpl::getMultisigKeyExchangeBooster(const std::vector<std::str
     try {
         clearStatus();
 
-        return m_wallet->get_multisig_key_exchange_booster(epee::wipeable_string(m_password), info, threshold, num_signers);
+        return m_wallet->get_multisig_key_exchange_booster(m_password, info, threshold, num_signers);
     } catch (const exception& e) {
         LOG_ERROR("Error on boosting multisig key exchange: " << e.what());
         setStatusError(string(tr("Failed to boost multisig key exchange: ")) + e.what());

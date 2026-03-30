@@ -33,6 +33,7 @@
 #include "common/scoped_message_writer.h"
 #include "common/pruning.h"
 #include "daemon/rpc_command_executor.h"
+#include "daemon/rpc_helpers.h"
 #include "rpc/core_rpc_server_commands_defs.h"
 #include "cryptonote_core/cryptonote_core.h"
 #include "cryptonote_basic/difficulty.h"
@@ -48,27 +49,13 @@
 
 namespace daemonize {
 
+using rpc_helpers::get_address_type_name;
+using rpc_helpers::print_float;
+using rpc_helpers::get_human_time_ago;
+using rpc_helpers::get_time_hms;
+using rpc_helpers::make_error;
+
 namespace {
-  const char *get_address_type_name(epee::net_utils::address_type address_type)
-  {
-    switch (address_type)
-    {
-      default:
-      case epee::net_utils::address_type::invalid: return "invalid";
-      case epee::net_utils::address_type::ipv4: return "IPv4";
-      case epee::net_utils::address_type::ipv6: return "IPv6";
-      case epee::net_utils::address_type::i2p: return "I2P";
-      case epee::net_utils::address_type::tor: return "Tor";
-    }
-  }
-
-  std::string print_float(float f, int prec)
-  {
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%*.*f", prec, prec, f);
-    return buf;
-  }
-
   void print_peer(std::string const & prefix, cryptonote::peer const & peer, bool pruned_only, bool publicrpc_only)
   {
     if (pruned_only && peer.pruning_seed == 0)
@@ -110,43 +97,6 @@ namespace {
       << "num txes: " << header.num_txes << std::endl
       << "reward: " << cryptonote::print_money(header.reward) << std::endl
       << "miner tx hash: " << header.miner_tx_hash;
-  }
-
-  std::string get_human_time_ago(time_t t, time_t now)
-  {
-    if (t == now)
-      return "now";
-    time_t dt = t > now ? t - now : now - t;
-    std::string s;
-    if (dt < 90)
-      s = boost::lexical_cast<std::string>(dt) + " seconds";
-    else if (dt < 90 * 60)
-      s = boost::lexical_cast<std::string>(dt/60) + " minutes";
-    else if (dt < 36 * 3600)
-      s = boost::lexical_cast<std::string>(dt/3600) + " hours";
-    else
-      s = boost::lexical_cast<std::string>(dt/(3600*24)) + " days";
-    return s + " " + (t > now ? "in the future" : "ago");
-  }
-
-  std::string get_time_hms(time_t t)
-  {
-    unsigned int hours, minutes, seconds;
-    char buffer[24];
-    hours = t / 3600;
-    t %= 3600;
-    minutes = t / 60;
-    t %= 60;
-    seconds = t;
-    snprintf(buffer, sizeof(buffer), "%02u:%02u:%02u", hours, minutes, seconds);
-    return std::string(buffer);
-  }
-
-  std::string make_error(const std::string &base, const std::string &status)
-  {
-    if (status == CORE_RPC_STATUS_OK)
-      return base;
-    return base + " -- " + status;
   }
 }
 

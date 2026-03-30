@@ -371,6 +371,73 @@ The target seconds depend on hardfork version:
 | `wallet2` | Wallet; uses fee estimates, output selection, block scanning |
 | `simplewallet` / `wallet_rpc_server` | User-facing tools that rely on consensus state queries |
 
+## Hard Fork Detection and Activation
+
+Source: `src/cryptonote_basic/hardfork.cpp`, `src/cryptonote_core/blockchain.cpp`.
+
+### Fork Version Determination
+
+The `HardFork` class determines the expected block version at any height:
+
+- `get_ideal_hard_fork_version(height)`: Returns the expected major version at the given height based on the fork schedule table. Iterates `heights[]` to find the highest fork whose activation height ≤ the given height.
+- `get_current_hard_fork_version()`: Returns the version of the most recently added block (tracks `current_fork_index`).
+
+### Block Version Validation
+
+In `HardFork::add()` (called when adding each block):
+
+1. **Version check:** The block's `major_version` must be ≥ the ideal version at that height. Blocks with a version below the expected version are rejected outright — there is no grace period.
+2. **Future version tolerance:** Blocks with `major_version` > ideal version are accepted if the version has been registered in the fork schedule (even if the activation height hasn't been reached). This allows the voting mechanism to work.
+3. **Voting window:** A rolling window of `window_size` (default: 10080) blocks tracks how many blocks vote for each version via their `major_version` field.
+4. **Threshold activation:** A fork activates when the percentage of blocks in the window with that version exceeds the fork's threshold. However, all mainnet forks use threshold=0, meaning they activate unconditionally at their scheduled height.
+
+### Reorganization Handling
+
+`HardFork::reorganize_from_block_height(height)`:
+- Pops all block versions from the voting window above the given height.
+- Recalculates `current_fork_index` based on the remaining window state.
+- Called during blockchain reorgs.
+
+## Difficulty Target Selection at Fork Boundaries
+
+Source: `blockchain.cpp:1332`, Bug #7 in specs/bugs.md.
+
+### Target Selection Rule
+
+The difficulty target (time between blocks) is determined by the block's `major_version`, NOT by a height-based lookup:
+
+```
+if block.major_version < 2:
+    target = DIFFICULTY_TARGET_V1 (60 seconds)
+else:
+    target = DIFFICULTY_TARGET_V2 (120 seconds)
+```
+
+This is significant because it means the target depends on the block being validated, not on the chain height. The code at `blockchain.cpp:1332` uses `block.major_version` directly.
+
+### FIXME Note
+
+The code comment at blockchain.cpp:1332 notes: "FIXME: This will fail if fork activation heights are subject to voting" — because the difficulty target changes based on block version, not on height-based fork schedule lookup. Since all mainnet forks use threshold=0 (unconditional activation), this is not a practical issue.
+
+## Block Version Validation Rules
+
+Source: `hardfork.cpp::add()`, `hardfork.cpp::check()`.
+
+### Validation Matrix
+
+| Condition | Result |
+|-----------|--------|
+| `block.major_version < ideal_version(height)` | **Rejected** — block version too old |
+| `block.major_version == ideal_version(height)` | **Accepted** — expected version |
+| `block.major_version > ideal_version(height)` AND version is in fork schedule | **Accepted** — future version vote |
+| `block.major_version > ideal_version(height)` AND version is NOT in fork schedule | **Rejected** — unknown version |
+
+### Key Properties
+
+- **No grace period:** Once a fork height is reached, blocks with the old version are immediately rejected. The transition is a hard cutoff.
+- **Original version range:** Blocks from height 0 to `original_version_till_height` (mainnet: 1009826) must have `major_version == 1`.
+- **Version monotonicity:** Fork schedule entries must be in strictly increasing order of version and height.
+
 ## Known Issues
 
 TODO/FIXME/HACK/XXX comments found in the consensus-related source files:

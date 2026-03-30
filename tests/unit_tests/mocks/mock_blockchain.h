@@ -39,6 +39,11 @@
 
 namespace test
 {
+  struct hash_cmp {
+    bool operator()(const crypto::hash &a, const crypto::hash &b) const {
+      return memcmp(&a, &b, sizeof(a)) < 0;
+    }
+  };
   class InMemoryDB : public cryptonote::BaseTestDB
   {
   public:
@@ -130,6 +135,47 @@ namespace test
     uint64_t get_tx_count() const override { return m_txs.size(); }
     uint64_t get_database_size() const override { return m_db_size; }
 
+    bool tx_exists(const crypto::hash& h) const override
+    {
+      return m_txs.count(h) > 0;
+    }
+
+    bool tx_exists(const crypto::hash& h, uint64_t& tx_index) const override
+    {
+      if (m_txs.count(h) > 0)
+      {
+        tx_index = 0;
+        return true;
+      }
+      return false;
+    }
+
+    bool get_tx_blob(const crypto::hash& h, cryptonote::blobdata &tx) const override
+    {
+      auto it = m_txs.find(h);
+      if (it == m_txs.end())
+        return false;
+      tx = cryptonote::t_serializable_object_to_blob(it->second);
+      return true;
+    }
+
+    cryptonote::transaction get_tx(const crypto::hash& h) const override
+    {
+      auto it = m_txs.find(h);
+      if (it != m_txs.end())
+        return it->second;
+      return cryptonote::transaction();
+    }
+
+    bool get_tx(const crypto::hash& h, cryptonote::transaction &tx) const override
+    {
+      auto it = m_txs.find(h);
+      if (it == m_txs.end())
+        return false;
+      tx = it->second;
+      return true;
+    }
+
     // --- Mutation methods for test setup ---
 
     void add_test_block(uint64_t height, const cryptonote::block& blk, const crypto::hash& hash,
@@ -166,7 +212,7 @@ namespace test
     std::map<uint64_t, uint64_t> m_generated_coins;
     std::map<uint64_t, size_t> m_block_weights;
     std::map<uint64_t, uint64_t> m_long_term_weights;
-    std::map<crypto::hash, cryptonote::transaction> m_txs;
+    std::map<crypto::hash, cryptonote::transaction, hash_cmp> m_txs;
     std::set<crypto::key_image> m_key_images;
   };
 

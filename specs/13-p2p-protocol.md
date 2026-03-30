@@ -491,6 +491,107 @@ bool for_connection(const uuid&, function<bool(connection_context&, peerid_type,
 | `m_sync_search_checker` | 101s | `update_sync_search` -- find new sync peers |
 | `m_bad_peer_checker` | 43s | Bad peer detection (via sync protocol) |
 
+## Sync State Machine Details
+
+Source: `cryptonote_protocol_handler.inl`, `process_payload_sync_data()`, `cryptonote_connection_context` in connection_context.h.
+
+### States
+
+Each peer connection maintains a sync state (`cryptonote_connection_context::m_state`):
+
+| State | Value | Description |
+|-------|-------|-------------|
+| `state_before_handshake` | 0 | Initial state; no sync data exchanged yet |
+| `state_synchronizing` | 1 | Actively downloading blocks from this peer |
+| `state_standby` | 2 | Peer has blocks we need but we're syncing from someone else |
+| `state_normal` | 3 | Peer is at the same height or behind; normal operation |
+
+### State Transitions
+
+```
+before_handshake → synchronizing   (peer is ahead, selected for sync)
+before_handshake → standby         (peer is ahead, another peer already syncing)
+before_handshake → normal          (peer is at same height or behind)
+synchronizing    → standby         (idle timeout, IDLE_PEER_KICK_TIME = 240s)
+synchronizing    → normal          (sync complete, peer caught up)
+standby          → synchronizing   (activated when current sync peer stalls, checked every 100ms)
+normal           → synchronizing   (peer announces new block we don't have)
+```
+
+### Stale Span Detection
+
+In `kick_idle_peers()` (called every 8 seconds):
+- If a synchronizing peer has been idle for `IDLE_PEER_KICK_TIME` (240 seconds), move to standby.
+- If a peer has not responded within `NON_RESPONSIVE_PEER_KICK_TIME` (20 seconds) and its score is negative, drop the connection.
+- Spans not completed within the timeout are re-requested from a different peer via the `block_queue`.
+
+### Standby Activation
+
+In `check_standby_peers()` (called every 100ms):
+- Check if there are needed blocks that no synchronizing peer is providing.
+- If so, activate a standby peer by transitioning it to `state_synchronizing`.
+
+## Fluffy Block Protocol Details
+
+Source: `handle_notify_new_fluffy_block()` in cryptonote_protocol_handler.inl.
+
+### Protocol Flow
+
+1. **Block announcement:** Sender creates a `NOTIFY_NEW_FLUFFY_BLOCK` message containing:
+   - Full block header
+   - Coinbase transaction (always included)
+   - Transaction hashes only (no full tx blobs) for non-coinbase transactions
+
+2. **Receiver processing:**
+   a. Parse the block header and coinbase transaction.
+   b. For each transaction hash in the block:
+      - Check if the transaction exists in the local mempool.
+      - If found, use the local copy.
+   c. If any transactions are missing:
+      - Send `NOTIFY_REQUEST_FLUFFY_MISSING_TX` with the indices of missing transactions.
+   d. If all transactions are available:
+      - Add the block directly to the blockchain (via `pool_supplement` path, bypassing normal mempool).
+
+3. **Missing TX response:**
+   - The original sender receives `NOTIFY_REQUEST_FLUFFY_MISSING_TX`.
+   - Looks up the requested transactions (from blockchain or mempool).
+   - Sends a new `NOTIFY_NEW_FLUFFY_BLOCK` with the full transaction blobs included.
+
+4. **Fallback:** If the missing TX response fails or the resulting block is invalid, fall back to requesting the full block via `NOTIFY_REQUEST_GET_OBJECTS`.
+
+### Support Detection
+
+Fluffy block support is indicated by the `P2P_SUPPORT_FLAG_FLUFFY_BLOCKS` (0x01) bit in `support_flags`, exchanged during handshake.
+
+## Dandelion++ Exact Parameters
+
+Source: `src/net/dandelionpp.cpp`, `src/cryptonote_protocol/levin_notify.cpp`, `cryptonote_protocol_handler.inl`.
+
+### Protocol Parameters
+
+| Parameter | Value | Source |
+|-----------|-------|--------|
+| Embargo timeout | Poisson-distributed, mean ≈ `CRYPTONOTE_DANDELIONPP_EMBARGO_AVERAGE` (170 seconds) | `levin_notify.cpp` |
+| Stem probability | 90% stem, 10% fluff on receipt | Dandelion++ paper specification |
+| Epoch duration | Connection-based; new epoch when stem relay connections change | `dandelionpp.cpp` |
+| Stem relay count | 2 outbound connections per epoch | `dandelionpp.cpp`, `STEMS` constant |
+| Noise interval | Poisson-distributed, mean = `CRYPTONOTE_NOISE_MIN_DELAY` + `CRYPTONOTE_NOISE_DELAY_RANGE`/2 | For anonymity network zones only |
+
+### Stem/Fluff Decision
+
+1. **Local transactions:** Sent as stem to selected stem relay peers.
+2. **Received stem transactions:** With 90% probability, forward to the next stem peer. With 10% probability, fluff (broadcast to all peers).
+3. **Embargo mechanism:** When a transaction enters the stem phase, an embargo timer starts. If the timer expires before the transaction is seen again from the network (as fluff), the node fluffs it. This prevents transactions from being stuck in stem phase if the stem path fails.
+4. **Fluff trigger:** A transaction is fluffed when:
+   - The embargo timer expires.
+   - The node receives the same transaction back from the network.
+   - The node is selected for fluff (10% probability on stem receipt).
+
+### Network Zone Behavior
+
+- **Public network:** Full Dandelion++ with stem/fluff phases.
+- **Anonymity networks (Tor/I2P):** Transactions are forwarded with randomized delay (noise), not stem. The `dandelionpp_fluff` flag in `NOTIFY_NEW_TRANSACTIONS` is set for fluff transactions received over anonymity networks.
+
 ## Known Issues
 
 The following TODO/FIXME/HACK/XXX comments exist in the P2P and cryptonote protocol source files:

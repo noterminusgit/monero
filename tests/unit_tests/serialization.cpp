@@ -1543,3 +1543,747 @@ TEST(Serialization, corrupted_blob_rejected)
   string empty;
   EXPECT_FALSE(serialization::parse_binary(empty, tx_bad));
 }
+
+// ============================================================
+// Extended Serialization coverage tests
+// ============================================================
+
+TEST(Serialization, v1_pre_rct_empty_transaction_roundtrip)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+  ASSERT_GT(blob.size(), 0u);
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.version, 1u);
+  EXPECT_TRUE(tx_restored.vin.empty());
+  EXPECT_TRUE(tx_restored.vout.empty());
+  EXPECT_TRUE(tx_restored.extra.empty());
+  EXPECT_EQ(tx, tx_restored);
+}
+
+TEST(Serialization, v2_rct_empty_transaction_serializes)
+{
+  using namespace cryptonote;
+
+  // A v2 transaction with no inputs/outputs can be serialized
+  // but parsing it back may fail due to RCT hash validation.
+  // Just verify that dump_binary produces output.
+  transaction tx;
+  tx.set_null();
+  tx.version = 2;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+  ASSERT_GT(blob.size(), 0u);
+
+  // The blob should contain at least the version
+  // Verify the first byte(s) encode version 2
+  uint64_t ver_restored = 0;
+  binary_archive<false> iar{epee::strspan<std::uint8_t>(blob)};
+  iar.serialize_varint(ver_restored);
+  ASSERT_TRUE(iar.good());
+  EXPECT_EQ(ver_restored, 2u);
+}
+
+TEST(Serialization, transaction_unlock_time_zero)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  tx.unlock_time = 0;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.unlock_time, 0u);
+}
+
+TEST(Serialization, transaction_unlock_time_block_height)
+{
+  using namespace cryptonote;
+
+  // Unlock time as a block height (small value < CRYPTONOTE_MAX_BLOCK_NUMBER)
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  tx.unlock_time = 500000;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.unlock_time, 500000u);
+}
+
+TEST(Serialization, transaction_unlock_time_timestamp)
+{
+  using namespace cryptonote;
+
+  // Unlock time as a Unix timestamp (large value)
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  tx.unlock_time = 1700000000;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.unlock_time, 1700000000u);
+}
+
+TEST(Serialization, transaction_unlock_time_max)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  tx.unlock_time = 0xFFFFFFFFFFFFFFFF;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.unlock_time, 0xFFFFFFFFFFFFFFFF);
+}
+
+TEST(Serialization, block_v1_with_miner_tx)
+{
+  using namespace cryptonote;
+
+  block blk;
+  blk.major_version = 1;
+  blk.minor_version = 0;
+  blk.timestamp = 1400000000;
+  memset(&blk.prev_id, 0x12, sizeof(blk.prev_id));
+  blk.nonce = 12345;
+
+  blk.miner_tx.set_null();
+  blk.miner_tx.version = 1;
+  txin_gen gen;
+  gen.height = 100;
+  blk.miner_tx.vin.push_back(gen);
+
+  tx_out out;
+  out.amount = 5000000000;
+  txout_to_key otk;
+  memset(&otk.key, 0x55, sizeof(otk.key));
+  out.target = otk;
+  blk.miner_tx.vout.push_back(out);
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+  block blk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+  EXPECT_EQ(blk_restored.major_version, 1u);
+  EXPECT_EQ(blk_restored.minor_version, 0u);
+  EXPECT_EQ(blk_restored.timestamp, 1400000000u);
+  EXPECT_EQ(blk_restored.nonce, 12345u);
+  ASSERT_EQ(blk_restored.miner_tx.vin.size(), 1u);
+  ASSERT_EQ(blk_restored.miner_tx.vout.size(), 1u);
+  EXPECT_EQ(blk_restored.miner_tx.vout[0].amount, 5000000000u);
+  EXPECT_TRUE(blk_restored.tx_hashes.empty());
+}
+
+TEST(Serialization, block_with_many_tx_hashes)
+{
+  using namespace cryptonote;
+
+  block blk;
+  blk.major_version = 7;
+  blk.minor_version = 7;
+  blk.timestamp = 1600000000;
+  memset(&blk.prev_id, 0, sizeof(blk.prev_id));
+  blk.nonce = 0;
+
+  blk.miner_tx.set_null();
+  blk.miner_tx.version = 2;
+  txin_gen gen;
+  gen.height = 1000;
+  blk.miner_tx.vin.push_back(gen);
+
+  // Add 100 tx hashes
+  for (int i = 0; i < 100; ++i) {
+    crypto::hash h;
+    memset(&h, i, sizeof(h));
+    blk.tx_hashes.push_back(h);
+  }
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+  block blk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+  ASSERT_EQ(blk_restored.tx_hashes.size(), 100u);
+  for (int i = 0; i < 100; ++i) {
+    crypto::hash expected;
+    memset(&expected, i, sizeof(expected));
+    EXPECT_EQ(blk_restored.tx_hashes[i], expected);
+  }
+}
+
+TEST(Serialization, block_no_tx_hashes)
+{
+  using namespace cryptonote;
+
+  block blk;
+  blk.major_version = 14;
+  blk.minor_version = 14;
+  blk.timestamp = 1650000000;
+  memset(&blk.prev_id, 0xFF, sizeof(blk.prev_id));
+  blk.nonce = 999999;
+  blk.miner_tx.set_null();
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+  block blk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+  EXPECT_TRUE(blk_restored.tx_hashes.empty());
+  EXPECT_EQ(blk_restored.major_version, 14u);
+  EXPECT_EQ(blk_restored.nonce, 999999u);
+}
+
+TEST(Serialization, rct_type_null_for_v2_empty_tx)
+{
+  using namespace cryptonote;
+
+  // A v2 transaction with no inputs should have RCTTypeNull
+  transaction tx;
+  tx.set_null();
+  tx.version = 2;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.version, 2u);
+  // rct_signatures type should be RCTTypeNull for empty tx
+  EXPECT_EQ(tx_restored.rct_signatures.type, rct::RCTTypeNull);
+}
+
+TEST(Serialization, crypto_hash_zero_roundtrip)
+{
+  crypto::hash h;
+  memset(&h, 0, sizeof(h));
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(h, blob));
+  EXPECT_EQ(blob.size(), sizeof(crypto::hash));
+
+  crypto::hash h_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, h_restored));
+  EXPECT_EQ(h, h_restored);
+}
+
+TEST(Serialization, crypto_hash_max_roundtrip)
+{
+  crypto::hash h;
+  memset(&h, 0xFF, sizeof(h));
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(h, blob));
+
+  crypto::hash h_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, h_restored));
+  EXPECT_EQ(h, h_restored);
+}
+
+TEST(Serialization, public_key_zero_roundtrip)
+{
+  crypto::public_key pk;
+  memset(&pk, 0, sizeof(pk));
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(pk, blob));
+  EXPECT_EQ(blob.size(), sizeof(crypto::public_key));
+
+  crypto::public_key pk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, pk_restored));
+  EXPECT_EQ(pk, pk_restored);
+}
+
+TEST(Serialization, public_key_max_roundtrip)
+{
+  crypto::public_key pk;
+  memset(&pk, 0xFF, sizeof(pk));
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(pk, blob));
+
+  crypto::public_key pk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, pk_restored));
+  EXPECT_EQ(pk, pk_restored);
+}
+
+TEST(Serialization, secret_key_roundtrip)
+{
+  crypto::secret_key sk;
+  for (size_t i = 0; i < sizeof(sk); ++i)
+    reinterpret_cast<uint8_t*>(&sk)[i] = static_cast<uint8_t>(i * 3 + 7);
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(sk, blob));
+  EXPECT_EQ(blob.size(), sizeof(crypto::secret_key));
+
+  crypto::secret_key sk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, sk_restored));
+  EXPECT_EQ(0, memcmp(&sk, &sk_restored, sizeof(sk)));
+}
+
+TEST(Serialization, secret_key_zero_roundtrip)
+{
+  crypto::secret_key sk;
+  memset(&sk, 0, sizeof(sk));
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(sk, blob));
+
+  crypto::secret_key sk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, sk_restored));
+  EXPECT_EQ(0, memcmp(&sk, &sk_restored, sizeof(sk)));
+}
+
+TEST(Serialization, varint_zero)
+{
+  ostringstream oss;
+  binary_archive<true> oar(oss);
+  uint64_t val = 0;
+  oar.serialize_varint(val);
+  ASSERT_TRUE(oss.good());
+
+  const std::string s = oss.str();
+  ASSERT_EQ(s.size(), 1u);
+
+  uint64_t restored = 42;
+  binary_archive<false> iar{epee::strspan<std::uint8_t>(s)};
+  iar.serialize_varint(restored);
+  ASSERT_TRUE(iar.good());
+  EXPECT_EQ(restored, 0u);
+}
+
+TEST(Serialization, varint_max_uint64)
+{
+  ostringstream oss;
+  binary_archive<true> oar(oss);
+  uint64_t val = 0xFFFFFFFFFFFFFFFF;
+  oar.serialize_varint(val);
+  ASSERT_TRUE(oss.good());
+
+  const std::string s = oss.str();
+  ASSERT_EQ(s.size(), 10u); // max varint encoding for uint64
+
+  uint64_t restored = 0;
+  binary_archive<false> iar{epee::strspan<std::uint8_t>(s)};
+  iar.serialize_varint(restored);
+  ASSERT_TRUE(iar.good());
+  EXPECT_EQ(restored, 0xFFFFFFFFFFFFFFFF);
+}
+
+TEST(Serialization, varint_one_byte_boundary)
+{
+  // 127 fits in one byte, 128 needs two
+  for (uint64_t v : {(uint64_t)127, (uint64_t)128}) {
+    ostringstream oss;
+    binary_archive<true> oar(oss);
+    oar.serialize_varint(v);
+    ASSERT_TRUE(oss.good());
+
+    const std::string s = oss.str();
+    if (v == 127) ASSERT_EQ(s.size(), 1u);
+    if (v == 128) ASSERT_EQ(s.size(), 2u);
+
+    uint64_t restored = 0;
+    binary_archive<false> iar{epee::strspan<std::uint8_t>(s)};
+    iar.serialize_varint(restored);
+    ASSERT_TRUE(iar.good());
+    EXPECT_EQ(v, restored);
+  }
+}
+
+TEST(Serialization, empty_vector_roundtrip)
+{
+  std::vector<uint64_t> v;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(v, blob));
+  ASSERT_EQ(blob.size(), 1u); // just the count byte
+
+  std::vector<uint64_t> v_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, v_restored));
+  EXPECT_TRUE(v_restored.empty());
+}
+
+TEST(Serialization, vector_single_element_roundtrip)
+{
+  std::vector<uint64_t> v = {42};
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(v, blob));
+
+  std::vector<uint64_t> v_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, v_restored));
+  ASSERT_EQ(v_restored.size(), 1u);
+  EXPECT_EQ(v_restored[0], 42u);
+}
+
+TEST(Serialization, empty_extra_field_roundtrip)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  // extra is empty by default
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_TRUE(tx_restored.extra.empty());
+}
+
+TEST(Serialization, extra_field_with_data_roundtrip)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  tx.extra = {0x01, 0x02, 0x03, 0x04, 0x05};
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  ASSERT_EQ(tx_restored.extra.size(), 5u);
+  EXPECT_EQ(tx_restored.extra[0], 0x01);
+  EXPECT_EQ(tx_restored.extra[4], 0x05);
+}
+
+TEST(Serialization, int32_binary_roundtrip)
+{
+  int32_t vals[] = {0, 1, -1, 2147483647, -2147483647 - 1};
+  for (int32_t v : vals) {
+    ostringstream oss;
+    binary_archive<true> oar(oss);
+    oar.serialize_int(v);
+    ASSERT_TRUE(oss.good());
+
+    const std::string s = oss.str();
+    ASSERT_EQ(s.size(), sizeof(int32_t));
+
+    int32_t restored = 0;
+    binary_archive<false> iar{epee::strspan<std::uint8_t>(s)};
+    iar.serialize_int(restored);
+    ASSERT_TRUE(iar.good());
+    EXPECT_EQ(v, restored);
+  }
+}
+
+TEST(Serialization, uint16_binary_roundtrip)
+{
+  uint16_t vals[] = {0, 1, 255, 256, 65535};
+  for (uint16_t v : vals) {
+    ostringstream oss;
+    binary_archive<true> oar(oss);
+    oar.serialize_int(v);
+    ASSERT_TRUE(oss.good());
+
+    const std::string s = oss.str();
+    ASSERT_EQ(s.size(), sizeof(uint16_t));
+
+    uint16_t restored = 0;
+    binary_archive<false> iar{epee::strspan<std::uint8_t>(s)};
+    iar.serialize_int(restored);
+    ASSERT_TRUE(iar.good());
+    EXPECT_EQ(v, restored);
+  }
+}
+
+TEST(Serialization, block_major_minor_version_range)
+{
+  using namespace cryptonote;
+
+  // Test blocks with various major/minor versions
+  for (uint8_t v = 1; v <= 16; ++v) {
+    block blk;
+    blk.major_version = v;
+    blk.minor_version = v;
+    blk.timestamp = 0;
+    memset(&blk.prev_id, 0, sizeof(blk.prev_id));
+    blk.nonce = 0;
+    blk.miner_tx.set_null();
+
+    string blob;
+    ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+    block blk_restored;
+    ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+    EXPECT_EQ(blk_restored.major_version, v);
+    EXPECT_EQ(blk_restored.minor_version, v);
+  }
+}
+
+TEST(Serialization, block_max_timestamp)
+{
+  using namespace cryptonote;
+
+  block blk;
+  blk.major_version = 1;
+  blk.minor_version = 0;
+  blk.timestamp = 0xFFFFFFFFFFFFFFFF;
+  memset(&blk.prev_id, 0, sizeof(blk.prev_id));
+  blk.nonce = 0;
+  blk.miner_tx.set_null();
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+  block blk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+  EXPECT_EQ(blk_restored.timestamp, 0xFFFFFFFFFFFFFFFF);
+}
+
+TEST(Serialization, block_max_nonce)
+{
+  using namespace cryptonote;
+
+  block blk;
+  blk.major_version = 1;
+  blk.minor_version = 0;
+  blk.timestamp = 0;
+  memset(&blk.prev_id, 0, sizeof(blk.prev_id));
+  blk.nonce = 0xFFFFFFFF;
+  blk.miner_tx.set_null();
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(blk, blob));
+
+  block blk_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, blk_restored));
+  EXPECT_EQ(blk_restored.nonce, 0xFFFFFFFF);
+}
+
+TEST(Serialization, miner_tx_gen_height_roundtrip)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  txin_gen gen;
+  gen.height = 999999999;
+  tx.vin.push_back(gen);
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  ASSERT_EQ(tx_restored.vin.size(), 1u);
+  const auto& gen_restored = boost::get<txin_gen>(tx_restored.vin[0]);
+  EXPECT_EQ(gen_restored.height, 999999999u);
+}
+
+TEST(Serialization, multiple_outputs_amount_preservation)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+  txin_gen gen;
+  gen.height = 42;
+  tx.vin.push_back(gen);
+
+  uint64_t amounts[] = {0, 1, 1000000, 0xFFFFFFFFFFFFFFFF};
+  for (uint64_t a : amounts) {
+    tx_out out;
+    out.amount = a;
+    txout_to_key otk;
+    memset(&otk.key, 0, sizeof(otk.key));
+    out.target = otk;
+    tx.vout.push_back(out);
+  }
+
+  tx.signatures.resize(1); // one empty sig vector for txin_gen
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  ASSERT_EQ(tx_restored.vout.size(), 4u);
+  EXPECT_EQ(tx_restored.vout[0].amount, 0u);
+  EXPECT_EQ(tx_restored.vout[1].amount, 1u);
+  EXPECT_EQ(tx_restored.vout[2].amount, 1000000u);
+  EXPECT_EQ(tx_restored.vout[3].amount, 0xFFFFFFFFFFFFFFFF);
+}
+
+TEST(Serialization, transaction_version_preserved)
+{
+  using namespace cryptonote;
+
+  // v1 transactions can be fully roundtripped
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  EXPECT_EQ(tx_restored.version, 1u);
+
+  // For v2, we can at least verify the version is encoded
+  tx.set_null();
+  tx.version = 2;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  uint64_t ver_check = 0;
+  binary_archive<false> iar{epee::strspan<std::uint8_t>(blob)};
+  iar.serialize_varint(ver_check);
+  ASSERT_TRUE(iar.good());
+  EXPECT_EQ(ver_check, 2u);
+}
+
+TEST(Serialization, blob_type_roundtrip)
+{
+  // Test the BLOB_SERIALIZER (Blob struct defined at top)
+  Blob b;
+  b.a = 0xDEADBEEFCAFEBABE;
+  b.b = 0x12345678;
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(b, blob));
+  ASSERT_EQ(blob.size(), sizeof(Blob));
+
+  Blob b_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, b_restored));
+  EXPECT_EQ(b.a, b_restored.a);
+}
+
+TEST(Serialization, rct_key_roundtrip)
+{
+  rct::key k = rct::skGen();
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(k, blob));
+  ASSERT_EQ(blob.size(), sizeof(rct::key));
+
+  rct::key k_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, k_restored));
+  EXPECT_TRUE(k == k_restored);
+}
+
+TEST(Serialization, rct_key_zero_roundtrip)
+{
+  rct::key k = rct::zero();
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(k, blob));
+
+  rct::key k_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, k_restored));
+  EXPECT_TRUE(k == k_restored);
+}
+
+TEST(Serialization, rct_key_identity_roundtrip)
+{
+  rct::key k = rct::identity();
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(k, blob));
+
+  rct::key k_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, k_restored));
+  EXPECT_TRUE(k == k_restored);
+}
+
+TEST(Serialization, empty_key_offsets_roundtrip)
+{
+  using namespace cryptonote;
+
+  transaction tx;
+  tx.set_null();
+  tx.version = 1;
+
+  txin_to_key in;
+  in.amount = 1000;
+  memset(&in.k_image, 0xAA, sizeof(in.k_image));
+  // No key_offsets (unusual but tests edge case)
+  tx.vin.push_back(in);
+
+  // Signatures: 1 input with 0 key_offsets => 0 signatures needed
+  tx.signatures.resize(1);
+  tx.signatures[0].resize(0);
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(tx, blob));
+
+  transaction tx_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, tx_restored));
+  ASSERT_EQ(tx_restored.vin.size(), 1u);
+  const auto& in_restored = boost::get<txin_to_key>(tx_restored.vin[0]);
+  EXPECT_TRUE(in_restored.key_offsets.empty());
+  EXPECT_EQ(in_restored.amount, 1000u);
+}
+
+TEST(Serialization, adl_example_struct_roundtrip)
+{
+  // Tests the ADL-based serialization with custom field name
+  example_namespace::ADLExampleStruct aes;
+  aes.msg = "Hello ADL!";
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(aes, blob));
+
+  example_namespace::ADLExampleStruct aes_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, aes_restored));
+  EXPECT_EQ(aes_restored.msg, "Hello ADL!");
+}
+
+TEST(Serialization, struct1_complex_roundtrip)
+{
+  Struct1 s1;
+  Struct s;
+  s.a = 42;
+  s.b = 99;
+  memset(s.blob, 'X', sizeof(s.blob));
+  s1.si.push_back(s);
+  s1.si.push_back(7);
+  s1.si.push_back(s);
+  s1.vi.push_back(100);
+  s1.vi.push_back(200);
+  s1.vi.push_back(300);
+
+  string blob;
+  ASSERT_TRUE(serialization::dump_binary(s1, blob));
+
+  Struct1 s1_restored;
+  ASSERT_TRUE(serialization::parse_binary(blob, s1_restored));
+  ASSERT_EQ(s1_restored.si.size(), 3u);
+  ASSERT_EQ(s1_restored.vi.size(), 3u);
+  EXPECT_EQ(s1_restored.vi[0], 100);
+  EXPECT_EQ(s1_restored.vi[1], 200);
+  EXPECT_EQ(s1_restored.vi[2], 300);
+}

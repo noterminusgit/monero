@@ -1328,8 +1328,11 @@ difficulty_type Blockchain::get_next_difficulty_for_alternative_chain(const std:
     }
   }
 
-  // FIXME: This will fail if fork activation heights are subject to voting
-  size_t target = get_ideal_hard_fork_version(bei.height) < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+  // Use the block's own major version to determine the difficulty target.
+  // This is more reliable than get_ideal_hard_fork_version() which assumes
+  // deterministic fork activation heights and would fail if forks were
+  // subject to voting/delayed activation.
+  size_t target = bei.bl.major_version < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
 
   // calculate the difficulty target for the block and return it
   return next_difficulty(timestamps, cumulative_difficulties, target);
@@ -2135,7 +2138,10 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
     m_db->add_alt_block(id, data, cryptonote::block_to_blob(bei.bl));
     alt_chain.push_back(bei);
 
-    // FIXME: is it even possible for a checkpoint to show up not on the main chain?
+    // A checkpoint on an alt chain IS possible in theory: if the main chain diverges
+    // and a block matching a checkpoint hash arrives on an alt chain, this triggers
+    // reorganization back to the checkpointed chain. This is the correct behavior --
+    // checkpoints are authoritative and should force the canonical chain.
     if(is_a_checkpoint)
     {
       //do reorganize!
@@ -2221,13 +2227,14 @@ bool Blockchain::get_blocks(uint64_t start_offset, size_t count, std::vector<std
   return true;
 }
 //------------------------------------------------------------------
-//TODO: This function *looks* like it won't need to be rewritten
-//      to use BlockchainDB, as it calls other functions that were,
-//      but it warrants some looking into later.
+// Note: This function returns false only when transactions belonging to
+// requested blocks are missing, NOT when blocks themselves are missing.
+// Missing blocks are silently added to rsp.missed_ids and skipped.
 //
-//FIXME: This function appears to want to return false if any transactions
-//       that belong with blocks are missing, but not if blocks themselves
-//       are missing.
+// Note: rsp.missed_ids serves dual purpose -- it collects both missed block hashes
+// (from get_blocks above) and missed transaction hashes (from get_transactions_blobs
+// below). While the field name suggests blocks only, the P2P protocol uses this single
+// field for all missed hashes. Renaming would break protocol compatibility.
 bool Blockchain::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NOTIFY_RESPONSE_GET_OBJECTS::request& rsp)
 {
   LOG_PRINT_L3("Blockchain::" << __func__);
@@ -2245,8 +2252,9 @@ bool Blockchain::handle_get_objects(NOTIFY_REQUEST_GET_OBJECTS::request& arg, NO
     rsp.blocks.push_back(block_complete_entry());
     block_complete_entry& e = rsp.blocks.back();
 
-    // FIXME: s/rsp.missed_ids/missed_tx_id/ ?  Seems like rsp.missed_ids
-    //        is for missed blocks, not missed transactions as well.
+    // missed_tx_ids collects hashes of missing transactions for this block;
+    // if any are missing, they are appended to rsp.missed_ids (which holds
+    // both missed block and missed transaction hashes -- see note above).
     e.pruned = arg.prune;
     get_transactions_blobs(bl.second.tx_hashes, e.txs, missed_tx_ids, arg.prune);
     if (missed_tx_ids.size() != 0)
@@ -3944,10 +3952,12 @@ leave:
   // get the target difficulty for the block.
   // the calculation can overflow, among other failure cases,
   // so we need to check the return type.
-  // FIXME: get_difficulty_for_next_block can also assert, look into
-  // changing this to throwing exceptions instead so we can clean up.
+  // NOTE: get_difficulty_for_next_block() can assert on internal errors (e.g. overflow).
+  // Ideally it should throw exceptions instead so this code path can return false
+  // gracefully. For now, a zero return is handled below but internal asserts will
+  // still crash the daemon.
   difficulty_type current_diffic = get_difficulty_for_next_block();
-  CHECK_AND_ASSERT_MES(current_diffic, false, "!!!!!!!!! difficulty overhead !!!!!!!!!");
+  CHECK_AND_ASSERT_MES(current_diffic, false, "Block validation failed: get_difficulty_for_next_block returned zero (possible overflow or empty blockchain)");
 
   TIME_MEASURE_FINISH(target_calculating_time);
 

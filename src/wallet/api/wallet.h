@@ -33,6 +33,7 @@
 
 #include "wallet/api/wallet2_api.h"
 #include "wallet/wallet2.h"
+#include "wipeable_string.h"
 
 #include <string>
 #include <boost/thread/mutex.hpp>
@@ -90,7 +91,7 @@ public:
     std::string errorString() const override;
     void statusWithErrorString(int& status, std::string& errorString) const override;
     bool setPassword(const std::string &password) override;
-    const std::string& getPassword() const override;
+    std::string getPassword() const override;
     bool setDevicePin(const std::string &password) override;
     bool setDevicePassphrase(const std::string &password) override;
     std::string address(uint32_t accountIndex = 0, uint32_t addressIndex = 0) const override;
@@ -262,11 +263,11 @@ private:
     mutable boost::mutex m_statusMutex;
     mutable int m_status;
     mutable std::string m_errorString;
-    // TODO: harden password handling in the wallet API, see relevant discussion
-    // https://github.com/monero-project/monero-gui/issues/1537
-    // https://github.com/feather-wallet/feather/issues/72#issuecomment-1405602142
-    // https://github.com/monero-project/monero/pull/8619#issuecomment-1632951461
-    std::string m_password;
+    // Password stored as wipeable_string so memory is securely zeroed on destruction.
+    // See: https://github.com/monero-project/monero-gui/issues/1537
+    //      https://github.com/feather-wallet/feather/issues/72#issuecomment-1405602142
+    //      https://github.com/monero-project/monero/pull/8619#issuecomment-1632951461
+    epee::wipeable_string m_password;
     std::unique_ptr<TransactionHistoryImpl> m_history;
     std::unique_ptr<Wallet2CallbackImpl> m_wallet2Callback;
     std::unique_ptr<AddressBookImpl>  m_addressBook;

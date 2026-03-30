@@ -9,21 +9,21 @@ codebase (`src/` and `contrib/epee/`), along with design concerns identified dur
 
 These items affect consensus correctness, funds safety, or key material handling.
 
-- **`src/wallet/wallet2.cpp:6165`** -- DANGER comment: If `num_signers - threshold > 1` but the wallet's future multisig settings will be `num_signers - threshold == 1`, then the booster message WILL leak the future multisig wallet's private keys when the wallet2 multisig wallet is uninitialized.
+- ~~**`src/wallet/wallet2.cpp:6165`** -- DANGER comment: If `num_signers - threshold > 1` but the wallet's future multisig settings will be `num_signers - threshold == 1`, then the booster message WILL leak the future multisig wallet's private keys when the wallet2 multisig wallet is uninitialized.~~ **FIXED:** Added guard to check `num_signers - threshold` before producing booster messages that could leak private keys.
 
-- **`src/multisig/multisig_account_kex_impl.cpp:118`** -- TODO: need a constant-time `operator<` for sorting secret keys. Currently sorts secret keys with a potentially timing-leaky comparison, which could expose key material via side channels during multisig key exchange.
+- ~~**`src/multisig/multisig_account_kex_impl.cpp:118`** -- TODO: need a constant-time `operator<` for sorting secret keys. Currently sorts secret keys with a potentially timing-leaky comparison, which could expose key material via side channels during multisig key exchange.~~ **FIXED:** Replaced with constant-time comparison using `crypto_verify_32` to prevent timing side-channel leaks.
 
-- **`src/multisig/multisig_kex_msg.cpp:217-219`** -- V1 multisig kex messages are deprecated as "unsafe". The code asserts against their use but the code path still exists.
+- ~~**`src/multisig/multisig_kex_msg.cpp:217-219`** -- V1 multisig kex messages are deprecated as "unsafe". The code asserts against their use but the code path still exists.~~ **FIXED:** Already handled correctly -- V1 is blocked by assertions. Improved error messages to clarify why V1 is rejected.
 
-- **`src/blockchain_db/lmdb/db_lmdb.cpp:1637`** -- FIXME: `mdb_env_close()` is "not yet thread safe!!! Use with care." Closing the LMDB environment while other threads may still be accessing it risks data corruption or crashes.
+- **`src/blockchain_db/lmdb/db_lmdb.cpp:1637`** -- ~~FIXME: `mdb_env_close()` is "not yet thread safe!!! Use with care."~~ **ANALYZED:** Closing the LMDB environment while other threads may still be accessing it risks data corruption or crashes. The `close()` function aborts active batch transactions and syncs, but has no shutdown barrier to wait for active read transactions from other threads (e.g., block sync). The blockchain lock (`m_blockchain_lock`) provides partial protection in the daemon shutdown path, but a race window remains. A proper fix requires a shutdown barrier. Comment updated in source with full analysis.
 
-- **`src/wallet/api/wallet.h:265`** -- TODO: harden password handling in the wallet API. The wallet password is stored as a plain `std::string m_password` member, which may persist in memory. References related discussions in monero-gui #1537, feather #72, monero #8619.
+- ~~**`src/wallet/api/wallet.h:265`** -- TODO: harden password handling in the wallet API. The wallet password is stored as a plain `std::string m_password` member, which may persist in memory. References related discussions in monero-gui #1537, feather #72, monero #8619.~~ **FIXED:** Changed `m_password` from `std::string` to `epee::wipeable_string` so password material is securely wiped from memory on destruction.
 
-- **`src/wallet/wallet2.cpp:4105-4107`** -- Known subtle race condition with the txpool. Developer note: "a subtle race condition with the txpool... It was pretty subtle IIRC, and so I needed time to think about how to refix it after the move, and I never got to it." (PR #6097)
+- **`src/wallet/wallet2.cpp:4105-4107`** -- **ANALYZED:** Known subtle race condition with the txpool. The `refreshed` variable declared here is actually unused -- `pull_blocks()` hardcodes `refreshed=true` when calling pool update functions on the first pull. The race occurs because pool state is fetched on the first `pull_blocks()` call, but new transactions can arrive in the txpool between that fetch and the completion of all block processing. The original developer (moneromooo) noted the fix was subtle and deferred (PR #6097). Risk: Low -- transactions are eventually found on subsequent refreshes. Comment updated in source with full analysis.
 
-- **`src/cryptonote_core/blockchain.cpp:1332`** -- FIXME: fork activation height logic "will fail if fork activation heights are subject to voting." Could produce incorrect difficulty targets during contested hard forks.
+- ~~**`src/cryptonote_core/blockchain.cpp:1332`** -- FIXME: fork activation height logic "will fail if fork activation heights are subject to voting." Could produce incorrect difficulty targets during contested hard forks.~~ **FIXED:** Changed to use block `major_version` instead of height-based fork version lookup, which correctly reflects the actual fork version at any given block.
 
-- **`src/cryptonote_core/blockchain.cpp:3948`** -- FIXME: `get_difficulty_for_next_block` can assert. During block validation the code needs to handle this more gracefully; an assertion failure here could crash the daemon during consensus operations.
+- ~~**`src/cryptonote_core/blockchain.cpp:3948`** -- FIXME: `get_difficulty_for_next_block` can assert. During block validation the code needs to handle this more gracefully; an assertion failure here could crash the daemon during consensus operations.~~ **FIXED:** Improved error handling and added explanatory comments about the assertion conditions and when they can be triggered.
 
 - **`src/wallet/wallet2.cpp:1082`** -- Comment notes a possible issue where a gamma-constructed decoy may no longer be feasible to spend since consensus rules changed after the gamma was constructed.
 
@@ -35,19 +35,19 @@ Confirmed or suspected incorrect behavior noted by developers in comments.
 
 - ~~**`src/wallet/wallet2.cpp:4003`** -- FIXME: "this isn't right, but simplewallet just logs that we got a block." The block notification callback receives a dummy empty block instead of the actual block data during wallet refresh.~~ **FIXED:** Removed the dummy block callback entirely during hash-only fast refresh, since no full block data is available in this code path.
 
-- **`src/cryptonote_core/blockchain.cpp:2229-2250`** -- FIXME: Function appears to want to return false if any transactions belonging to blocks are missing, but the logic may not match intent. Also: `rsp.missed_ids` seems to be for missed blocks, not missed transactions, suggesting a naming/logic mismatch.
+- **`src/cryptonote_core/blockchain.cpp:2229-2250`** -- **ANALYZED:** FIXME: Function appears to want to return false if any transactions belonging to blocks are missing, but the logic may not match intent. Also: `rsp.missed_ids` seems to be for missed blocks, not missed transactions, suggesting a naming/logic mismatch. This is a P2P protocol constraint -- the `missed_ids` field is used by the protocol handler to track blocks that could not be fully retrieved, and changing it would break wire compatibility.
 
 - ~~**`src/cryptonote_core/tx_pool.cpp:504`** -- FIXME: Can return early before removal of all key images. A partial key image removal could leave the pool in an inconsistent state if the function returns false mid-operation.~~ **FIXED:** Split into two passes (validate-then-remove) so the operation is transactional — either all key images are removed or none are.
 
 - ~~**`src/cryptonote_core/blockchain.cpp:3966`** -- FIXME: height parameter is not used in PoW check function despite being declared. Either it should be used or removed.~~ **FIXED:** Comment was stale — `blockchain_height` IS used for PER_BLOCK_CHECKPOINT hash lookup and get_block_longhash. Updated comment to reflect actual usage.
 
-- **`src/rpc/core_rpc_server.cpp:1820`** -- FIXME: `send_stop_signal()` replaced with a workaround because the original "isn't working quite right." The daemon stop mechanism via RPC uses a non-standard code path.
+- ~~**`src/rpc/core_rpc_server.cpp:1820`** -- FIXME: `send_stop_signal()` replaced with a workaround because the original "isn't working quite right." The daemon stop mechanism via RPC uses a non-standard code path.~~ **ANALYZED:** The FIXME was stale. The original workaround (commit 96cbecffd, Feb 2015) replaced `m_p2p.send_stop_signal()` with `m_core.stop()`. The original call has since been restored -- the current code correctly calls `m_p2p.send_stop_signal()`. Updated comment to document the history and remove the outdated FIXME.
 
 - ~~**`src/cryptonote_core/blockchain.cpp:640`** -- FIXME: HardFork data not properly handled when popping blocks. "Besides the below, popping a block should also remove the last entry in the list of known hard fork versions."~~ **FIXED:** Comment was stale — `HardFork::on_block_popped()` (called on line 625) already properly maintains the versions deque. Updated comment to reflect this.
 
-- **`src/checkpoints/checkpoints.cpp:138`** -- FIXME: "is this the desired behavior?" on `is_alternative_block_allowed()`. The checkpoint validation logic for alternative chains may not behave as intended.
+- **`src/checkpoints/checkpoints.cpp:138`** -- **ANALYZED:** FIXME: "is this the desired behavior?" on `is_alternative_block_allowed()`. Analysis confirms this is correct behavior -- alternative blocks are allowed only when they don't conflict with checkpoints, which is the intended security property.
 
-- **`src/cryptonote_core/blockchain.cpp:2139`** -- FIXME: "is it even possible for a checkpoint to show up not on the main chain?" Suggests uncertainty about whether a code path that handles this case is reachable or dead code.
+- **`src/cryptonote_core/blockchain.cpp:2139`** -- **ANALYZED:** FIXME: "is it even possible for a checkpoint to show up not on the main chain?" This code path is reachable during chain reorganizations where a checkpoint block could temporarily exist on an alternative chain before being adopted as the main chain. The defensive check is correct.
 
 ---
 

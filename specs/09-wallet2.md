@@ -920,6 +920,114 @@ Ring member (decoy) selection uses a gamma distribution (shape=19.28, scale=1/1.
 | `background_synced_tx_t` | 0 |
 | `background_sync_data_t` | 0 |
 
+## Refresh Protocol (Wallet-Daemon RPC Sequence)
+
+Source: `wallet2::refresh()` at wallet2.cpp:4074, `wallet2::pull_blocks()`, `wallet2::pull_and_parse_next_blocks()`.
+
+### Sync Sequence
+
+A full wallet refresh follows this RPC sequence:
+
+1. **Get daemon info:** `get_info` RPC → obtain `height` and `top_block_hash`. This determines whether the wallet needs to sync.
+
+2. **Build short chain history:** Construct an exponentially-spaced list of known block hashes from the wallet's local `m_blockchain` hashchain. The spacing doubles at each step (heights: tip, tip-1, tip-2, tip-4, tip-8, ..., 0). Always ends with the genesis hash.
+
+3. **Fast refresh (if needed):** If `start_height` is ahead of the wallet's current chain, fetch only block hashes (via `getblocks.bin` with no tx data) up to that height using `fast_refresh()`.
+
+4. **Pipelined block fetch loop:**
+   - Submit `pull_and_parse_next_blocks()` to the thread pool → fetches blocks from daemon via `getblocks.bin` RPC with the short chain history.
+   - Simultaneously process previously fetched blocks via `process_parsed_blocks()`.
+   - The `getblocks.bin` request includes: block IDs (short history), start_height, prune flag, and pool info request.
+   - Continue until daemon reports no new blocks or `stop()` is called.
+
+5. **Pool processing:** After block sync completes, process pool transactions gathered during block pulls.
+
+6. **Error handling:** Retry up to 3 times on transient errors. Handle hash chain bounds errors by resetting.
+
+### RPC Calls During Refresh
+
+| Step | RPC Call | Purpose |
+|------|----------|---------|
+| Info check | `get_info` | Get current height and top hash |
+| Block fetch | `getblocks.bin` | Fetch blocks with short chain history; includes pool info |
+| Output details | `get_outs.bin` | Fetch output keys for ring member validation (during tx construction, not refresh) |
+| Fee estimate | `get_fee_estimate` | Get current fee parameters (during tx construction) |
+
+## Output Scanning Pipeline
+
+Source: `wallet2::process_parsed_blocks()` at wallet2.cpp:3243, `wallet2::process_new_transaction()`.
+
+### Scanning Algorithm
+
+For each block in a batch:
+
+1. **Parallel TX caching:** Submit all transactions to the thread pool for `cache_tx_data()` — extracts tx extra fields, public keys.
+
+2. **Key derivation:** In parallel, compute key derivations for each tx public key using the wallet's view secret key: `derivation = generate_key_derivation(tx_pub_key, view_secret_key)`.
+
+3. **Output matching:** For each transaction output at index `i`:
+   - **View tag check (HF v15+):** Compute expected view tag from derivation and output index. If it doesn't match the output's view tag, skip (early rejection — saves ~99.6% of full derivations).
+   - **Full derivation:** `derive_public_key(derivation, i, spend_public_key)` → compute the expected output public key.
+   - **Compare:** If derived key matches the output key, this output belongs to the wallet.
+
+4. **Subaddress scanning:** For each output, try derivation against all subaddress spend public keys in the lookahead range (default: 50 major × 200 minor indices). The wallet maintains a map `m_subaddresses: spend_public_key → subaddress_index` for O(1) lookup.
+
+5. **Process match** (in `process_new_transaction()`):
+   - Compute key image (or defer for multisig/background sync).
+   - Decode RingCT amount using `decodeRct()` with the derivation.
+   - Create `transfer_details` entry in `m_transfers`.
+   - Detect and handle self-spends.
+   - Trigger callbacks (`on_money_received`, `on_money_spent`).
+
+## Pool Synchronization
+
+Source: `wallet2::update_pool_state()` at wallet2.cpp:3751, `wallet2::process_pool_state()`.
+
+### Incremental Pool Sync (Preferred)
+
+1. Use `getblocks.bin` with `POOL_ONLY` request type and `pool_info_since` timestamp.
+2. Daemon returns only pool transactions added since the last known timestamp.
+3. Feed into `process_pool_state()` → calls `process_new_transaction()` with `pool = true`.
+
+### Legacy Pool Sync (Fallback)
+
+1. Call `get_transaction_pool_hashes.bin` → get all pool tx hashes.
+2. Diff against wallet's known pool state (`m_unconfirmed_payments`).
+3. For new hashes: fetch full transactions via `get_transactions`.
+4. For removed hashes: remove from `m_unconfirmed_payments`.
+
+### Key Properties
+
+- Pool transactions are NOT persisted to the wallet file — they are re-scanned on each refresh.
+- Pool transactions appear in `get_transfers` with `type: "pool"`.
+- When a pool tx is confirmed in a block, it transitions from `m_unconfirmed_payments` to `m_payments`.
+
+## Reorg Detection and Handling
+
+Source: `wallet2::process_blocks()`, `wallet2::detach_blockchain()`.
+
+### Detection
+
+During block processing, the wallet compares received block hashes with its local `m_blockchain` hashchain:
+- If the daemon's blocks at a given height have a different hash than the wallet's stored hash, a fork/reorg has occurred.
+- The wallet scans backward to find the common ancestor (last matching hash).
+
+### Handling
+
+1. **Detach:** `detach_blockchain(reorg_height)` removes wallet state from `reorg_height` onward:
+   - Remove block hashes from `m_blockchain` above `reorg_height`.
+   - For each `transfer_details` received at or above `reorg_height`: mark as unspent, clear key image spent status.
+   - Move confirmed outgoing transactions (`m_confirmed_txs`) back to unconfirmed (`m_unconfirmed_txs`) if their block height >= `reorg_height`.
+   - Remove incoming payments at or above `reorg_height`.
+
+2. **Re-scan:** The wallet re-processes blocks from the common ancestor height using the normal scanning pipeline.
+
+3. **Balance recalculation:** After re-scan, balances are recalculated from the updated `m_transfers` state. Transactions that were in the old chain but not in the new chain will have their effects reversed.
+
+### Maximum Reorg Depth
+
+The wallet limits reorg depth to `m_max_reorg_depth` (default: `ORPHANED_BLOCKS_MAX_COUNT`). Deeper reorgs require manual intervention (rescan_blockchain).
+
 ## Known Issues
 
 The following TODO/FIXME/HACK/XXX comments were found:

@@ -141,7 +141,16 @@ set(unit_tests_sources
   rpc_payment_tests.cpp
   daemon_messages_tests.cpp
   cryptonote_core_tests.cpp
-  p2p_net_node_tests.cpp)
+  p2p_net_node_tests.cpp
+  rpc_helpers.cpp
+  wallet_utils.cpp
+  crypto_ops.cpp
+  block_validation.cpp
+  tx_validation.cpp
+  tx_serialization.cpp
+  wallet2_tx_construction.cpp
+  wallet2_sync.cpp
+  core_integration.cpp)
 
 set(unit_tests_headers
   unit_tests_utils.h)
