@@ -2,7 +2,7 @@
 
 Comprehensive specification documentation for the Monero codebase, generated from source code analysis. These specs document existing logic, data structures, APIs, and known issues across all major modules.
 
-**Total**: 23 spec files + [bugs.md](bugs.md) + this index = 25 files, ~11,500 lines.
+**Total**: 23 spec files + [bugs.md](bugs.md) + [untestable-lines.md](untestable-lines.md) + this index = 26 files, ~11,500 lines.
 
 > **Read-only documentation** — no source code was modified. For existing protocol docs, see `docs/` (LEVIN_PROTOCOL.md, ZMQ.md, PORTABLE_STORAGE.md, ANONYMITY_NETWORKS.md).
 
@@ -78,6 +78,7 @@ Detailed algorithm specs for Rust port and reimplementation reference.
 | File | Description |
 |------|-------------|
 | [bugs.md](bugs.md) | All discovered issues: 9 critical/security, 8 bugs, 100+ tech debt items, 23 design concerns |
+| [untestable-lines.md](untestable-lines.md) | Lines excluded from coverage: daemon-dependent, hardware device, anonymous namespace code |
 
 ---
 
