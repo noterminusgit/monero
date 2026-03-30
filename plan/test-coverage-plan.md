@@ -137,9 +137,11 @@ make coverage   # generates HTML report
 | `1411b343c` | 335 | Session 9: ringct sigs (70), blockchain (43), tx_pool (52), block_queue (51), hardfork (15), wipeable_string (27), string_tools (39), epee_utils (38) |
 | `9855c0f20` | 315 | Session 10: format_utils (55), cryptonote_core (35), wallet2 RPC (173), LMDB fixes+new (37+137 fixed), pruning (15) |
 | `e0136c5dc` | 258 | Session 10: LMDB txpool/alt-blocks (28), blockchain queries (35), epee ByteSlice/Stream (71), net (65), util (51), threadpool (8) |
-| *(pending)* | ~50 | Session 11: Bug fixes + regression tests for 13 documented bugs from specs/bugs.md |
-| *(pending)* | ~55 | Session 11: Consensus validation (25), coin selection (13), blockchain queries (11), reserve proof (3), tx key (2) |
-| **Total** | **~5835+** | |
+| `a57112065` | ~50 | Session 11: Bug fixes + regression tests for 13 documented bugs from specs/bugs.md |
+| `a57112065` | ~55 | Session 11: Consensus validation (25), coin selection (13), blockchain queries (11), reserve proof (3), tx key (2) |
+| `8fe851915` | 16 files | Session 12: Spec behavioral contracts (Track A: 6 specs enhanced) + 16 Python integration tests (Track B) |
+| `2f412861f` | 55 | Session 13: wallet2_refresh (25 tests), coin_selection (30 tests) + 2 new specs + 3 spec enhancements |
+| **Total** | **~6503+** | |
 
 ### New test files created:
 - `tests/unit_tests/parserse_base_utils.cpp` (37 tests)
@@ -218,6 +220,37 @@ make coverage   # generates HTML report
 **Enhanced mock infrastructure:**
 - `tests/unit_tests/mocks/mock_blockchain.h` — added tx_exists, get_tx_blob, get_tx to InMemoryDB
 
+### Session 12 — Spec completion + integration tests:
+
+**Track A — Spec behavioral contract additions (6 specs enhanced):**
+- `specs/10-wallet-transfers.md` — gamma picker, fee refinement, input selection, tx splitting
+- `specs/09-wallet2.md` — refresh protocol, output scanning, pool sync, reorg handling
+- `specs/13-p2p-protocol.md` — sync state machine, fluffy blocks, Dandelion++ parameters
+- `specs/05-consensus-rules.md` — fork detection, difficulty target at boundaries, version validation
+- `specs/02-blockchain-db.md` — LMDB thread safety and shutdown constraints
+- `specs/18-serialization.md` — variant tags, varint compat, blob hashing contracts
+
+**Track B — 16 new Python functional test files:**
+- B1-B16 added to `tests/functional_tests/` and registered in `functional_tests_rpc.py`
+- Total functional tests: 36 (was 20)
+
+### Session 13 — Close remaining spec + test gaps for Rust port:
+
+**New specs (2):**
+- `specs/22-proof-of-work.md` (464 lines) — CryptoNight V0-V4, RandomX, PoW dispatch, verification
+- `specs/23-key-derivation.md` (390 lines) — Mnemonics, key chain, subaddresses, view tags, H generator
+
+**Enhanced specs (3):**
+- `specs/05-consensus-rules.md` (+104 lines) — HF_VERSION constants table, per-fork change matrix, testnet/stagenet heights
+- `specs/06-ringct.md` (+145 lines) — CLSAG step-by-step formulas with domain separators, BP+ generators
+- `specs/18-serialization.md` (+156 lines) — Standard varint vs PS varint, Levin header, PS header
+
+**New test files (2, 55 tests total):**
+- `tests/unit_tests/wallet2_refresh.cpp` (25 tests) — refresh pipeline, view tags, offline mode, hashchain
+- `tests/unit_tests/coin_selection.cpp` (30 tests) — gamma picker, pick_preferred_rct_inputs, output relatedness
+
+**Updated:** `tests/unit_tests/CMakeLists.txt`, `specs/README.md` (now 23 specs + bugs.md)
+
 ---
 
 ## Known Constraints
@@ -225,5 +258,5 @@ make coverage   # generates HTML report
 1. **Anonymous namespaces**: Several testable helpers in `rpc_command_executor.cpp` and `simplewallet.cpp` are hidden in anonymous namespaces. Refactoring them into named namespaces is a prerequisite for Phase 6.
 2. **Device testing**: `device_ledger` has private `hw::io::device_io_hid` member (not injectable). Tests limited to helper classes (ABPkeys, Keymap, HMACmap) via `#ifdef WITH_DEVICE_LEDGER`.
 3. **Trezor**: Requires `WITH_DEVICE_TREZOR`, protobuf, libusb — heavy external deps, skipped for unit tests.
-4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Current measured coverage (2026-03-25): **33.3% lines** (23,931/71,949), **40.7% functions** (5,108/12,544) with 6,158 tests run (excluding known hanging tests).
+4. **Theoretical ceiling**: Unit test coverage ceiling is ~35-40% due to architectural constraints (daemon-dependent code, network I/O, hardware device interaction, anonymous namespace functions). Last measured coverage (2026-03-25): **33.3% lines** (23,931/71,949), **40.7% functions** (5,108/12,544) with 6,158 tests run (excluding known hanging tests). Current estimated total: ~6,503 unit tests + 36 functional tests + 23 specs.
 5. **Hanging tests**: `multisig.*`, `long_term_block_weight*`, `DNSResolver*`, `download*`, `boosted_tcp_server*`, `test_epee_connection*`, `positive_test_connection*`, `test_levin_protocol*`, `http_server*`, `tx_verification_utils.ver_input_proofs_rings`, `levin_notify*`, `net_ssl*`, `socks*`, `cryptonote_protocol_handler*`, `network_throttle*`, and `Wallet2FileTest.keys_file_lock_unlock` hang or crash during execution and must be excluded from coverage runs.
