@@ -107,6 +107,110 @@ All mainnet forks use threshold 0 (unconditional activation at scheduled height)
 
 **Version 1 range:** `mainnet_hard_fork_version_1_till = 1009826` (blocks 0-1009826 use version 1).
 
+### HF_VERSION Constants Reference
+
+Every `HF_VERSION_*` macro from `src/cryptonote_config.h` mapped to its numeric value and the behavior it controls:
+
+| Macro | Value | Behavior |
+|-------|------:|----------|
+| `HF_VERSION_DYNAMIC_FEE` | 4 | Dynamic per-byte fees replace fixed fee schedule |
+| `HF_VERSION_MIN_MIXIN_4` | 6 | Minimum mixin raised to 4 (ring size 5) |
+| `HF_VERSION_MIN_MIXIN_6` | 7 | Minimum mixin raised to 6 (ring size 7) |
+| `HF_VERSION_CRYPTONIGHT_VARIANT_1` | 7 | CryptoNight V1 PoW (tweak byte mutation) |
+| `HF_VERSION_MIN_MIXIN_10` | 8 | Minimum mixin raised to 10 (exact, ring size 11) |
+| `HF_VERSION_MIN_MIXIN_15` | 15 | Minimum mixin raised to 15 (ring size 16; grace at v15 allows 10) |
+| `HF_VERSION_ENFORCE_RCT` | 6 | RingCT mandatory for all mixable inputs |
+| `HF_VERSION_PER_BYTE_FEE` | 8 | Fee calculated per transaction byte instead of per KB |
+| `HF_VERSION_SMALLER_BP` | 10 | Smaller bulletproofs (`RCTTypeBulletproof2`) allowed |
+| `HF_VERSION_LONG_TERM_BLOCK_WEIGHT` | 10 | Long-term block weight median (100K window) introduced |
+| `HF_VERSION_MIN_2_OUTPUTS` | 12 | v2 transactions must have ≥ 2 outputs |
+| `HF_VERSION_MIN_V2_COINBASE_TX` | 12 | Coinbase must be tx version 2 |
+| `HF_VERSION_SAME_MIXIN` | 12 | All inputs in a tx must use identical ring size |
+| `HF_VERSION_REJECT_SIGS_IN_COINBASE` | 12 | RCT sigs in coinbase must be `RCTTypeNull` |
+| `HF_VERSION_ENFORCE_MIN_AGE` | 12 | Outputs must be ≥ `CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE` (10) blocks old |
+| `HF_VERSION_EFFECTIVE_SHORT_TERM_MEDIAN_IN_PENALTY` | 12 | Reward penalty uses effective short-term median |
+| `HF_VERSION_EXACT_COINBASE` | 13 | Coinbase must claim exactly `base_reward + fees` |
+| `HF_VERSION_CLSAG` | 13 | CLSAG ring signatures allowed (MLSAG still valid) |
+| `HF_VERSION_DETERMINISTIC_UNLOCK_TIME` | 13 | Time-based unlock uses median block time, not system clock |
+| `HF_VERSION_BULLETPROOF_PLUS` | 15 | Bulletproofs+ range proofs allowed |
+| `HF_VERSION_VIEW_TAGS` | 15 | View tags (`txout_to_tagged_key`) required for outputs |
+| `HF_VERSION_2021_SCALING` | 15 | 2021 scaling rules: symmetric long-term weight bounds (÷1.7 to ×1.7) |
+
+Source: `src/cryptonote_config.h:177-198`
+
+### Detailed Hard Fork Change Matrix
+
+Per-version summary of exact constants, algorithms, and rule changes introduced at each fork:
+
+| Version | Height | PoW Algorithm | Ring Size | Signature Type | Range Proof | Block Target | Full Reward Zone | Other Key Rules |
+|--------:|-------:|---------------|-----------|---------------|-------------|-------------|-----------------|----------------|
+| 1 | 1 | CryptoNight V0 | ≥ 1 | Simple | None (transparent) | 60s | 20,000 B | Genesis |
+| 2 | 1009827 | CryptoNight V0 | ≥ 3 | Simple | None | 120s | 60,000 B | Dust ban; partial coinbase |
+| 3 | 1141317 | CryptoNight V0 | ≥ 3 | MLSAG | Borromean (optional) | 120s | 60,000 B | v2 tx outputs must be zero-amount |
+| 4 | 1220516 | CryptoNight V0 | ≥ 3 | MLSAG | Borromean | 120s | 60,000 B | Dynamic fees; max tx version 2 |
+| 5 | 1288616 | CryptoNight V0 | ≥ 3 | MLSAG | Borromean | 120s | 300,000 B | Larger blocks |
+| 6 | 1400000 | CryptoNight V0 | ≥ 5 | MLSAG | Borromean | 120s | 300,000 B | RCT enforced; mixin ≥ 4 |
+| 7 | 1546000 | CryptoNight V1 | ≥ 7 | MLSAG | Borromean | 120s | 300,000 B | Sorted inputs; mixin ≥ 6 |
+| 8 | 1685555 | CryptoNight V2 | = 11 | MLSAG | BP allowed | 120s | 300,000 B | Per-byte fees; mixin = 10 exact |
+| 9 | 1686275 | CryptoNight V2 | = 11 | MLSAG | BP mandatory | 120s | 300,000 B | Borromean forbidden |
+| 10 | 1788000 | CryptoNight-R (V4) | = 11 | MLSAG | BP v2 allowed | 120s | 300,000 B | Long-term block weight |
+| 11 | 1788720 | CryptoNight-R (V4) | = 11 | MLSAG | BP v2 only | 120s | 300,000 B | BP v1 forbidden |
+| 12 | 1978433 | RandomX | = 11 | MLSAG | BP v2 | 120s | 300,000 B | Min 2 outputs; v2 coinbase; same mixin; min output age |
+| 13 | 2210000 | RandomX | = 11 | CLSAG allowed | BP v2 | 120s | 300,000 B | Exact coinbase; deterministic unlock |
+| 14 | 2210720 | RandomX | = 11 | CLSAG only | BP v2 | 120s | 300,000 B | MLSAG forbidden (2 grandfathered) |
+| 15 | 2688888 | RandomX | = 16 (grace: 11) | CLSAG | BP+ allowed | 120s | 300,000 B | View tags; 2021 scaling; mixin 15 |
+| 16 | 2689608 | RandomX | = 16 | CLSAG | BP+ only | 120s | 300,000 B | View tags mandatory; BP forbidden |
+
+### Testnet Fork Heights
+
+Source: `src/hardforks/hardforks.cpp:80-103`
+
+`testnet_hard_fork_version_1_till = 624633`
+
+| Version | Height | Epoch |
+|--------:|-------:|------:|
+| 1 | 1 | 1341378000 |
+| 2 | 624634 | 1445355000 |
+| 3 | 800500 | 1472415034 |
+| 4 | 801219 | 1472415035 |
+| 5 | 802660 | 1488015036 |
+| 6 | 971400 | 1501709789 |
+| 7 | 1057027 | 1512211236 |
+| 8 | 1057058 | 1533211200 |
+| 9 | 1057778 | 1533297600 |
+| 10 | 1154318 | 1550153694 |
+| 11 | 1155038 | 1550225678 |
+| 12 | 1308737 | 1569582000 |
+| 13 | 1543939 | 1599069376 |
+| 14 | 1544659 | 1599069377 |
+| 15 | 1982800 | 1652727000 |
+| 16 | 1983520 | 1652813400 |
+
+### Stagenet Fork Heights
+
+Source: `src/hardforks/hardforks.cpp:107-127`
+
+No special version 1 cutoff (starts at height 0).
+
+| Version | Height | Epoch |
+|--------:|-------:|------:|
+| 1 | 1 | 1341378000 |
+| 2 | 32000 | 1521000000 |
+| 3 | 33000 | 1521120000 |
+| 4 | 34000 | 1521240000 |
+| 5 | 35000 | 1521360000 |
+| 6 | 36000 | 1521480000 |
+| 7 | 37000 | 1521600000 |
+| 8 | 176456 | 1537821770 |
+| 9 | 177176 | 1537821771 |
+| 10 | 269000 | 1550153694 |
+| 11 | 269720 | 1550225678 |
+| 12 | 454721 | 1571419280 |
+| 13 | 675405 | 1598180817 |
+| 14 | 676125 | 1598180818 |
+| 15 | 1151000 | 1656629117 |
+| 16 | 1151720 | 1656629118 |
+
 ### Testnet
 
 Follows the same version progression at different heights. `testnet_hard_fork_version_1_till = 624633`.

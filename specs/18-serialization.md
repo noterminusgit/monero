@@ -486,6 +486,162 @@ For block hashing, transactions are Merkle-hashed:
 
 For v2+ transactions, `get_transaction_prunable_hash(tx)` hashes only the prunable portion (RCT signatures, bulletproofs). This hash is stored separately in the `txs_prunable_hash` LMDB table to allow verification even after the prunable data has been deleted.
 
+## Standard Varint (Binary Archive)
+
+Source: `src/common/varint.h`
+
+The standard varint format is used by `binary_archive` for all `VARINT_FIELD` serialization, container lengths, and array sizes throughout the consensus-critical binary wire format.
+
+**Encoding** (7-bit, MSB continuation, little-endian):
+
+```
+while value >= 0x80:
+    emit byte: (value & 0x7F) | 0x80    // low 7 bits + continuation flag
+    value >>= 7
+emit byte: value                          // final byte, MSB = 0
+```
+
+**Decoding:**
+
+```
+write = 0
+for shift = 0, 7, 14, ...:
+    byte = read_next_byte()
+    if shift + 7 >= max_bits AND byte >= (1 << (max_bits - shift)):
+        return EVARINT_OVERFLOW
+    if byte == 0 AND shift != 0:
+        return EVARINT_REPRESENT         // non-canonical trailing zero
+    write |= (byte & 0x7F) << shift
+    if (byte & 0x80) == 0:
+        break
+```
+
+**Error codes:**
+- `EVARINT_OVERFLOW = -1`: Value would exceed the target type's bit width
+- `EVARINT_REPRESENT = -2`: Non-canonical encoding (trailing zero byte after the first)
+
+**Size:** 1 byte for 0-127, 2 bytes for 128-16383, up to 10 bytes for `uint64_t` max.
+
+**Example:** Value `300` (0x12C):
+- Byte 0: `0x2C | 0x80` = `0xAC` (low 7 bits = 0x2C, continuation set)
+- Byte 1: `0x02` (remaining bits, MSB = 0, done)
+- Wire bytes: `[0xAC, 0x02]`
+
+Source: `src/common/varint.h:66-79` (write), `src/common/varint.h:92-119` (read)
+
+## Portable Storage Varint
+
+Source: `contrib/epee/include/storages/portable_storage_base.h:41-45`
+
+The Portable Storage (PS) varint is a **completely different format** from the standard varint. It is used within epee's portable storage binary format for encoding field counts, array lengths, and string lengths in P2P messages.
+
+**Encoding** (2-bit size prefix, little-endian integer):
+
+The 2 lowest bits of the first byte encode the total byte width:
+
+| Size Mask (bits 0-1) | Width | Value Range | Constant |
+|----------------------:|------:|-------------|----------|
+| `00` | 1 byte | 0 – 63 | `PORTABLE_RAW_SIZE_MARK_BYTE` |
+| `01` | 2 bytes | 0 – 16,383 | `PORTABLE_RAW_SIZE_MARK_WORD` |
+| `10` | 4 bytes | 0 – 1,073,741,823 | `PORTABLE_RAW_SIZE_MARK_DWORD` |
+| `11` | 8 bytes | 0 – 4,611,686,018,427,387,903 (2^62 - 1) | `PORTABLE_RAW_SIZE_MARK_INT64` |
+
+**Encoding algorithm:**
+```
+encoded = (value << 2) | size_mask
+write encoded as little-endian integer of the appropriate width
+```
+
+**Decoding algorithm:**
+```
+size_mask = first_byte & 0x03
+read LE integer of width (1, 2, 4, or 8 bytes depending on mask)
+value = integer >> 2
+```
+
+**Side-by-side comparison** for value `300`:
+
+| Format | Encoding | Wire Bytes |
+|--------|----------|------------|
+| Standard varint | 7-bit MSB continuation | `[0xAC, 0x02]` (2 bytes) |
+| PS varint | `(300 << 2) \| 0x01` = `0x04B1`, LE uint16 | `[0xB1, 0x04]` (2 bytes) |
+
+**Side-by-side comparison** for value `42`:
+
+| Format | Encoding | Wire Bytes |
+|--------|----------|------------|
+| Standard varint | `0x2A` (fits in 7 bits) | `[0x2A]` (1 byte) |
+| PS varint | `(42 << 2) \| 0x00` = `0xA8`, uint8 | `[0xA8]` (1 byte) |
+
+**Rust port note:** These two varint formats are NOT interchangeable. Standard varints appear in transaction/block binary serialization. PS varints appear only in epee portable storage messages (P2P handshake, command payloads). Mixing them up will cause deserialization failures.
+
+## Levin Protocol Header
+
+Source: `contrib/epee/include/net/levin_base.h:39-83`
+
+The Levin protocol header (`bucket_head2`) is a 33-byte `#pragma pack(1)` structure prefixing every P2P message. All multi-byte fields are little-endian.
+
+**Structure layout:**
+
+| Offset | Size | Field | Type | Description |
+|-------:|-----:|-------|------|-------------|
+| 0 | 8 | `m_signature` | `uint64_t` | Magic: `0x0101010101012101` (`LEVIN_SIGNATURE`) |
+| 8 | 8 | `m_cb` | `uint64_t` | Payload length in bytes |
+| 16 | 1 | `m_have_to_return_data` | `uint8_t` | 1 if sender expects a response, 0 otherwise |
+| 17 | 4 | `m_command` | `uint32_t` | Command ID (e.g., 1001 = handshake, 1003 = ping) |
+| 21 | 4 | `m_return_code` | `int32_t` | Response status code (0 = success) |
+| 25 | 4 | `m_flags` | `uint32_t` | Packet type flags (bitmask, see below) |
+| 29 | 4 | `m_protocol_version` | `uint32_t` | Protocol version (currently `LEVIN_PROTOCOL_VER_1` = 1) |
+
+**Total size:** 33 bytes
+
+**Flags** (from `levin_base.h:80-83`):
+
+| Flag | Value | Meaning |
+|------|------:|---------|
+| `LEVIN_PACKET_REQUEST` | `0x00000001` | This is a request (invoke or notify) |
+| `LEVIN_PACKET_RESPONSE` | `0x00000002` | This is a response |
+| `LEVIN_PACKET_BEGIN` | `0x00000004` | First fragment of a multi-part message |
+| `LEVIN_PACKET_END` | `0x00000008` | Last fragment of a multi-part message |
+
+**Size limits:**
+- Before handshake: `LEVIN_INITIAL_MAX_PACKET_SIZE` = 256 KB (262,144 bytes)
+- After handshake: `LEVIN_DEFAULT_MAX_PACKET_SIZE` = 100 MB (100,000,000 bytes)
+
+**Legacy header:** `bucket_head` (the v0 header) has the same first 5 fields but uses `m_reservedA` and `m_reservedB` instead of `m_flags` and `m_protocol_version`. It is defined but not used in current Monero.
+
+## Portable Storage Header
+
+Source: `contrib/epee/include/storages/portable_storage_base.h:37-39`
+
+Every portable storage binary blob begins with a 9-byte header:
+
+| Offset | Size | Value | Constant |
+|-------:|-----:|-------|----------|
+| 0 | 4 | `0x01011101` | `PORTABLE_STORAGE_SIGNATUREA` |
+| 4 | 4 | `0x01020101` | `PORTABLE_STORAGE_SIGNATUREB` |
+| 8 | 1 | `0x01` | `PORTABLE_STORAGE_FORMAT_VER` |
+
+**Serialization type constants** (from `portable_storage_base.h:52-66`):
+
+| Constant | Value | C++ Type |
+|----------|------:|----------|
+| `SERIALIZE_TYPE_INT64` | 1 | `int64_t` |
+| `SERIALIZE_TYPE_INT32` | 2 | `int32_t` |
+| `SERIALIZE_TYPE_INT16` | 3 | `int16_t` |
+| `SERIALIZE_TYPE_INT8` | 4 | `int8_t` |
+| `SERIALIZE_TYPE_UINT64` | 5 | `uint64_t` |
+| `SERIALIZE_TYPE_UINT32` | 6 | `uint32_t` |
+| `SERIALIZE_TYPE_UINT16` | 7 | `uint16_t` |
+| `SERIALIZE_TYPE_UINT8` | 8 | `uint8_t` |
+| `SERIALIZE_TYPE_DOUBLE` | 9 | `double` |
+| `SERIALIZE_TYPE_STRING` | 10 | `std::string` |
+| `SERIALIZE_TYPE_BOOL` | 11 | `bool` |
+| `SERIALIZE_TYPE_OBJECT` | 12 | `section` (nested object) |
+| `SERIALIZE_TYPE_ARRAY` | 13 | Array of homogeneous type |
+
+**Array flag:** `SERIALIZE_FLAG_ARRAY = 0x80`. When OR'd with a type byte, indicates an array of that type (e.g., `0x80 | 5 = 0x85` = array of `uint64_t`).
+
 ## Known Issues
 
 | File | Line | Comment |

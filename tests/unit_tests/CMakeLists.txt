@@ -150,6 +150,8 @@ set(unit_tests_sources
   tx_serialization.cpp
   wallet2_tx_construction.cpp
   wallet2_sync.cpp
+  wallet2_refresh.cpp
+  coin_selection.cpp
   core_integration.cpp)
 
 set(unit_tests_headers

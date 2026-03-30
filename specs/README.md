@@ -2,7 +2,7 @@
 
 Comprehensive specification documentation for the Monero codebase, generated from source code analysis. These specs document existing logic, data structures, APIs, and known issues across all major modules.
 
-**Total**: 21 spec files + [bugs.md](bugs.md) + this index = 23 files, ~10,500 lines.
+**Total**: 23 spec files + [bugs.md](bugs.md) + this index = 25 files, ~11,500 lines.
 
 > **Read-only documentation** — no source code was modified. For existing protocol docs, see `docs/` (LEVIN_PROTOCOL.md, ZMQ.md, PORTABLE_STORAGE.md, ANONYMITY_NETWORKS.md).
 
@@ -63,6 +63,15 @@ Supporting frameworks, serialization, mining, and CLI tools.
 | 19 | [mining](19-mining.md) | Embedded miner, block templates, RandomX integration, background mining |
 | 20 | [net-anonymity](20-net-anonymity.md) | Tor/I2P support, Dandelion++ stem/fluff (extends docs/ANONYMITY_NETWORKS.md) |
 | 21 | [daemon-cli](21-daemon-cli.md) | Daemon startup/commands (40+), simplewallet commands (90+) |
+
+## Tier 6: Algorithm Specifications
+
+Detailed algorithm specs for Rust port and reimplementation reference.
+
+| # | Spec | Description |
+|---|------|-------------|
+| 22 | [proof-of-work](22-proof-of-work.md) | CryptoNight variants 0-4, RandomX, PoW dispatch, difficulty check |
+| 23 | [key-derivation](23-key-derivation.md) | Mnemonics, key chain, subaddresses, view tags, Pedersen H generator |
 
 ## Cross-Cutting
 

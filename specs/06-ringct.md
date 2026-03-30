@@ -396,6 +396,151 @@ CLSAG is a more efficient replacement for MLSAG. It aggregates the signing key a
 4. Starting from `c = c1`, iterate the challenge chain through all ring members.
 5. Verify `c_final == c1`.
 
+### CLSAG Mathematical Specification
+
+Source: `src/ringct/rctSigs.cpp:243-370` (proving), `src/ringct/rctSigs.cpp:875-990` (verification)
+
+This section provides the exact mathematical formulas implemented in Monero's CLSAG, suitable for reimplementation.
+
+**Notation:**
+- `P[0..n-1]`: Ring public keys (destination keys)
+- `C[0..n-1]`: Ring commitment keys (original, non-zero commitments)
+- `C_offset`: Pseudo output commitment
+- `l`: Index of the real signing key in the ring
+- `p`: Secret spend key for `P[l]`
+- `z`: Secret blinding factor such that `z*G = C[l] - C_offset`
+- `I`: Key image = `p * Hp(P[l])`
+- `D`: Commitment key image = `z * Hp(P[l])`
+- `Hp()`: Hash-to-point function (cofactor-8 hash)
+- `Hs()`: Hash-to-scalar function (Keccak-256 reduced mod L)
+
+**Domain separators** (from `src/cryptonote_config.h:260-262`):
+
+All domain separator strings are copied into 32-byte zero-filled buffers via `sc_0()` + `memcpy()`:
+
+| Constant | String (bytes) | Purpose |
+|----------|---------------|---------|
+| `HASH_KEY_CLSAG_AGG_0` | `"CLSAG_agg_0"` (11 bytes) | Aggregation hash for key component `mu_P` |
+| `HASH_KEY_CLSAG_AGG_1` | `"CLSAG_agg_1"` (11 bytes) | Aggregation hash for commitment component `mu_C` |
+| `HASH_KEY_CLSAG_ROUND` | `"CLSAG_round"` (11 bytes) | Per-round challenge hash |
+
+**Step 1: Key images**
+```
+I = p * Hp(P[l])
+D = z * Hp(P[l])
+sig.D = D * INV_EIGHT          (stored for serialization safety)
+```
+
+**Step 2: Aggregation hashes**
+```
+mu_P = Hs("CLSAG_agg_0\0...0" || P[0] || ... || P[n-1] || C[0] || ... || C[n-1] || I || sig.D || C_offset)
+mu_C = Hs("CLSAG_agg_1\0...0" || P[0] || ... || P[n-1] || C[0] || ... || C[n-1] || I || sig.D || C_offset)
+```
+Note: The hash input uses `sig.D` (= `D * INV_EIGHT`), not `D` itself. The domain separator occupies 32 bytes (11-byte string + 21 zero bytes).
+
+**Step 3: Initial challenge**
+
+Generate random nonce `alpha`. Compute:
+```
+aG = alpha * G
+aH = alpha * Hp(P[l])
+c = Hs("CLSAG_round\0...0" || P[0..n-1] || C[0..n-1] || C_offset || message || aG || aH)
+```
+
+**Step 4: Ring traversal** (starting from `i = (l+1) % n`)
+
+For each decoy index `i ≠ l`, generate random `s[i]` and compute:
+```
+L = s[i]*G + (c*mu_P)*P[i] + (c*mu_C)*(C[i] - C_offset)
+R = s[i]*Hp(P[i]) + (c*mu_P)*I + (c*mu_C)*D
+c_new = Hs("CLSAG_round\0...0" || P[0..n-1] || C[0..n-1] || C_offset || message || L || R)
+c = c_new
+```
+
+If `i+1 == 0 (mod n)`, store `c` as `sig.c1` (the initial challenge for verification).
+
+**Step 5: Close the ring**
+```
+s[l] = alpha - c * (mu_P * p + mu_C * z)
+```
+
+**Verification** (`verRctCLSAGSimple`):
+
+1. Reconstruct `D_8 = scalarmult8(sig.D)` (reverses the `INV_EIGHT` storage)
+2. Validate: `I ≠ identity`, `D_8 ≠ identity`, all `s[i]` are reduced scalars
+3. Recompute `mu_P`, `mu_C` from the ring data (same formula as signing)
+4. Starting from `c = sig.c1`, iterate through all `n` ring members computing `L`, `R`, and the next challenge
+5. Verify: `c_final == sig.c1` (the challenge chain closes)
+
+### Bulletproofs+ Mathematical Specification
+
+Source: `src/ringct/bulletproofs_plus.cc` (1121 lines). Reference: https://eprint.iacr.org/2020/735
+
+This section provides the exact generator construction, proof structure, and notation conventions used in Monero's Bulletproofs+ implementation, suitable for reimplementation.
+
+**Generator construction** (from `bulletproofs_plus.cc:109-138`):
+
+Generators are derived deterministically from the Pedersen generator `H`:
+```
+Hi[i] = hash_to_point(cn_fast_hash(H || "bulletproof_plus" || varint(2*i)))
+Gi[i] = hash_to_point(cn_fast_hash(H || "bulletproof_plus" || varint(2*i + 1)))
+```
+
+Where:
+- `H` is the 32-byte Pedersen generator (`rctTypes.h:634`)
+- `"bulletproof_plus"` is the literal string `config::HASH_KEY_BULLETPROOF_PLUS_EXPONENT` (16 bytes)
+- `varint()` encodes the index using Monero's standard 7-bit varint format
+- `hash_to_point()` applies `rct::hash_to_p3()` which hashes to a curve point (cofactor-8)
+- Total generators: `Hi[0..maxN*maxM-1]` and `Gi[0..maxN*maxM-1]`, where `maxN=64` and `maxM=16`
+
+Source: `src/cryptonote_config.h:245-246`
+
+| Constant | Value | Purpose |
+|----------|-------|---------|
+| `HASH_KEY_BULLETPROOF_PLUS_EXPONENT` | `"bulletproof_plus"` | Domain separator for generator derivation |
+| `HASH_KEY_BULLETPROOF_PLUS_TRANSCRIPT` | `"bulletproof_plus_transcript"` | Initial Fiat-Shamir transcript hash |
+
+**Parameters:**
+- `maxN = 64`: Bits per value (proves values in `[0, 2^64)`)
+- `maxM = BULLETPROOF_PLUS_MAX_OUTPUTS = 16`: Maximum aggregated values per proof
+- Inner product rounds: `log2(N * M)` where `M` is padded to next power of 2
+- Multi-exponentiation: Straus algorithm for ≤ 232 points, Pippenger for larger sets
+
+**CRITICAL: Notation swap** (from source comment in `bulletproofs_plus.cc`):
+
+Monero swaps the roles of generators relative to the paper (eprint 2020/735):
+- **Monero's `H`** = paper's `g` (the **value** generator in commitments `C = mask*G + amount*H`)
+- **Monero's `G`** = paper's `h` (the **blinding** generator)
+
+This means Pedersen commitments are `C = mask*G + amount*H`, where `mask` is the blinding factor and `amount` is the committed value.
+
+**Proof structure** (`rctTypes.h:250`):
+```
+BulletproofPlus = (A, A1, B, r1, s1, d1, L[0..rounds-1], R[0..rounds-1])
+```
+
+Where:
+- `A`: Blinded vector commitment (curve point)
+- `A1, B`: Weighted inner-product proof elements (curve points)
+- `r1, s1, d1`: Final proof scalars
+- `L[i], R[i]`: Per-round inner-product proof elements (curve points)
+- `V` (commitments) are NOT serialized — restored from `outPk` during verification
+
+Compared to original Bulletproofs `(A, S, T1, T2, taux, mu, L, R, a, b, t)`, BP+ saves 3 scalars.
+
+**Transcript** (Fiat-Shamir):
+
+The initial transcript hash is:
+```
+transcript = Hs("bulletproof_plus_transcript")
+```
+
+The transcript is updated at each proof step by hashing the current transcript state with new proof elements.
+
+**Precomputed constant:**
+
+`TWO_SIXTY_FOUR_MINUS_ONE = 2^64 - 1` is precomputed by repeated squaring of `2` (6 iterations), then subtracting 1. Used in verification to simplify range check equations.
+
 ### Bulletproofs
 
 Reference: https://eprint.iacr.org/2017/1066
