@@ -9,8 +9,8 @@ The transaction pool (`tx_memory_pool`) manages all transactions that have been 
 | File | Lines | Description |
 |------|------:|-------------|
 | `src/cryptonote_core/tx_pool.h` | 722 | Class declaration for `tx_memory_pool`, including all public/private methods, the `tx_details` struct, type aliases for sorted containers and key image maps, and all member variables. |
-| `src/cryptonote_core/tx_pool.cpp` | 1959 | Full implementation of `tx_memory_pool`: transaction addition/removal, validation, block template filling, relay management, pruning, stuck-transaction removal, pool serialization, and incremental pool info queries. |
-| `src/cryptonote_core/blockchain_and_pool.h` | 63 | Defines `BlockchainAndPool`, a helper struct that safely co-constructs `Blockchain` and `tx_memory_pool` (which have circular references). |
+| `src/cryptonote_core/tx_pool.cpp` | 1966 | Full implementation of `tx_memory_pool`: transaction addition/removal, validation, block template filling, relay management, pruning, stuck-transaction removal, pool serialization, and incremental pool info queries. |
+| `src/cryptonote_core/blockchain_and_pool.h` | 62 | Defines `BlockchainAndPool`, a helper struct that safely co-constructs `Blockchain` and `tx_memory_pool` (which have circular references). |
 | `src/cryptonote_protocol/enums.h` | 46 | Defines `relay_method` enum used to track how a transaction was received/relayed. |
 | `src/blockchain_db/blockchain_db.h` | (relevant: 154-193) | Defines `txpool_tx_meta_t` (192-byte packed struct stored in DB) and `relay_category` enum. |
 | `src/rpc/core_rpc_server_commands_defs.h` | (relevant: 1627-1700) | Defines `tx_backlog_entry`, `txpool_histo`, and `txpool_stats` structs used by RPC responses. |

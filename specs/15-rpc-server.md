@@ -9,9 +9,9 @@ The Core RPC Server (`core_rpc_server`) is the primary HTTP-based interface thro
 | File | Lines | Description |
 |------|-------|-------------|
 | `src/rpc/core_rpc_server.h` | 311 | Class declaration, URI/JSON-RPC route maps, handler signatures, member variables |
-| `src/rpc/core_rpc_server.cpp` | 3962 | All handler implementations, init/lifecycle, bootstrap daemon logic, arg descriptors |
+| `src/rpc/core_rpc_server.cpp` | 3964 | All handler implementations, init/lifecycle, bootstrap daemon logic, arg descriptors |
 | `src/rpc/core_rpc_server_commands_defs.h` | 2794 | All request/response struct definitions for every RPC command |
-| `src/rpc/core_rpc_server_error_codes.h` | 85 | Numeric error codes (-1 through -21) with human-readable messages |
+| `src/rpc/core_rpc_server_error_codes.h` | 84 | Numeric error codes (-1 through -21) with human-readable messages |
 | `src/rpc/rpc_handler.h` | 67 | Abstract `RpcHandler` base class; `output_distribution_data` struct |
 | `src/rpc/rpc_args.h` | 95 | Common RPC argument processing (bind IP, SSL, login, CORS) |
 | `src/rpc/rpc_payment.h` | 191 | RPC payment system: per-client credits, nonce tracking, persistence |

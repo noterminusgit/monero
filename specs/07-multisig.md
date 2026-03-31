@@ -10,7 +10,7 @@ The multisig module implements M-of-N threshold multisignature functionality for
 |------|-------|-------------|
 | `src/multisig/multisig_account.h` | 303 | Core `multisig_account` class definition with KEX state machine and all member fields |
 | `src/multisig/multisig_account.cpp` | 211 | Account constructors, status queries, `initialize_kex`, `kex_update`, config validation, and round-count helpers |
-| `src/multisig/multisig_account_kex_impl.cpp` | 955 | Full KEX implementation: DH round processing, message sanitization, key aggregation, round finalization, booster messages |
+| `src/multisig/multisig_account_kex_impl.cpp` | 972 | Full KEX implementation: DH round processing, message sanitization, key aggregation, round finalization, booster messages |
 | `src/multisig/multisig_kex_msg.h` | 109 | `multisig_kex_msg` class: KEX message construction, parsing, and signature verification |
 | `src/multisig/multisig_kex_msg.cpp` | 293 | KEX message serialization (base58 + binary archive), signature creation/validation, versioned parsing (V2) |
 | `src/multisig/multisig_kex_msg_serialization.h` | 78 | Serialization structs for round-1 and general KEX messages |

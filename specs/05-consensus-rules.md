@@ -8,7 +8,7 @@ The Monero consensus rules govern block and transaction validity across the enti
 
 | File | Lines | Description |
 |------|------:|-------------|
-| `src/cryptonote_core/blockchain.cpp` | 5607 | Core consensus enforcement: block/tx validation, reward calculation, weight limits, fee checks, PoW verification |
+| `src/cryptonote_core/blockchain.cpp` | 5616 | Core consensus enforcement: block/tx validation, reward calculation, weight limits, fee checks, PoW verification |
 | `src/cryptonote_core/blockchain.h` | 1664 | `Blockchain` class declaration with all validation method signatures and member state |
 | `src/cryptonote_basic/hardfork.h` | 273 | `HardFork` class: version voting, fork state management, block version checks |
 | `src/cryptonote_basic/hardfork.cpp` | 424 | `HardFork` implementation: voting window, fork index tracking, reorganization |

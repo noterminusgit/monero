@@ -19,7 +19,7 @@ The P2P protocol module implements Monero's peer-to-peer networking layer, respo
 | `src/cryptonote_protocol/cryptonote_protocol_defs.h` | 379 | Cryptonote-layer protocol message definitions: `NOTIFY_NEW_BLOCK`, `NOTIFY_NEW_TRANSACTIONS`, `NOTIFY_REQUEST_GET_OBJECTS`, `NOTIFY_RESPONSE_GET_OBJECTS`, `NOTIFY_REQUEST_CHAIN`, `NOTIFY_RESPONSE_CHAIN_ENTRY`, `NOTIFY_NEW_FLUFFY_BLOCK`, `NOTIFY_REQUEST_FLUFFY_MISSING_TX`, `NOTIFY_GET_TXPOOL_COMPLEMENT`; also `CORE_SYNC_DATA`, `block_complete_entry`, `connection_info` |
 | `src/cryptonote_protocol/cryptonote_protocol_handler_common.h` | 68 | `i_cryptonote_protocol` interface: `relay_block`, `relay_transactions`, `is_synchronized` |
 | `src/cryptonote_protocol/block_queue.h` | 114 | `block_queue` class: queuing downloaded block spans for ordered addition to the blockchain |
-| `src/cryptonote_basic/connection_context.h` | 157 | `cryptonote_connection_context`: per-connection state including sync state machine, requested objects, pruning seed, scoring |
+| `src/cryptonote_basic/connection_context.h` | 156 | `cryptonote_connection_context`: per-connection state including sync state machine, requested objects, pruning seed, scoring |
 
 ## Data Structures
 

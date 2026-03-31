@@ -21,7 +21,7 @@ This document catalogs every source file with code that **cannot be unit tested*
 
 ## 1. Wallet Layer
 
-### `src/wallet/wallet2.cpp` (15,426 lines)
+### `src/wallet/wallet2.cpp` (15,447 lines)
 
 **~70% untestable** (~10,800 lines). The wallet is tightly coupled to a daemon via `m_node_rpc_proxy` and `m_http_client`.
 
@@ -106,7 +106,7 @@ This document catalogs every source file with code that **cannot be unit tested*
 
 ## 2. RPC Layer
 
-### `src/rpc/core_rpc_server.cpp` (3,962 lines)
+### `src/rpc/core_rpc_server.cpp` (3,964 lines)
 
 **~95% untestable.** Each `on_*` handler requires `m_core` (Blockchain + tx_pool + P2P).
 
@@ -125,7 +125,7 @@ This document catalogs every source file with code that **cannot be unit tested*
 
 ---
 
-### `src/daemon/rpc_command_executor.cpp` (2,551 lines)
+### `src/daemon/rpc_command_executor.cpp` (2,501 lines)
 
 **100% untestable.** Every command calls `m_rpc_server->on_*()` or `m_rpc_client->json_rpc_request()`.
 
@@ -140,7 +140,7 @@ This document catalogs every source file with code that **cannot be unit tested*
 
 ## 3. Core Layer
 
-### `src/cryptonote_core/blockchain.cpp` (5,606 lines)
+### `src/cryptonote_core/blockchain.cpp` (5,616 lines)
 
 **~55% untestable** (~3,100 lines). Many functions tested via TestDB/FAKECHAIN fixture.
 
@@ -281,7 +281,7 @@ This document catalogs every source file with code that **cannot be unit tested*
 
 ## 8. Blockchain Utilities
 
-### `src/blockchain_utilities/*.cpp` (5,895 lines total)
+### `src/blockchain_utilities/*.cpp` (6,089 lines total)
 
 **100% untestable.** All are standalone `main()` programs that open LMDB databases.
 

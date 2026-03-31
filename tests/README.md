@@ -45,15 +45,35 @@ To run the same tests on a release build, replace `debug` with `release`.
 
 # Functional tests
 
-[TODO]
-Functional tests are located under the `tests/functional_tests` directory.
+Functional tests validate Monero daemon and wallet RPC interfaces and network behavior through end-to-end testing. They are located under the `tests/functional_tests` directory and are orchestrated by the test runner `functional_tests_rpc.py`, which spawns daemon and wallet processes automatically.
+
+## Test modules
+
+The 37 Python test modules cover the following areas:
+
+- **Blockchain & Consensus** — `blockchain.py`, `block_template.py`, `chain_reorg.py`, `pruning.py`, `txpool.py`
+- **Wallet Operations** — `wallet.py`, `wallet_accounts.py`, `wallet_daemon_switching.py`, `transfer.py`, `sweep_operations.py`
+- **Transactions & Cryptography** — `tx_lifecycle.py`, `cold_signing.py`, `cold_signing_extended.py`, `proofs.py`, `sign_message.py`
+- **Privacy** — `k_anonymity.py`, `key_image_output_queries.py`
+- **P2P Networking** — `p2p.py`, `p2p_extended.py`, `bans.py`
+- **Address & URI** — `address_book.py`, `integrated_address.py`, `validate_address.py`, `uri.py`
+- **RPC & Access Control** — `daemon_info.py`, `daemon_state.py`, `rpc_payment.py`, `rpc_access_control.py`, `rpc_error_handling.py`, `http_digest_auth.py`
+- **Mining & Distribution** — `mining.py`, `get_output_distribution.py`, `speed.py`
+- **Sync & Events** — `background_sync_extended.py`, `zmq_events.py`
+- **Multisig & Regression** — `multisig.py`, `bug_verification.py`
+
+Tests use a Python RPC client framework in `utils/python-rpc/framework/` providing `daemon.py`, `wallet.py`, `zmq.py`, and `rpc.py`.
+
+## Setup
 
 Building all the tests requires installing the following dependencies:
 ```bash
 pip install requests psutil monotonic zmq deepdiff
 ```
 
-First, run a regtest daemon in the offline mode and with a fixed difficulty:
+The test runner automatically configures 5 daemon instances and 7 wallet instances in regtest mode with fixed difficulty.
+
+For manual execution, run a regtest daemon in the offline mode and with a fixed difficulty:
 ```bash
 monerod --regtest --offline --fixed-difficulty 1
 ```
@@ -65,6 +85,13 @@ velvet lymph giddy number token physics poetry unquoted nibs useful sabotage lim
 ```
 
 Open the wallet file with `monero-wallet-rpc` with RPC port 18083. Finally, start tests by invoking ./blockchain.py or ./speed.py
+
+## Running
+
+```bash
+cd build/debug
+ctest -V -R functional_tests_rpc
+```
 
 ## Parameters
 
@@ -177,11 +204,51 @@ ctest -R hash-blake2b
 
 # Libwallet API tests
 
-[TODO]
+The libwallet API tests are integration tests for the Monero wallet C++ API (`wallet/api/wallet2_api.h`). They validate wallet functionality including creation, opening, balance queries, transaction sending, and payment ID handling against a private testnet.
+
+Tests are located in `tests/libwallet_api_tests/`.
+
+- **main.cpp** — 36 test cases organized into 4 fixtures:
+  - `WalletManagerTest` (14 tests) — wallet creation, opening, password management, currency conversion
+  - `WalletTest1` (13 tests) — balance, block height, refresh, transactions, history, payment IDs, priority
+  - `WalletTest2` (5 tests) — callbacks: refresh, sent/received transaction callbacks, block notifications
+  - `WalletManagerMainnetTest` (4 tests) — mainnet wallet operations
+
+- **scripts/** — Helper scripts for testnet setup: `create_wallets.sh`, `send_funds.sh`, `mining_start.sh`, `mining_stop.sh`
+
+### Prerequisites
+
+- A running Monero daemon (default: `localhost:38081` for testnet, configurable via `TESTNET_DAEMON_ADDRESS`)
+- Pre-generated test wallets in `/var/monero/testnet_pvt/` (configurable via `WALLETS_ROOT_DIR`)
+
+To run only Monero's libwallet API tests (after building):
+
+```bash
+cd build/debug/tests/libwallet_api_tests
+ctest
+```
+
+To run the same tests on a release build, replace `debug` with `release`.
 
 # Net Load tests
 
-[TODO]
+Net load tests stress-test the Monero P2P network layer under high-load conditions using the Levin protocol. They are located in `tests/net_load_tests/`.
+
+- **net_load_tests.h** — Shared definitions: Levin command handler, open/close test helper, command IDs
+- **srv.cpp** — Test TCP server accepting connections on port 36231, handling statistics, closure, and data forwarding
+- **clt.cpp** — Client test suite with 4 GTest-based scenarios:
+  1. Large-scale opens (100k connections) + client-initiated closes
+  2. Large-scale opens (100k connections) + server-initiated closes
+  3. Persistent open/close cycling + client-initiated closes
+  4. Persistent open/close cycling + server-initiated closes
+
+To run, start the server first, then the client:
+
+```bash
+cd build/debug/tests/net_load_tests
+./net_load_tests_srv   # in one terminal
+./net_load_tests_clt   # in another terminal
+```
 
 # Performance tests
 
@@ -213,13 +280,94 @@ ctest
 
 To run the same tests on a release build, replace `debug` with `release`.
 
+# Block Weight tests
+
+Block weight tests validate the dynamic block weight limit calculation algorithm that prevents maximal block attacks. Tests verify adjustment of block weight limits based on the long-term block weight median over a 5000-block window.
+
+Tests are located in `tests/block_weight/`.
+
+- **block_weight.cpp** — C++ test harness simulating three scenarios using a synthetic test database: maximum weight blocks (`test_max`), pseudo-random variation via LCG (`test_lcg`), and minimum weight blocks (`test_min`)
+- **block_weight.py** — Python reference implementation of the same three scenarios
+- **compare.py** — Runs both implementations and compares output for consistency
+- **CMakeLists.txt** — Registers a test that runs `compare.py` to validate both implementations produce identical results
+
+To run only Monero's block weight tests (after building):
+
+```bash
+cd build/debug/tests/block_weight
+ctest
+```
+
+To run the same tests on a release build, replace `debug` with `release`.
+
+# Difficulty tests
+
+Difficulty tests validate Monero's difficulty adjustment algorithm, which determines mining difficulty based on block timestamps and cumulative difficulties.
+
+Tests are located in `tests/difficulty/`.
+
+- **difficulty.cpp** — Test executable validating both 64-bit and wide (arbitrary-precision) difficulty calculations against reference data
+- **data.txt** — Pre-computed reference dataset (1000 blocks) for the 64-bit difficulty test
+- **gen_wide_data.py** — Python implementation generating reference data for 100,000 blocks with extreme timing and difficulty variations
+- **wide_difficulty.py** — Test runner for the wide difficulty test
+- **generate-data** — Python data generator used by the build system
+
+To run only Monero's difficulty tests (after building):
+
+```bash
+cd build/debug/tests/difficulty
+ctest
+```
+
+To run a specific variant:
+
+```bash
+ctest -R "^difficulty$"       # 64-bit test
+ctest -R "^wide_difficulty$"  # wide arithmetic test
+```
+
+# Trezor tests
+
+Comprehensive integration tests for Trezor hardware wallet support, validating transaction signing, key image synchronization, wallet operations, and device interaction across multiple hardfork versions.
+
+Tests are located in `tests/trezor/`.
+
+- **trezor_tests.h** — 23 test generator classes, `gen_trezor_base` infrastructure, `tsx_builder` helper
+- **trezor_tests.cpp** — Test logic: blockchain generation, transaction signing, wallet integration
+- **daemon.h/cpp** — Mock in-process daemon
+- **tools.h/cpp** — Configuration helpers
+
+### Test scenarios (23 total)
+
+- Key image sync (with/without refresh, live refresh)
+- Transaction variations (1/4/16 UTXOs, 1-15 outputs, subaddresses, integrated addresses)
+- Device features (passphrase, PIN, wallet-level encryption)
+- RCT signature verification, fee/amount correctness, get-tx-key recovery
+
+### Running
+
+```bash
+cd build/debug/tests/trezor
+./trezor_tests                            # default run
+./trezor_tests --filter "gen_trezor_4utxo" # filter by name
+./trezor_tests --heavy-tests              # stress scenarios
+```
+
+Environment variables: `TEST_MIN_HF`, `TEST_MAX_HF`, `TEST_MINING_ENABLED`, `TEST_KI_SYNC`.
+
+# Test data
+
+The `tests/data/` directory stores fixture files and binary test data used across multiple test suites.
+
+- **Wallet files** — Monero wallet + `.keys` pairs for testing serialization, encryption, password changes, and format conversions
+- **Key encryption data** — Background wallet files for testing key encryption in wallet storage
+- **Fuzz test corpora** — Binary seed inputs across 14 categories: `base58/`, `block/`, `bulletproof/`, `cold-outputs/`, `cold-transaction/`, `http-client/`, `levin/`, `load-from-binary/`, `load-from-json/`, `parse-url/`, `signature/`, `transaction/`, `tx-extra/`, `utf8/`
+- **Hash test data** — SHA256 reference files in `sha256sum/`
+- **Transaction data** — Serialized transaction binaries in `txs/`
+- **Node config** — Banlist files in `node/`
+
 # Writing new tests
 
 ## Test hygiene
 
 When writing new tests, please implement all functions in `.cpp` or `.c` files, and only put function headers in `.h` files. This will help keep the fairly complex test suites somewhat sane going forward.
-
-## Writing fuzz tests
-
-[TODO]
-hash

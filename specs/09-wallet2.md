@@ -9,7 +9,7 @@
 | File | Lines | Description |
 |------|-------|-------------|
 | `src/wallet/wallet2.h` | ~2503 | Class definition, nested data structures, serialization, public API declarations |
-| `src/wallet/wallet2.cpp` | ~15429 | Full implementation of all wallet2 methods |
+| `src/wallet/wallet2.cpp` | ~15447 | Full implementation of all wallet2 methods |
 | `src/wallet/wallet_errors.h` | - | Exception types thrown by wallet2 |
 | `src/wallet/node_rpc_proxy.h` | - | Caching proxy for daemon RPC calls, used by wallet2 |
 | `src/wallet/ringdb.h` | - | Ring database for storing ring member selections |
