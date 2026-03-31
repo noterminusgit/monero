@@ -214,7 +214,7 @@ Tests are located in `tests/libwallet_api_tests/`.
   - `WalletTest2` (5 tests) — callbacks: refresh, sent/received transaction callbacks, block notifications
   - `WalletManagerMainnetTest` (4 tests) — mainnet wallet operations
 
-- **scripts/** — Helper scripts for testnet setup: `create_wallets.sh`, `send_funds.sh`, `mining_start.sh`, `mining_stop.sh`
+- **scripts/** — Helper scripts for testnet setup: `create_wallets.sh`, `send_funds.sh`, `mining_start.sh`, `mining_stop.sh`, `open_wallet_1.sh` through `open_wallet_5.sh`, `open_wallet_miner.sh`
 
 ### Prerequisites
 
@@ -332,12 +332,12 @@ Comprehensive integration tests for Trezor hardware wallet support, validating t
 
 Tests are located in `tests/trezor/`.
 
-- **trezor_tests.h** — 23 test generator classes, `gen_trezor_base` infrastructure, `tsx_builder` helper
+- **trezor_tests.h** — 23 test generator classes (21 concrete test scenarios, `gen_trezor_base` infrastructure, and `gen_trezor_ki_sync` intermediate base), `tsx_builder` helper
 - **trezor_tests.cpp** — Test logic: blockchain generation, transaction signing, wallet integration
 - **daemon.h/cpp** — Mock in-process daemon
 - **tools.h/cpp** — Configuration helpers
 
-### Test scenarios (23 total)
+### Test scenarios (22 total)
 
 - Key image sync (with/without refresh, live refresh)
 - Transaction variations (1/4/16 UTXOs, 1-15 outputs, subaddresses, integrated addresses)
@@ -362,6 +362,8 @@ The `tests/data/` directory stores fixture files and binary test data used acros
 - **Wallet files** — Monero wallet + `.keys` pairs for testing serialization, encryption, password changes, and format conversions
 - **Key encryption data** — Background wallet files for testing key encryption in wallet storage
 - **Fuzz test corpora** — Binary seed inputs across 14 categories: `base58/`, `block/`, `bulletproof/`, `cold-outputs/`, `cold-transaction/`, `http-client/`, `levin/`, `load-from-binary/`, `load-from-json/`, `parse-url/`, `signature/`, `transaction/`, `tx-extra/`, `utf8/`
+- **Account data** — Serialized account binary files (`account-*`, 4 files) for wallet account testing
+- **Output data** — Serialized `outputs` binary file for output handling tests
 - **Hash test data** — SHA256 reference files in `sha256sum/`
 - **Transaction data** — Serialized transaction binaries in `txs/`
 - **Node config** — Banlist files in `node/`
